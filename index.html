@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpotDL - Spotify Downloader</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #1DB954 0%, #191414 100%);
+            min-height: 100vh;
+            color: #fff;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-top: 20px;
+        }
+
+        .logo {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .logo-icon {
+            width: 50px;
+            height: 50px;
+            background: #1DB954;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 30px;
+        }
+
+        header p {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 1.1rem;
+        }
+
+        .main-card {
+            background: rgba(255, 255, 255, 0.95);
+            color: #191414;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #191414;
+        }
+
+        .input-wrapper {
+            display: grid;
+            gap: 12px;
+        }
+
+        input[type="text"],
+        select {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus,
+        select:focus {
+            outline: none;
+            border-color: #1DB954;
+            box-shadow: 0 0 0 3px rgba(29, 185, 84, 0.1);
+        }
+
+        .options-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .button-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 24px;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: #1DB954;
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: #1ed760;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(29, 185, 84, 0.4);
+        }
+
+        .btn-primary:disabled {
+            background: #888;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .btn-secondary {
+            background: #e0e0e0;
+            color: #191414;
+        }
+
+        .btn-secondary:hover {
+            background: #d0d0d0;
+        }
+
+        .status-card {
+            background: rgba(255, 255, 255, 0.95);
+            color: #191414;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .status-card.active {
+            display: block;
+        }
+
+        .status-header {
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #1DB954;
+            width: 0%;
+            transition: width 0.3s;
+        }
+
+        .progress-text {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #1DB954;
+            text-align: center;
+            margin-top: 8px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .badge-processing {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .badge-completed {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge-failed {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .downloads-section {
+            background: rgba(255, 255, 255, 0.95);
+            color: #191414;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .downloads-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+
+        .downloads-list {
+            list-style: none;
+        }
+
+        .download-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid #e0e0e0;
+            gap: 12px;
+        }
+
+        .download-item:last-child {
+            border-bottom: none;
+        }
+
+        .download-info {
+            flex: 1;
+        }
+
+        .download-name {
+            font-weight: 600;
+            color: #191414;
+        }
+
+        .download-meta {
+            font-size: 0.85rem;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        .download-size {
+            color: #666;
+            font-size: 0.9rem;
+            min-width: 80px;
+            text-align: right;
+        }
+
+        .download-btn {
+            padding: 8px 16px;
+            background: #1DB954;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .download-btn:hover {
+            background: #1ed760;
+        }
+
+        .folder-header {
+            list-style: none;
+            background: #f5f5f5;
+            color: #333;
+            padding: 10px 16px;
+            margin-top: 10px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+
+        .download-item.folder-item {
+            margin-left: 20px;
+            background: #fafafa;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 30px;
+            color: #666;
+        }
+
+        .empty-state-icon {
+            font-size: 3rem;
+            margin-bottom: 10px;
+            opacity: 0.5;
+        }
+
+        .info-box {
+            background: rgba(29, 185, 84, 0.1);
+            border-left: 4px solid #1DB954;
+            padding: 12px 16px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            color: #191414;
+            margin-bottom: 16px;
+        }
+
+        .error-box {
+            background: rgba(220, 53, 69, 0.1);
+            border-left: 4px solid #dc3545;
+            padding: 12px 16px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            color: #721c24;
+            margin-bottom: 16px;
+            display: none;
+        }
+
+        .error-box.show {
+            display: block;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid #1DB954;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        .download-status-loader {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            padding: 20px;
+        }
+
+        .loader-spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e0e0e0;
+            border-top-color: #1DB954;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        .loader-text {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #1DB954;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 600px) {
+            .options-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .button-group {
+                grid-template-columns: 1fr;
+            }
+
+            .logo {
+                font-size: 2rem;
+            }
+
+            .download-item {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .download-size {
+                text-align: left;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <div class="logo-icon">♫</div>
+                <div>SpotDL</div>
+            </div>
+            <p>Download your favorite Spotify songs and playlists</p>
+        </header>
+
+        <div class="main-card">
+            <div class="info-box">
+                💡 Enter a Spotify track URL, playlist link, or song name to get started
+            </div>
+
+            <form id="downloadForm">
+                <div class="form-group">
+                    <label for="query">Spotify URL or Song Name</label>
+                    <input 
+                        type="text" 
+                        id="query" 
+                        name="query" 
+                        placeholder="e.g., https://open.spotify.com/track/... or 'Blinding Lights - The Weeknd'"
+                        required
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label>Download Options</label>
+                    <div class="options-grid">
+                        <div>
+                            <label for="type">Type</label>
+                            <select id="type" name="type">
+                                <option value="track">Track</option>
+                                <option value="playlist">Playlist</option>
+                                <option value="album">Album</option>
+                                <option value="artist">Artist</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="format">Format</label>
+                            <select id="format" name="format">
+                                <option value="mp3">MP3</option>
+                                <option value="wav">WAV</option>
+                                <option value="flac">FLAC</option>
+                                <option value="opus">Opus</option>
+                                <option value="ogg">OGG</option>
+                                <option value="m4a">M4A (AAC)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="bitrate">Bitrate</label>
+                            <select id="bitrate" name="bitrate">
+                                <option value="128">128 kbps</option>
+                                <option value="192" selected>192 kbps</option>
+                                <option value="256">256 kbps</option>
+                                <option value="320">320 kbps</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="error-box" id="errorBox"></div>
+
+                <div class="button-group">
+                    <button type="submit" class="btn-primary" id="downloadBtn">
+                        <span class="spinner" id="spinner" style="display: none; margin-right: 8px;"></span>
+                        <span id="btnText">Start Download</span>
+                    </button>
+                    <button type="reset" class="btn-secondary">Clear</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="status-card" id="statusCard">
+            <div class="status-header">
+                <div>
+                    <strong id="statusQuery"></strong>
+                    <span class="status-badge badge-processing" id="statusBadge">Processing</span>
+                </div>
+            </div>
+            <div class="download-status-loader">
+                <div class="loader-spinner"></div>
+                <div class="loader-text" id="progressText">Downloading in progress...</div>
+            </div>
+        </div>
+
+        <div class="downloads-section">
+            <div class="downloads-title">📥 Downloaded Files</div>
+            <ul class="downloads-list" id="downloadsList">
+                <div class="empty-state">
+                    <div class="empty-state-icon">📭</div>
+                    <p>No downloads yet. Start by entering a Spotify URL or song name above.</p>
+                </div>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000/api';
+        const form = document.getElementById('downloadForm');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const spinner = document.getElementById('spinner');
+        const btnText = document.getElementById('btnText');
+        const statusCard = document.getElementById('statusCard');
+        const errorBox = document.getElementById('errorBox');
+        const downloadsList = document.getElementById('downloadsList');
+
+        let isDownloading = false;
+        let currentDownloadId = null;
+        let pollInterval = null;
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            if (isDownloading) return;
+            
+            const query = document.getElementById('query').value.trim();
+            const type = document.getElementById('type').value;
+            const format = document.getElementById('format').value;
+            const bitrate = document.getElementById('bitrate').value;
+
+            if (!query) {
+                showError('Please enter a Spotify URL or song name');
+                return;
+            }
+
+            isDownloading = true;
+            downloadBtn.disabled = true;
+            spinner.style.display = 'inline-block';
+            btnText.textContent = 'Downloading...';
+            errorBox.classList.remove('show');
+            statusCard.classList.add('active');
+            document.getElementById('statusQuery').textContent = query;
+            document.getElementById('progressText').textContent = 'Downloading in progress...';
+
+            try {
+                const response = await fetch(`${API_BASE}/download`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ query, type, format, bitrate })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Download failed');
+                }
+
+                const data = await response.json();
+                currentDownloadId = data.download_id;
+
+                // Start polling for status
+                pollDownloadStatus();
+            } catch (error) {
+                showError(error.message);
+                resetDownloadState();
+            }
+        });
+
+        function pollDownloadStatus() {
+            pollInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`${API_BASE}/status`);
+                    const status = await response.json();
+
+                    if (status.current) {
+                        const total = status.current.total || 0;
+                        
+                        // Update badge with song count while processing
+                        if (status.current.status === 'processing' && total > 0) {
+                            document.getElementById('statusBadge').textContent = `Processing: ${total} songs`;
+                        }
+                        
+                        if (status.current.status === 'completed') {
+                            clearInterval(pollInterval);
+                            document.getElementById('progressText').textContent = 'Download complete';
+                            document.getElementById('statusBadge').textContent = 'Completed';
+                            document.getElementById('statusBadge').className = 'status-badge badge-completed';
+                            showSuccess('Download completed!');
+                            await loadDownloads();
+                            setTimeout(() => {
+                                resetDownloadState();
+                            }, 2000);
+                        } else if (status.current.status === 'failed') {
+                            clearInterval(pollInterval);
+                            showError('Download failed: ' + (status.current.error || 'Unknown error'));
+                            resetDownloadState();
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error polling status:', error);
+                }
+            }, 1000);
+        }
+
+        function showError(message) {
+            errorBox.textContent = message;
+            errorBox.classList.add('show');
+        }
+
+        function showSuccess(message) {
+            // You could add a toast notification here
+            console.log(message);
+        }
+
+        function resetDownloadState() {
+            isDownloading = false;
+            downloadBtn.disabled = false;
+            spinner.style.display = 'none';
+            btnText.textContent = 'Start Download';
+            setTimeout(() => {
+                statusCard.classList.remove('active');
+            }, 2000);
+        }
+
+        async function loadDownloads() {
+            try {
+                const response = await fetch(`${API_BASE}/downloads`);
+                const data = await response.json();
+                
+                if (data.downloads.length === 0) {
+                    downloadsList.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📭</div>
+                            <p>No downloads yet. Start by entering a Spotify URL or song name above.</p>
+                        </div>
+                    `;
+                } else {
+                    // Group downloads by folder
+                    const grouped = {};
+                    
+                    data.downloads.forEach(file => {
+                        if (file.type === 'folder_item' && file.folder) {
+                            if (!grouped[file.folder]) {
+                                grouped[file.folder] = [];
+                            }
+                            grouped[file.folder].push(file);
+                        } else if (file.type === 'file') {
+                            if (!grouped['root']) {
+                                grouped['root'] = [];
+                            }
+                            grouped['root'].push(file);
+                        }
+                    });
+                    
+                    let html = '';
+                    
+                    // Display grouped items
+                    Object.entries(grouped).forEach(([folder, files]) => {
+                        if (folder === 'root') {
+                            // Direct files (not in folder)
+                            files.forEach(file => {
+                                html += `
+                                    <li class="download-item">
+                                        <div class="download-info">
+                                            <div class="download-name">🎵 ${escapeHtml(file.filename)}</div>
+                                            <div class="download-meta">${formatDate(file.date)}</div>
+                                        </div>
+                                        <div class="download-size">${formatSize(file.size)}</div>
+                                        <a href="${API_BASE}/download/${encodeURIComponent(file.filename)}" 
+                                           download class="download-btn">Download</a>
+                                    </li>
+                                `;
+                            });
+                        } else {
+                            // Folder with songs
+                            html += `<li class="folder-header">📁 ${escapeHtml(folder)} (${files.length} songs)</li>`;
+                            files.forEach(file => {
+                                html += `
+                                    <li class="download-item folder-item">
+                                        <div class="download-info">
+                                            <div class="download-name">🎵 ${escapeHtml(file.filename)}</div>
+                                            <div class="download-meta">${formatDate(file.date)}</div>
+                                        </div>
+                                        <div class="download-size">${formatSize(file.size)}</div>
+                                    </li>
+                                `;
+                            });
+                        }
+                    });
+                    
+                    downloadsList.innerHTML = html;
+                }
+            } catch (error) {
+                console.error('Error loading downloads:', error);
+            }
+        }
+
+        function formatSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Check Spotdl initialization on page load
+        async function checkInitialization() {
+            try {
+                const response = await fetch(`${API_BASE}/status/init`);
+                const data = await response.json();
+                
+                if (!data.initialized) {
+                    showError(`⚠️ Setup Required: ${data.message}. Visit ${data.setup_url} to get Spotify credentials, then set the environment variables: SPOTIPY_CLIENT_ID and SPOTIPY_CLIENT_SECRET`);
+                    downloadBtn.disabled = true;
+                }
+            } catch (error) {
+                console.warn('Could not check initialization:', error);
+            }
+        }
+
+        // Load downloads on page load
+        checkInitialization();
+        loadDownloads();
+    </script>
+</body>
+</html>
