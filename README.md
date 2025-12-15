@@ -185,7 +185,17 @@ MIT License - See spotdl for their license
 - Respect copyright and only download content you have rights to
 - Use responsibly - don't overload Spotify's servers with mass downloads
 
-## Support
 
-For issues with spotdl: https://github.com/spotDL/spotify-downloader
-For this web app: Check the console for error messages and logs
+## Thanks
+
+
+Special thanks to the creators and maintainers of these open source projects:
+
+- [SpotDL](https://github.com/spotDL/spotify-downloader) — Spotify music downloader
+- [FastAPI](https://github.com/tiangolo/fastapi) — Modern Python web framework
+- [Uvicorn](https://www.uvicorn.org/) — Lightning-fast ASGI server
+- [Spotipy](https://github.com/plamere/spotipy) — Lightweight Python library for the Spotify Web API
+- [FFmpeg](https://ffmpeg.org/) — Powerful multimedia framework for audio/video processing
+- [Python](https://www.python.org/) — The language that makes it all possible
+
+This project would not be possible without their work and the open source community.
