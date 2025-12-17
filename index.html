@@ -465,6 +465,13 @@
                             </select>
                         </div>
                     </div>
+                    
+                    <div style="margin-top: 16px;">
+                        <label style="display: flex; align-items: center; gap: 8px; font-weight: 500;">
+                            <input type="checkbox" id="includeLyrics" name="includeLyrics" checked>
+                            <span>Include lyrics files (.lrc)</span>
+                        </label>
+                    </div>
                 </div>
 
                 <div class="error-box" id="errorBox"></div>
@@ -527,6 +534,7 @@
             const type = document.getElementById('type').value;
             const format = document.getElementById('format').value;
             const bitrate = document.getElementById('bitrate').value;
+            const includeLyrics = document.getElementById('includeLyrics').checked;
 
             if (!query) {
                 showError('Please enter a Spotify URL or song name');
@@ -548,7 +556,7 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ query, type, format, bitrate })
+                    body: JSON.stringify({ query, type, format, bitrate, includeLyrics })
                 });
 
                 if (!response.ok) {

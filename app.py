@@ -70,6 +70,7 @@ class DownloadRequest(BaseModel):
     type: str = "track"  # track, playlist, album, artist
     format: str = "mp3"
     bitrate: str = "192"
+    includeLyrics: bool = False
 
 class DownloadResponse(BaseModel):
     """Model for download response"""
@@ -128,7 +129,8 @@ async def download(request: DownloadRequest, background_tasks: BackgroundTasks):
             download_type=request.type,
             download_id=download_id,
             format=request.format,
-            bitrate=request.bitrate
+            bitrate=request.bitrate,
+            include_lyrics=request.includeLyrics
         )
         
         download_status["current"] = {
@@ -191,7 +193,7 @@ async def get_download(filename: str):
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(file_path, filename=filename)
 
-async def process_download(query: str, download_type: str, download_id: str, format: str, bitrate: str):
+async def process_download(query: str, download_type: str, download_id: str, format: str, bitrate: str, include_lyrics: bool = False):
     """Process download in background"""
     try:
         if not spotdl:
@@ -266,6 +268,9 @@ async def process_download(query: str, download_type: str, download_id: str, for
                 "--format",
                 cli_format
             ]
+            
+            if include_lyrics:
+                cmd.append("--generate-lrc")
             logger.info(f"Running command: {' '.join(cmd)}")
             logger.info(f"Output directory: {output_dir}")
             logger.info(f"Expected songs: {total_songs}")
