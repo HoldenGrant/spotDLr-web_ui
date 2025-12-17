@@ -309,7 +309,7 @@ async def process_download(query: str, download_type: str, download_id: str, for
                 download_status["current"]["progress"] = total_songs
                 download_status["current"]["songs_completed"] = downloaded_count
                 download_status["current"]["total"] = total_songs
-                download_status["current"]["downloads"].append({
+                download_status["downloads"].append({
                     "id": download_id,
                     "query": query,
                     "type": download_type,
