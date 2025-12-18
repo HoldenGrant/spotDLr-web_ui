@@ -320,7 +320,10 @@ async def process_download(query: str, download_type: str, download_id: str, for
                 "--format",
                 cli_format,
                 "--force-update-metadata",
-                "--ytm-data"
+                "--ytm-data",
+                "--add-unavailable",
+                "--threads",
+                "4"
             ]
             
             if include_lyrics:
