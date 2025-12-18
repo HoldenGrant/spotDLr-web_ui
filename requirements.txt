@@ -1,5 +1,5 @@
 fastapi==0.103.0
-uvicorn==0.24.0
+uvicorn==0.23.2
 python-multipart==0.0.6
 spotdl==4.4.3
 spotipy==2.24.0
