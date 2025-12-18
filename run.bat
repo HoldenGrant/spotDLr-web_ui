@@ -45,23 +45,22 @@ if %errorlevel% neq 0 (
     echo Cleaning up installer...
     if exist python-installer.exe del python-installer.exe
     
-    echo Refreshing PATH...
-    call :RefreshEnv
-    
-    echo Testing Python installation...
-    python --version >nul 2>&1
-    if !errorlevel! neq 0 (
-        echo Python installation may not be complete
-        echo Please close this window, restart your computer, and try again
-        echo If the problem persists, install Python manually from python.org
-        pause
-        exit /b 1
-    )
-    
-    for /f "tokens=*" %%i in ('python --version 2^>^&1') do set PYTHON_VER=%%i
-    echo !PYTHON_VER!
-    echo Python installed successfully!
+    echo Python installation completed!
     echo.
+    echo IMPORTANT: Windows needs to be restarted to complete Python setup
+    echo After restart, run this script again to continue
+    echo.
+    set /p RESTART="Do you want to restart now? (Y/N): "
+    if /i "!RESTART!"=="Y" (
+        echo Restarting computer in 10 seconds...
+        echo Press Ctrl+C to cancel
+        shutdown /r /t 10
+        exit
+    ) else (
+        echo Please restart your computer manually and run this script again
+        pause
+        exit /b 0
+    )
 ) else (
     for /f "tokens=*" %%i in ('python --version 2^>^&1') do set PYTHON_VER=%%i
     echo !PYTHON_VER!

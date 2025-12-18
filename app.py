@@ -196,19 +196,35 @@ async def list_downloads():
 
 @app.get("/api/download/{filename}")
 async def get_download(filename: str):
-    """Download a file"""
+    """Download or stream a file"""
+    
+    # Define explicit MIME types for audio files
+    audio_extensions = {
+        '.mp3': 'audio/mpeg',
+        '.m4a': 'audio/mp4',
+        '.flac': 'audio/flac',
+        '.wav': 'audio/wav',
+        '.ogg': 'audio/ogg',
+        '.opus': 'audio/opus',
+        '.aac': 'audio/aac'
+    }
+    
+    def get_media_type(file_path):
+        ext = file_path.suffix.lower()
+        if ext in audio_extensions:
+            return audio_extensions[ext]
+        return mimetypes.guess_type(str(file_path))[0] or 'application/octet-stream'
+    
     # First try direct file
     file_path = DOWNLOAD_DIR / filename
-    if file_path.exists():
-        # Determine media type for proper streaming
-        media_type = mimetypes.guess_type(str(file_path))[0] or 'application/octet-stream'
+    if file_path.exists() and file_path.is_file():
+        media_type = get_media_type(file_path)
         return FileResponse(
             file_path, 
-            filename=filename,
             media_type=media_type,
             headers={
                 "Accept-Ranges": "bytes",
-                "Cache-Control": "no-cache"
+                "Content-Disposition": f'inline; filename="{filename}"'
             }
         )
     
@@ -216,15 +232,14 @@ async def get_download(filename: str):
     for item in DOWNLOAD_DIR.glob("*"):
         if item.is_dir():
             subfolder_file = item / filename
-            if subfolder_file.exists():
-                media_type = mimetypes.guess_type(str(subfolder_file))[0] or 'application/octet-stream'
+            if subfolder_file.exists() and subfolder_file.is_file():
+                media_type = get_media_type(subfolder_file)
                 return FileResponse(
                     subfolder_file, 
-                    filename=filename,
                     media_type=media_type,
                     headers={
                         "Accept-Ranges": "bytes",
-                        "Cache-Control": "no-cache"
+                        "Content-Disposition": f'inline; filename="{filename}"'
                     }
                 )
     
