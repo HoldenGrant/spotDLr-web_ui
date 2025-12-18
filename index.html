@@ -20,7 +20,7 @@
         }
 
         .container {
-            max-width: 900px;
+            max-width: 1500px;
             margin: 0 auto;
         }
 
@@ -278,10 +278,272 @@
             font-size: 0.9rem;
             font-weight: 600;
             transition: all 0.3s;
+            text-decoration: none;
         }
 
         .download-btn:hover {
             background: #1ed760;
+        }
+
+        .play-btn {
+            padding: 8px 12px;
+            background: #FF6B35;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.3s;
+            margin-right: 8px;
+        }
+
+        .play-btn:hover {
+            background: #FF8C69;
+        }
+
+        .play-btn.playing {
+            background: #FF4500;
+        }
+
+        /* Mini Music Player - Modern Beautiful Design */
+        .mini-player {
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 25%, #1a1a1a 75%, #0f0f0f 100%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 20px;
+            margin-bottom: 24px;
+            display: none;
+            align-items: center;
+            gap: 20px;
+            box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.4),
+                0 4px 16px rgba(0, 0, 0, 0.3),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            position: relative;
+            overflow: hidden;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .mini-player::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at 20% 30%, rgba(29, 185, 84, 0.15) 0%, transparent 50%),
+                        radial-gradient(circle at 80% 70%, rgba(30, 215, 96, 0.1) 0%, transparent 50%);
+            pointer-events: none;
+        }
+
+        .mini-player.active {
+            display: flex;
+            animation: slideInUp 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        @keyframes slideInUp {
+            0% {
+                transform: translateY(100%) scale(0.9);
+                opacity: 0;
+            }
+            100% {
+                transform: translateY(0) scale(1);
+                opacity: 1;
+            }
+        }
+
+        .mini-player-info {
+            flex: 1;
+            min-width: 0;
+            position: relative;
+            z-index: 2;
+        }
+
+        .mini-player-title {
+            color: #ffffff;
+            font-weight: 700;
+            font-size: 15px;
+            margin: 0 0 12px 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+            letter-spacing: 0.3px;
+        }
+
+        .mini-player-progress {
+            position: relative;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+            transition: all 0.2s ease;
+        }
+
+        .progress-bar:hover {
+            height: 8px;
+            transform: translateY(-1px);
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #1db954 0%, #1ed760 50%, #1db954 100%);
+            border-radius: 3px;
+            width: 0%;
+            transition: width 0.1s ease;
+            position: relative;
+            box-shadow: 0 0 10px rgba(29, 185, 84, 0.4);
+        }
+
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 12px;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3));
+            border-radius: 0 3px 3px 0;
+        }
+
+        .mini-player-time {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.7);
+            margin-top: 8px;
+            font-weight: 500;
+        }
+
+        .mini-player-controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            position: relative;
+            z-index: 2;
+        }
+
+        .mini-control-btn {
+            background: linear-gradient(135deg, #1db954 0%, #1ed760 100%);
+            border: none;
+            border-radius: 50%;
+            width: 48px;
+            height: 48px;
+            color: white;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 
+                0 4px 12px rgba(29, 185, 84, 0.4),
+                0 2px 6px rgba(0, 0, 0, 0.3),
+                inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .mini-control-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .mini-control-btn:hover::before {
+            left: 100%;
+        }
+
+        .mini-control-btn:hover {
+            background: linear-gradient(135deg, #1ed760 0%, #22ff6b 100%);
+            transform: scale(1.1) translateY(-2px);
+            box-shadow: 
+                0 8px 20px rgba(29, 185, 84, 0.6),
+                0 4px 10px rgba(0, 0, 0, 0.4);
+        }
+
+        .mini-control-btn:active {
+            transform: scale(1.05) translateY(-1px);
+        }
+
+        .mini-control-btn.secondary {
+            background: linear-gradient(135deg, #404040 0%, #505050 100%);
+            width: 36px;
+            height: 36px;
+            font-size: 14px;
+            box-shadow: 
+                0 2px 8px rgba(0, 0, 0, 0.3),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
+
+        .mini-control-btn.secondary:hover {
+            background: linear-gradient(135deg, #505050 0%, #606060 100%);
+            transform: scale(1.05) translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        }
+
+        /* Audio visualization effect */
+        @keyframes audioWave {
+            0%, 100% { transform: scaleY(0.5); }
+            50% { transform: scaleY(1.2); }
+        }
+
+        .mini-player.active .mini-control-btn:not(.secondary) {
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                box-shadow: 
+                    0 4px 12px rgba(29, 185, 84, 0.4),
+                    0 2px 6px rgba(0, 0, 0, 0.3);
+            }
+            50% {
+                box-shadow: 
+                    0 4px 12px rgba(29, 185, 84, 0.6),
+                    0 2px 6px rgba(0, 0, 0, 0.3),
+                    0 0 0 8px rgba(29, 185, 84, 0.1);
+            }
+        }
+
+        /* Responsive design for mini player */
+        @media (max-width: 600px) {
+            .mini-player {
+                padding: 16px;
+                gap: 16px;
+            }
+            
+            .mini-control-btn {
+                width: 40px;
+                height: 40px;
+                font-size: 16px;
+            }
+            
+            .mini-control-btn.secondary {
+                width: 32px;
+                height: 32px;
+                font-size: 12px;
+            }
+        }
+
+        .download-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .folder-header {
@@ -415,99 +677,127 @@
             <p>Download your favorite Spotify songs and playlists</p>
         </header>
 
-        <div class="main-card">
-            <div class="info-box">
-                💡 Enter a Spotify track URL, playlist link, or song name to get started
-            </div>
+        <div style="display: flex;flex-direction: row;gap: 20px;">
+            <div style="width: 100%;">
+                <div class="main-card">
+                    <div class="info-box">
+                        💡 Enter a Spotify track URL, playlist link, or song name to get started
+                    </div>
 
-            <form id="downloadForm">
-                <div class="form-group">
-                    <label for="query">Spotify URL or Song Name</label>
-                    <input 
-                        type="text" 
-                        id="query" 
-                        name="query" 
-                        placeholder="e.g., https://open.spotify.com/track/... or 'Blinding Lights - The Weeknd'"
-                        required
-                    >
+                    <form id="downloadForm">
+                        <div class="form-group">
+                            <label for="query">Spotify URL or Song Name</label>
+                            <input 
+                                type="text" 
+                                id="query" 
+                                name="query" 
+                                placeholder="e.g., https://open.spotify.com/track/... or 'Blinding Lights - The Weeknd'"
+                                required
+                            >
+                        </div>
+
+                        <div class="form-group">
+                            <label>Download Options</label>
+                            <div class="options-grid">
+                                <div>
+                                    <label for="type">Type</label>
+                                    <select id="type" name="type">
+                                        <option value="track">Track</option>
+                                        <option value="playlist">Playlist</option>
+                                        <option value="album">Album</option>
+                                        <option value="artist">Artist</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="format">Format</label>
+                                    <select id="format" name="format">
+                                        <option value="mp3">MP3</option>
+                                        <option value="wav">WAV</option>
+                                        <option value="flac">FLAC</option>
+                                        <option value="opus">Opus</option>
+                                        <option value="ogg">OGG</option>
+                                        <option value="m4a">M4A (AAC)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="bitrate">Bitrate</label>
+                                    <select id="bitrate" name="bitrate">
+                                        <option value="128">128 kbps</option>
+                                        <option value="192" selected>192 kbps</option>
+                                        <option value="256">256 kbps</option>
+                                        <option value="320">320 kbps</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div style="margin-top: 16px;">
+                                <label style="display: flex; align-items: center; gap: 8px; font-weight: 500;">
+                                    <input type="checkbox" id="includeLyrics" name="includeLyrics" checked>
+                                    <span>Include lyrics files (.lrc)</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="error-box" id="errorBox"></div>
+
+                        <div class="button-group">
+                            <button type="submit" class="btn-primary" id="downloadBtn">
+                                <span class="spinner" id="spinner" style="display: none; margin-right: 8px;"></span>
+                                <span id="btnText">Start Download</span>
+                            </button>
+                            <button type="reset" class="btn-secondary">Clear</button>
+                        </div>
+                    </form>
                 </div>
 
-                <div class="form-group">
-                    <label>Download Options</label>
-                    <div class="options-grid">
+                <div class="status-card" id="statusCard">
+                    <div class="status-header">
                         <div>
-                            <label for="type">Type</label>
-                            <select id="type" name="type">
-                                <option value="track">Track</option>
-                                <option value="playlist">Playlist</option>
-                                <option value="album">Album</option>
-                                <option value="artist">Artist</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label for="format">Format</label>
-                            <select id="format" name="format">
-                                <option value="mp3">MP3</option>
-                                <option value="wav">WAV</option>
-                                <option value="flac">FLAC</option>
-                                <option value="opus">Opus</option>
-                                <option value="ogg">OGG</option>
-                                <option value="m4a">M4A (AAC)</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label for="bitrate">Bitrate</label>
-                            <select id="bitrate" name="bitrate">
-                                <option value="128">128 kbps</option>
-                                <option value="192" selected>192 kbps</option>
-                                <option value="256">256 kbps</option>
-                                <option value="320">320 kbps</option>
-                            </select>
+                            <strong id="statusQuery"></strong>
+                            <span class="status-badge badge-processing" id="statusBadge">Processing</span>
                         </div>
                     </div>
-                    
-                    <div style="margin-top: 16px;">
-                        <label style="display: flex; align-items: center; gap: 8px; font-weight: 500;">
-                            <input type="checkbox" id="includeLyrics" name="includeLyrics" checked>
-                            <span>Include lyrics files (.lrc)</span>
-                        </label>
+                    <div class="download-status-loader">
+                        <div class="loader-spinner"></div>
+                        <div class="loader-text" id="progressText">Downloading in progress...</div>
+                        <div class="loader-timer" id="countdownTimer" style="margin-left:16px;color:#1DB954;font-weight:600;"></div>
                     </div>
                 </div>
+            </div>
+            
 
-                <div class="error-box" id="errorBox"></div>
+            
 
-                <div class="button-group">
-                    <button type="submit" class="btn-primary" id="downloadBtn">
-                        <span class="spinner" id="spinner" style="display: none; margin-right: 8px;"></span>
-                        <span id="btnText">Start Download</span>
-                    </button>
-                    <button type="reset" class="btn-secondary">Clear</button>
+            <div class="downloads-section" style="max-width:500px;width: 100%;">
+                <!-- Mini Music Player -->
+            <div class="mini-player" id="miniPlayer">
+                <div class="mini-player-info">
+                    <div class="mini-player-title" id="miniPlayerTitle">No song playing</div>
+                    <div class="mini-player-progress">
+                        <div class="progress-bar" id="progressBar">
+                            <div class="progress-fill" id="progressFill"></div>
+                        </div>
+                        <div class="mini-player-time">
+                            <span id="currentTime">0:00</span>
+                            <span id="duration">0:00</span>
+                        </div>
+                    </div>
                 </div>
-            </form>
-        </div>
-
-        <div class="status-card" id="statusCard">
-            <div class="status-header">
-                <div>
-                    <strong id="statusQuery"></strong>
-                    <span class="status-badge badge-processing" id="statusBadge">Processing</span>
+                <div class="mini-player-controls">
+                    <button class="mini-control-btn secondary" id="miniPrevBtn" title="Previous">⏮</button>
+                    <button class="mini-control-btn" id="miniPlayBtn" title="Play/Pause">▶</button>
+                    <button class="mini-control-btn secondary" id="miniNextBtn" title="Next">⏭</button>
+                    <button class="mini-control-btn secondary" id="miniStopBtn" title="Stop">⏹</button>
                 </div>
             </div>
-            <div class="download-status-loader">
-                <div class="loader-spinner"></div>
-                <div class="loader-text" id="progressText">Downloading in progress...</div>
-                <div class="loader-timer" id="countdownTimer" style="margin-left:16px;color:#1DB954;font-weight:600;"></div>
+                <div class="downloads-title">📥 Downloaded Files</div>
+                <ul class="downloads-list" id="downloadsList">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📭</div>
+                        <p>No downloads yet. Start by entering a Spotify URL or song name above.</p>
+                    </div>
+                </ul>
             </div>
-        </div>
-
-        <div class="downloads-section">
-            <div class="downloads-title">📥 Downloaded Files</div>
-            <ul class="downloads-list" id="downloadsList">
-                <div class="empty-state">
-                    <div class="empty-state-icon">📭</div>
-                    <p>No downloads yet. Start by entering a Spotify URL or song name above.</p>
-                </div>
-            </ul>
         </div>
     </div>
 
@@ -710,8 +1000,10 @@
                                             <div class="download-meta">${formatDate(file.date)}</div>
                                         </div>
                                         <div class="download-size">${formatSize(file.size)}</div>
-                                        <a href="${API_BASE}/download/${encodeURIComponent(file.filename)}" 
-                                           download class="download-btn">Download</a>
+                                        <div class="download-actions">
+                                            <button class="play-btn" data-filename="${file.filename}">▶</button>
+                                            
+                                        </div>
                                     </li>
                                 `;
                             });
@@ -727,6 +1019,9 @@
                                             <div class="download-meta">${formatDate(file.date)}</div>
                                         </div>
                                         <div class="download-size">${formatSize(file.size)}</div>
+                                        <div class="download-actions">
+                                            <button class="play-btn" data-filename="${file.filename}">▶</button>
+                                        </div>
                                     </li>
                                 `;
                             });
@@ -782,6 +1077,222 @@
             } catch (error) {
                 console.warn('Could not check initialization:', error);
             }
+        }
+
+        // Audio player functionality
+        let currentAudio = null;
+        let currentPlayButton = null;
+        let currentSongTitle = '';
+        let playlist = [];
+        let currentTrackIndex = -1;
+
+        // Mini player elements
+        const miniPlayer = document.getElementById('miniPlayer');
+        const miniPlayerTitle = document.getElementById('miniPlayerTitle');
+        const miniPlayBtn = document.getElementById('miniPlayBtn');
+        const miniStopBtn = document.getElementById('miniStopBtn');
+        const miniPrevBtn = document.getElementById('miniPrevBtn');
+        const miniNextBtn = document.getElementById('miniNextBtn');
+        const progressBar = document.getElementById('progressBar');
+        const progressFill = document.getElementById('progressFill');
+        const currentTimeEl = document.getElementById('currentTime');
+        const durationEl = document.getElementById('duration');
+
+        // Mini player controls
+        miniPlayBtn.addEventListener('click', () => {
+            if (currentAudio) {
+                if (currentAudio.paused) {
+                    currentAudio.play();
+                } else {
+                    currentAudio.pause();
+                }
+            }
+        });
+
+        miniStopBtn.addEventListener('click', () => {
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio.currentTime = 0;
+                updateMiniPlayer();
+                hideMiniPlayer();
+            }
+        });
+
+        miniPrevBtn.addEventListener('click', () => {
+            if (currentTrackIndex > 0) {
+                playTrackAtIndex(currentTrackIndex - 1);
+            }
+        });
+
+        miniNextBtn.addEventListener('click', () => {
+            if (currentTrackIndex < playlist.length - 1) {
+                playTrackAtIndex(currentTrackIndex + 1);
+            }
+        });
+
+        // Progress bar click to seek
+        progressBar.addEventListener('click', (e) => {
+            if (currentAudio) {
+                const rect = progressBar.getBoundingClientRect();
+                const clickX = e.clientX - rect.left;
+                const width = rect.width;
+                const percentage = clickX / width;
+                currentAudio.currentTime = percentage * currentAudio.duration;
+            }
+        });
+
+        function updateMiniPlayer() {
+            if (currentAudio) {
+                const currentTime = currentAudio.currentTime || 0;
+                const duration = currentAudio.duration || 0;
+                
+                // Update progress bar
+                if (duration > 0) {
+                    const percentage = (currentTime / duration) * 100;
+                    progressFill.style.width = `${percentage}%`;
+                }
+                
+                // Update time display
+                currentTimeEl.textContent = formatTime(currentTime);
+                durationEl.textContent = formatTime(duration);
+                
+                // Update play button
+                miniPlayBtn.textContent = currentAudio.paused ? '▶' : '⏸';
+            }
+        }
+
+        function showMiniPlayer(title) {
+            miniPlayerTitle.textContent = title;
+            miniPlayer.classList.add('active');
+        }
+
+        function hideMiniPlayer() {
+            miniPlayer.classList.remove('active');
+            if (currentPlayButton) {
+                currentPlayButton.textContent = '▶';
+                currentPlayButton.classList.remove('playing');
+            }
+            currentAudio = null;
+            currentPlayButton = null;
+        }
+
+        function formatTime(seconds) {
+            if (isNaN(seconds)) return '0:00';
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function buildPlaylist() {
+            playlist = [];
+            const audioFiles = document.querySelectorAll('.play-btn');
+            audioFiles.forEach((btn, index) => {
+                const filename = btn.getAttribute('data-filename');
+                if (filename) {
+                    playlist.push({ filename, button: btn });
+                }
+            });
+        }
+
+        function playTrackAtIndex(index) {
+            if (index >= 0 && index < playlist.length) {
+                const track = playlist[index];
+                currentTrackIndex = index;
+                playAudio(track.filename, track.button);
+            }
+        }
+
+        // Add event listener for play buttons using event delegation
+        document.addEventListener('click', function(e) {
+            if (e.target.classList.contains('play-btn')) {
+                const filename = e.target.getAttribute('data-filename');
+                if (filename) {
+                    playAudio(filename, e.target);
+                }
+            }
+        });
+
+        function playAudio(filename, button) {
+            // Stop current audio if playing
+            if (currentAudio) {
+                currentAudio.pause();
+                if (currentPlayButton) {
+                    currentPlayButton.textContent = '▶';
+                    currentPlayButton.classList.remove('playing');
+                }
+            }
+
+            // If clicking the same button, just stop
+            if (currentPlayButton === button) {
+                hideMiniPlayer();
+                return;
+            }
+
+            // Build playlist and find current track index
+            buildPlaylist();
+            currentTrackIndex = playlist.findIndex(track => track.button === button);
+
+            // Create new audio element - backend will search for file in folders
+            const audioUrl = `${API_BASE}/download/${encodeURIComponent(filename)}`;
+            
+            currentAudio = new Audio(audioUrl);
+            currentPlayButton = button;
+            currentSongTitle = filename;
+
+            // Show mini player
+            showMiniPlayer(filename);
+
+            // Update button to show playing state
+            button.textContent = '⏸';
+            button.classList.add('playing');
+
+            // Play the audio
+            currentAudio.play().catch(err => {
+                console.error('Error playing audio:', err);
+                button.textContent = '▶';
+                button.classList.remove('playing');
+                hideMiniPlayer();
+                showError('Could not play audio file');
+            });
+
+            // Update mini player during playback
+            const updateInterval = setInterval(() => {
+                if (currentAudio && !currentAudio.paused) {
+                    updateMiniPlayer();
+                } else {
+                    clearInterval(updateInterval);
+                }
+            }, 100);
+
+            // Reset button when audio ends
+            currentAudio.addEventListener('ended', () => {
+                button.textContent = '▶';
+                button.classList.remove('playing');
+                
+                // Auto-play next track if available
+                if (currentTrackIndex < playlist.length - 1) {
+                    playTrackAtIndex(currentTrackIndex + 1);
+                } else {
+                    hideMiniPlayer();
+                }
+            });
+
+            // Handle errors
+            currentAudio.addEventListener('error', () => {
+                button.textContent = '▶';
+                button.classList.remove('playing');
+                hideMiniPlayer();
+                showError('Error loading audio file');
+            });
+
+            // Update mini player when metadata loads
+            currentAudio.addEventListener('loadedmetadata', () => {
+                updateMiniPlayer();
+            });
+
+            currentAudio.addEventListener('timeupdate', () => {
+                updateMiniPlayer();
+            });
         }
 
         // Load downloads on page load

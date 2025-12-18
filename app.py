@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
 import asyncio
+import mimetypes
 from pathlib import Path
 from datetime import datetime
 import logging
@@ -188,10 +189,38 @@ async def list_downloads():
 @app.get("/api/download/{filename}")
 async def get_download(filename: str):
     """Download a file"""
+    # First try direct file
     file_path = DOWNLOAD_DIR / filename
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(file_path, filename=filename)
+    if file_path.exists():
+        # Determine media type for proper streaming
+        media_type = mimetypes.guess_type(str(file_path))[0] or 'application/octet-stream'
+        return FileResponse(
+            file_path, 
+            filename=filename,
+            media_type=media_type,
+            headers={
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "no-cache"
+            }
+        )
+    
+    # If not found, search in subdirectories
+    for item in DOWNLOAD_DIR.glob("*"):
+        if item.is_dir():
+            subfolder_file = item / filename
+            if subfolder_file.exists():
+                media_type = mimetypes.guess_type(str(subfolder_file))[0] or 'application/octet-stream'
+                return FileResponse(
+                    subfolder_file, 
+                    filename=filename,
+                    media_type=media_type,
+                    headers={
+                        "Accept-Ranges": "bytes",
+                        "Cache-Control": "no-cache"
+                    }
+                )
+    
+    raise HTTPException(status_code=404, detail="File not found")
 
 async def process_download(query: str, download_type: str, download_id: str, format: str, bitrate: str, include_lyrics: bool = False):
     """Process download in background"""
