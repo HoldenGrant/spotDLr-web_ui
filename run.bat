@@ -1,4 +1,5 @@
 @echo off
+setlocal enabledelayedexpansion
 echo SpotDL Web App Launcher
 echo ========================
 echo.
@@ -66,11 +67,16 @@ if defined NEEDS_INSTALL (
 
 echo Setting Spotify credentials...
 if exist .env (
+    echo Reading credentials from .env file...
     for /f "usebackq tokens=1,2 delims==" %%A in (".env") do (
-        if "%%A"=="SPOTIPY_CLIENT_ID" set SPOTIPY_CLIENT_ID=%%B
-        if "%%A"=="SPOTIPY_CLIENT_SECRET" set SPOTIPY_CLIENT_SECRET=%%B
+        set "LINE=%%A"
+        if "!LINE!"=="SPOTIPY_CLIENT_ID" set "SPOTIPY_CLIENT_ID=%%B"
+        if "!LINE!"=="SPOTIPY_CLIENT_SECRET" set "SPOTIPY_CLIENT_SECRET=%%B"
     )
+) else (
+    echo No .env file found, prompting for credentials...
 )
+
 if not defined SPOTIPY_CLIENT_ID (
     set /p SPOTIPY_CLIENT_ID="Enter your Spotify Client ID: "
 )
@@ -78,9 +84,26 @@ if not defined SPOTIPY_CLIENT_SECRET (
     set /p SPOTIPY_CLIENT_SECRET="Enter your Spotify Client Secret: "
 )
 
+REM Save credentials to .env file for future use
+if not exist .env (
+    echo SPOTIPY_CLIENT_ID=%SPOTIPY_CLIENT_ID%> .env
+    echo SPOTIPY_CLIENT_SECRET=%SPOTIPY_CLIENT_SECRET%>> .env
+    echo Credentials saved to .env file
+)
+
+echo Credentials loaded successfully
+
 echo Starting SpotDL Web App...
 echo Server will run at: http://localhost:8000
 echo Press Ctrl+C to stop
+echo.
+
+REM Set environment variables for Python process
+set "SPOTIPY_CLIENT_ID=%SPOTIPY_CLIENT_ID%"
+set "SPOTIPY_CLIENT_SECRET=%SPOTIPY_CLIENT_SECRET%"
+
+echo Debug: SPOTIPY_CLIENT_ID is set to: %SPOTIPY_CLIENT_ID%
+echo Debug: SPOTIPY_CLIENT_SECRET is set to: [HIDDEN]
 echo.
 
 python app.py
