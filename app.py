@@ -268,6 +268,7 @@ async def process_download(query: str, download_type: str, download_id: str, for
         try:
             # Get total songs count from Spotify API
             total_songs = 1  # default for single track
+            folder_name = None
             if download_type == "playlist" or download_type == "album":
                 try:
                     import spotipy
@@ -277,12 +278,11 @@ async def process_download(query: str, download_type: str, download_id: str, for
                             client_secret=os.getenv("SPOTIPY_CLIENT_SECRET")
                         )
                     )
-                    folder_name = query
                     if download_type == "playlist":
                         playlist_id = query.split("/playlist/")[-1].split("?")[0]
                         try:
                             playlist = sp.playlist(playlist_id)
-                            folder_name = playlist.get('name', playlist_id)
+                            folder_name = playlist.get('name', None)
                             total_songs = playlist.get('tracks', {}).get('total', 1)
                             logger.info(f"Fetched playlist: {folder_name} with {total_songs} songs")
                         except Exception as e:
@@ -291,18 +291,24 @@ async def process_download(query: str, download_type: str, download_id: str, for
                         album_id = query.split("/album/")[-1].split("?")[0]
                         try:
                             album = sp.album(album_id)
-                            folder_name = album.get('name', album_id)
+                            folder_name = album.get('name', None)
                             total_songs = album.get('total_tracks', 1)
                             logger.info(f"Fetched album: {folder_name} with {total_songs} songs")
                         except Exception as e:
                             logger.warning(f"Could not fetch album info: {e}")
                 except ImportError:
-                    logger.warning("spotipy not installed, using query as folder name")
+                    logger.warning("spotipy not installed, using default folder name")
                 except Exception as e:
                     logger.warning(f"Error fetching info from Spotify: {e}")
-                folder_name = "".join(c if c.isalnum() or c in (' ', '-', '_') else '' for c in folder_name).strip()[:100]
+                
+                # Sanitize folder name
+                if folder_name:
+                    folder_name = "".join(c if c.isalnum() or c in (' ', '-', '_') else '' for c in folder_name).strip()[:100]
+                
+                # If folder_name is empty or None, create a default one
                 if not folder_name:
                     folder_name = f"{download_type}_{download_id[:8]}"
+                
                 output_subdir = DOWNLOAD_DIR / folder_name
                 output_subdir.mkdir(parents=True, exist_ok=True)
                 output_dir = str(output_subdir)
