@@ -1,412 +1,387 @@
 #!/usr/bin/env python
 """
-SpotDL Web App - FastAPI Backend
-A web interface for downloading Spotify songs
+spotDLr - FastAPI backend
+A local music library + player, with Spotify search and spotDL downloads.
+
+Routes that touch Spotify or the disk are plain `def` on purpose: FastAPI runs
+those in a threadpool, so a slow call never blocks the event loop.
 """
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import os
-import asyncio
-import mimetypes
-from pathlib import Path
-from datetime import datetime
+import hashlib
 import logging
+import os
+import re
+import threading
+import time
+from urllib.parse import urlparse
+from pathlib import Path
 from typing import Optional
-from spotdl import Spotdl, parse_query
+
+import requests
 from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
-# Load environment variables from .env file
-load_dotenv()
+# Load SPOTIPY_CLIENT_ID / SPOTIPY_CLIENT_SECRET from .env next to this file
+BASE_DIR = Path(__file__).resolve().parent
+ENV_FILE = BASE_DIR / ".env"
+load_dotenv(ENV_FILE)
 
-# Setup logging
+import spotify_api  # noqa: E402  (reads env vars, so it comes after load_dotenv)
+import spotify_embed  # noqa: E402
+import ytmusic  # noqa: E402
+from downloader import Downloader  # noqa: E402
+from genres import Genres  # noqa: E402
+from library import MEDIA_TYPES, Library  # noqa: E402
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="SpotDL Web App", version="1.0.0")
-
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Configuration
-DOWNLOAD_DIR = Path("downloads")
+DOWNLOAD_DIR = BASE_DIR / "downloads"
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
-# Initialize Spotdl
-spotdl = None
-client_id = os.getenv("SPOTIPY_CLIENT_ID")
-client_secret = os.getenv("SPOTIPY_CLIENT_SECRET")
+app = FastAPI(title="spotDLr", version="2.0.0")
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
-logger.info(f"Loading .env file...")
-logger.info(f"CLIENT_ID found: {'Yes' if client_id else 'No'}")
-logger.info(f"CLIENT_SECRET found: {'Yes' if client_secret else 'No'}")
+# Local-only guard. The API can write your Spotify secret to disk, so:
+# - Host must be this machine (blocks DNS rebinding: evil.example resolving to 127.0.0.1)
+# - writes must come from this page, not another site you happen to have open
+ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]"} | {h.strip() for h in os.getenv("SPOTDLR_HOSTS", "").split(",") if h.strip()}
 
-if client_id and client_secret:
-    try:
-        spotdl = Spotdl(
-            client_id=client_id,
-            client_secret=client_secret,
-        )
-        # Set output directory
-        spotdl.output = str(DOWNLOAD_DIR / "{artist} - {title}")
-        logger.info("Spotdl initialized successfully with Spotify credentials")
-    except Exception as e:
-        logger.warning(f"Could not initialize Spotdl: {e}. Some features may not work.")
-        spotdl = None
-else:
-    logger.warning("Spotify credentials not set. Please set SPOTIPY_CLIENT_ID and SPOTIPY_CLIENT_SECRET environment variables.")
-    spotdl = None
 
-# Store download status
-download_status = {
-    "current": None,
-    "progress": 0,
-    "total": 0,
-    "downloads": []
-}
+@app.middleware("http")
+async def local_only(request: Request, call_next):
+    host = request.headers.get("host", "")
+    if host.rsplit(":", 1)[0] not in ALLOWED_HOSTS:
+        return JSONResponse({"detail": f"Host {host!r} not allowed. Add it to SPOTDLR_HOSTS in .env to allow it."}, status_code=403)
+    origin = request.headers.get("origin")
+    if request.method not in ("GET", "HEAD", "OPTIONS") and origin and urlparse(origin).netloc != host:
+        return JSONResponse({"detail": "Cross-site request blocked"}, status_code=403)
+    return await call_next(request)
+
+
+library = Library(DOWNLOAD_DIR)
+genres = Genres(BASE_DIR / ".genres.json", library.scan)  # fills in genres from Deezer in the background
+downloader = Downloader(
+    DOWNLOAD_DIR,
+    on_finished=lambda job: logger.info(f"Job {job['id']} {job['status']}: {job['title']} ({job['message']})"),
+    owned_video_ids=lambda: set(library.youtube_index()),
+    owned_spotify_ids=lambda: set(library.spotify_index()),
+)
+
+
+class CredentialsRequest(BaseModel):
+    client_id: str
+    client_secret: str
+
 
 class DownloadRequest(BaseModel):
-    """Model for download request"""
-    query: str
-    type: str = "track"  # track, playlist, album, artist
-    format: str = "mp3"
-    bitrate: str = "192"
+    query: str                      # Spotify or YouTube Music URL, or free text for a single track
+    type: Optional[str] = None      # track | album | playlist | artist (detected from the URL when omitted)
+    title: Optional[str] = None     # display name / folder name hint from the UI
+    image: Optional[str] = None
+    total: Optional[int] = None
+    format: str = "m4a"
+    bitrate: str = "auto"
     includeLyrics: bool = False
 
-class DownloadResponse(BaseModel):
-    """Model for download response"""
-    status: str
-    message: str
-    download_id: Optional[str] = None
-
-@app.on_event("startup")
-async def startup():
-    """Initialize the app"""
-    logger.info("SpotDL Web App started")
-    # Create downloads directory
-    DOWNLOAD_DIR.mkdir(exist_ok=True)
-
-@app.get("/api/status/init")
-async def check_initialization():
-    """Check if Spotdl is initialized"""
-    return {
-        "initialized": spotdl is not None,
-        "message": "Spotdl is ready" if spotdl else "Spotdl not initialized - Spotify credentials required",
-        "setup_url": "https://developer.spotify.com/dashboard/",
-        "instructions": "Set SPOTIPY_CLIENT_ID and SPOTIPY_CLIENT_SECRET environment variables"
-    }
 
 @app.get("/")
-async def root():
-    """Serve the main HTML file"""
-    return FileResponse("index.html")
+def root():
+    return FileResponse(BASE_DIR / "index.html")
 
-@app.get("/api/status")
-async def get_status():
-    """Get current download status"""
-    return download_status
+
+@app.get("/api/status/init")
+def check_initialization():
+    """Is Spotify usable? Search and downloads fall back to YouTube Music when it isn't."""
+    ok, error = spotify_api.check()
+    return {
+        "initialized": ok,
+        "message": "Spotify connected" if ok else error,
+        "search_source": "spotify" if ok else "ytm",
+        "setup_url": "https://developer.spotify.com/dashboard/",
+    }
+
+
+# ---------- Spotify credentials ----------
+
+def _write_env(updates: dict):
+    """Set keys in .env, keeping every other line (comments, SPOTIFY_MARKET, …). Owner-only permissions."""
+    lines = ENV_FILE.read_text().splitlines() if ENV_FILE.exists() else []
+    out, seen = [], set()
+    for line in lines:
+        key = line.split("=", 1)[0].strip()
+        if key in updates and not line.lstrip().startswith("#"):
+            out.append(f"{key}={updates[key]}")
+            seen.add(key)
+        else:
+            out.append(line)
+    out += [f"{k}={v}" for k, v in updates.items() if k not in seen]
+    tmp = ENV_FILE.with_name(".env.tmp")
+    tmp.write_text("\n".join(out) + "\n")
+    os.chmod(tmp, 0o600)
+    tmp.replace(ENV_FILE)  # atomic: never a half-written .env
+
+
+def _credentials_status():
+    client_id = os.getenv("SPOTIPY_CLIENT_ID") or ""
+    ok, error = spotify_api.check()
+    return {
+        "configured": bool(client_id and os.getenv("SPOTIPY_CLIENT_SECRET")),
+        "client_id_hint": f"…{client_id[-4:]}" if client_id else None,  # the secret is never sent back
+        "initialized": ok,
+        "message": "Spotify connected" if ok else error,
+    }
+
+
+@app.get("/api/credentials")
+def get_credentials():
+    return _credentials_status()
+
+
+@app.post("/api/credentials")
+def set_credentials(request: CredentialsRequest):
+    client_id, client_secret = request.client_id.strip(), request.client_secret.strip()
+    for label, value in (("Client ID", client_id), ("Client Secret", client_secret)):
+        if not re.fullmatch(r"[A-Za-z0-9]{32}", value):
+            raise HTTPException(status_code=400, detail=f"{label} should be 32 letters and numbers. Copy it again from the Spotify dashboard.")
+    status, error = spotify_api.test_credentials(client_id, client_secret)
+    if status == "bad":
+        raise HTTPException(status_code=400, detail=error)  # nothing saved
+    # "premium": the keys are valid but the app owner needs Premium. Save them anyway, so the
+    # app starts working by itself once Spotify enables the account (it can take a few hours)
+    _write_env({"SPOTIPY_CLIENT_ID": client_id, "SPOTIPY_CLIENT_SECRET": client_secret})
+    os.environ["SPOTIPY_CLIENT_ID"] = client_id          # live: search and new downloads use them now
+    os.environ["SPOTIPY_CLIENT_SECRET"] = client_secret
+    spotify_api.reset()
+    logger.info(f"Spotify credentials updated (client id …{client_id[-4:]})")
+    return _credentials_status()
+
+
+# ---------- library ----------
+
+@app.get("/api/library")
+def get_library():
+    snapshot = library.snapshot()
+    for track in snapshot["tracks"]:
+        track["genre"] = genres.genre_for(track)
+    return snapshot
+
+
+@app.get("/api/genres/status")
+def genre_status():
+    return genres.status()
+
+
+@app.get("/api/stream/{track_id}")
+def stream(track_id: str, request: Request):
+    path = library.path_for(track_id)
+    if not path or not path.is_file():
+        raise HTTPException(status_code=404, detail="Track not found")
+    media_type = MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
+    return _ranged_file(path, media_type, request.headers.get("range"))
+
+
+def _ranged_file(path: Path, media_type: str, range_header: Optional[str]):
+    """Answer `Range: bytes=…` with 206 Partial Content.
+
+    Starlette 0.27's FileResponse ignores Range and always sends the whole file,
+    and Safari won't seek <audio> without real 206 responses.
+    """
+    size = path.stat().st_size
+    match = re.fullmatch(r"bytes=(\d*)-(\d*)", (range_header or "").strip())
+    if not match or match.groups() == ("", ""):
+        return FileResponse(path, media_type=media_type, headers={"Accept-Ranges": "bytes"})
+    first, last = match.groups()
+    if first == "":  # "bytes=-500" means the last 500 bytes
+        start, end = max(size - int(last), 0), size - 1
+    else:
+        start, end = int(first), min(int(last) if last else size - 1, size - 1)
+    if start > end or start >= size:
+        return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})
+
+    def chunks():
+        with open(path, "rb") as f:
+            f.seek(start)
+            remaining = end - start + 1
+            while remaining > 0:
+                data = f.read(min(64 * 1024, remaining))
+                if not data:
+                    break
+                remaining -= len(data)
+                yield data
+
+    headers = {"Content-Range": f"bytes {start}-{end}/{size}", "Accept-Ranges": "bytes", "Content-Length": str(end - start + 1)}
+    return StreamingResponse(chunks(), status_code=206, media_type=media_type, headers=headers)
+
+
+@app.get("/api/art/{track_id}")
+def art(track_id: str):
+    cover = library.cover(track_id)
+    if not cover:
+        raise HTTPException(status_code=404, detail="No cover art")
+    data, mime = cover
+    return Response(content=data, media_type=mime, headers={"Cache-Control": "public, max-age=86400"})
+
+
+# ---------- remote cover images (proxied + cached) ----------
+
+# Google's image host rate-limits bursts (HTTP 429): a search page asks for 30-40 covers at once.
+# Fetch each cover once, at most 4 at a time, keep it on disk, and serve it from here.
+IMAGE_CACHE = BASE_DIR / ".imgcache"
+IMAGE_HOSTS = ("yt3.googleusercontent.com", "lh3.googleusercontent.com", "yt3.ggpht.com", "i.ytimg.com", "i.scdn.co",
+               "mosaic.scdn.co", "image-cdn-ak.spotifycdn.com", "image-cdn-fa.spotifycdn.com")
+_image_slots = threading.BoundedSemaphore(4)
+
+
+@app.get("/api/img")
+def remote_image(u: str):
+    parsed = urlparse(u)
+    if parsed.scheme != "https" or parsed.hostname not in IMAGE_HOSTS:
+        raise HTTPException(status_code=400, detail="Image host not allowed")  # not an open proxy
+    key = hashlib.sha1(u.encode()).hexdigest()
+    cached = IMAGE_CACHE / key
+    headers = {"Cache-Control": "public, max-age=604800"}
+    if cached.exists():
+        return FileResponse(cached, media_type=(IMAGE_CACHE / f"{key}.type").read_text() if (IMAGE_CACHE / f"{key}.type").exists() else "image/jpeg", headers=headers)
+    with _image_slots:
+        for attempt in range(3):
+            try:
+                response = requests.get(u, timeout=15)
+            except requests.RequestException:
+                response = None
+            if response is not None and response.status_code == 429 and attempt < 2:
+                time.sleep(1.5 * (attempt + 1))  # rate-limited: back off and retry
+                continue
+            break
+    if response is None or not response.ok or not response.headers.get("content-type", "").startswith("image/"):
+        raise HTTPException(status_code=502, detail="Couldn't fetch image")
+    IMAGE_CACHE.mkdir(exist_ok=True)
+    tmp = IMAGE_CACHE / f"{key}.tmp"
+    tmp.write_bytes(response.content)
+    tmp.replace(cached)
+    (IMAGE_CACHE / f"{key}.type").write_text(response.headers["content-type"].split(";")[0])
+    return Response(content=response.content, media_type=response.headers["content-type"].split(";")[0], headers=headers)
+
+
+# ---------- Spotify ----------
+
+def _spotify(fn, *args):
+    try:
+        return fn(*args)
+    except spotify_api.SpotifyError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+
+@app.get("/api/search")
+def search(q: str, source: Optional[str] = None):
+    """Spotify when it's connected (or asked for), otherwise YouTube Music."""
+    if not q.strip():
+        return {"tracks": [], "artists": [], "albums": [], "playlists": []}
+    if source != "ytm" and (source == "spotify" or spotify_api.check()[0]):
+        return dict(_spotify(spotify_api.search, q.strip(), library.spotify_index()), source="spotify")
+    return _ytmusic(ytmusic.search, q.strip())
+
+
+def _ytmusic(fn, *args):
+    try:
+        return fn(*args)
+    except ytmusic.YTMusicError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+
+@app.get("/api/ytm/{kind}/{item_id}")
+def ytm_item(kind: str, item_id: str):
+    handlers = {"album": ytmusic.album, "playlist": ytmusic.playlist, "artist": ytmusic.artist}
+    if kind not in handlers:
+        raise HTTPException(status_code=404, detail="Unknown type")
+    return _ytmusic(handlers[kind], item_id)
+
+
+@app.get("/api/spotify/{kind}/{spotify_id}")
+def spotify_item(kind: str, spotify_id: str):
+    handlers = {"album": spotify_api.album, "playlist": spotify_api.playlist, "artist": spotify_api.artist}
+    if kind not in handlers:
+        raise HTTPException(status_code=404, detail="Unknown type")
+    if not spotify_api.check()[0] and kind in ("album", "playlist"):
+        # No API (e.g. Premium rule): the public embed still lists the songs
+        try:
+            return spotify_embed.item(kind, spotify_id)
+        except spotify_embed.EmbedError as e:
+            raise HTTPException(status_code=502, detail=str(e))
+    return _spotify(handlers[kind], spotify_id, library.spotify_index())
+
+
+# ---------- downloads ----------
 
 @app.post("/api/download")
-async def download(request: DownloadRequest, background_tasks: BackgroundTasks):
-    """
-    Start a download
-    """
-    try:
-        if not spotdl:
-            raise HTTPException(
-                status_code=400,
-                detail="Spotdl not initialized. Please set SPOTIPY_CLIENT_ID and SPOTIPY_CLIENT_SECRET environment variables. Visit https://developer.spotify.com/dashboard/"
-            )
-        
-        if not request.query.strip():
-            raise HTTPException(status_code=400, detail="Query cannot be empty")
-        
-        download_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        # Add background task
-        background_tasks.add_task(
-            process_download,
-            query=request.query,
-            download_type=request.type,
-            download_id=download_id,
-            format=request.format,
-            bitrate=request.bitrate,
-            include_lyrics=request.includeLyrics
-        )
-        
-        download_status["current"] = {
-            "id": download_id,
-            "query": request.query,
-            "type": request.type,
-            "status": "processing",
-            "progress": 0
-        }
-        
-        return {
-            "status": "started",
-            "message": f"Download started for {request.query}",
-            "download_id": download_id
-        }
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error starting download: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+def download(request: DownloadRequest):
+    query = request.query.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+    kind, title, image, total = request.type, request.title, request.image, request.total
+    common = dict(format=request.format, bitrate=request.bitrate, lyrics=request.includeLyrics)
 
-@app.get("/api/downloads")
-async def list_downloads():
-    """List all completed downloads - both files and folders"""
-    downloads = []
-    
-    if DOWNLOAD_DIR.exists():
-        music_extensions = {'.mp3', '.wav', '.flac', '.opus', '.m4a'}
-        
-        for item in DOWNLOAD_DIR.glob("*"):
-            if item.is_file() and item.suffix.lower() in music_extensions:
-                # Direct music file
-                downloads.append({
-                    "filename": item.name,
-                    "size": item.stat().st_size,
-                    "date": datetime.fromtimestamp(item.stat().st_mtime).isoformat(),
-                    "type": "file"
-                })
-            elif item.is_dir():
-                # Folder (playlist/album) - list songs inside
-                music_files = [f for f in item.rglob('*') if f.is_file() and f.suffix.lower() in music_extensions]
-                
-                for music_file in music_files:
-                    downloads.append({
-                        "filename": music_file.name,
-                        "folder": item.name,
-                        "size": music_file.stat().st_size,
-                        "date": datetime.fromtimestamp(music_file.stat().st_mtime).isoformat(),
-                        "type": "folder_item"
-                    })
-    
-    return {"downloads": downloads}
+    # YouTube Music link, or free text while Spotify is unavailable → yt-dlp path (no Spotify needed)
+    ytm = _ytmusic(ytmusic.parse_url, query)
+    spotify_ok, spotify_error = spotify_api.check()
+    if not ytm and not spotify_api.parse_url(query) and not spotify_ok:
+        songs = _ytmusic(ytmusic.search, query)["tracks"]
+        if not songs:
+            raise HTTPException(status_code=404, detail=f"Nothing found on YouTube Music for {query!r}")
+        ytm = ("track", songs[0]["id"])
+    if ytm:
+        kind, item_id = ytm
+        if kind == "artist":
+            raise HTTPException(status_code=400, detail="Artists can't be downloaded as a whole. Open the artist and download albums or songs.")
+        if not title:
+            title, image, total = ytmusic.describe(kind, item_id)
+        return downloader.submit(query=ytmusic.url_for(kind, item_id), kind=kind, source="ytm", item_id=item_id,
+                                 title=title, image=image, total=1 if kind == "track" else total, **common)
 
-@app.get("/api/download/{filename}")
-async def get_download(filename: str):
-    """Download or stream a file"""
-    
-    # Define explicit MIME types for audio files
-    audio_extensions = {
-        '.mp3': 'audio/mpeg',
-        '.m4a': 'audio/mp4',
-        '.flac': 'audio/flac',
-        '.wav': 'audio/wav',
-        '.ogg': 'audio/ogg',
-        '.opus': 'audio/opus',
-        '.aac': 'audio/aac'
-    }
-    
-    def get_media_type(file_path):
-        ext = file_path.suffix.lower()
-        if ext in audio_extensions:
-            return audio_extensions[ext]
-        return mimetypes.guess_type(str(file_path))[0] or 'application/octet-stream'
-    
-    # First try direct file
-    file_path = DOWNLOAD_DIR / filename
-    if file_path.exists() and file_path.is_file():
-        media_type = get_media_type(file_path)
-        return FileResponse(
-            file_path, 
-            media_type=media_type,
-            headers={
-                "Accept-Ranges": "bytes",
-                "Content-Disposition": f'inline; filename="{filename}"'
-            }
-        )
-    
-    # If not found, search in subdirectories
-    for item in DOWNLOAD_DIR.glob("*"):
-        if item.is_dir():
-            subfolder_file = item / filename
-            if subfolder_file.exists() and subfolder_file.is_file():
-                media_type = get_media_type(subfolder_file)
-                return FileResponse(
-                    subfolder_file, 
-                    media_type=media_type,
-                    headers={
-                        "Accept-Ranges": "bytes",
-                        "Content-Disposition": f'inline; filename="{filename}"'
-                    }
-                )
-    
-    raise HTTPException(status_code=404, detail="File not found")
+    # Spotify link without a working API: read the song list from Spotify's public embed,
+    # then match and download each song from YouTube Music
+    parsed = spotify_api.parse_url(query)
+    if parsed and not spotify_ok:
+        kind, item_id = parsed
+        if kind == "artist":
+            raise HTTPException(status_code=400, detail="Artists can't be downloaded as a whole. Open an album or song instead.")
+        if not title:
+            try:
+                info = spotify_embed.item(kind, item_id)
+                title = info["name"] if kind != "track" else f"{', '.join(a['name'] for a in info['artists'])} - {info['name']}"
+                image, total = info.get("image"), info.get("total_tracks")
+            except spotify_embed.EmbedError as e:
+                raise HTTPException(status_code=502, detail=str(e))
+        return downloader.submit(query=spotify_api.url_for(kind, item_id), kind=kind, source="spotify-embed", item_id=item_id,
+                                 title=title, image=image, total=1 if kind == "track" else total, **common)
 
-async def process_download(query: str, download_type: str, download_id: str, format: str, bitrate: str, include_lyrics: bool = False):
-    """Process download in background"""
-    try:
-        if not spotdl:
-            raise Exception("Spotdl not initialized. Check your Spotify credentials.")
+    # Spotify link or free text with working Spotify keys → spotDL
+    if not spotify_ok:
+        raise HTTPException(status_code=400, detail=f"Free-text downloads need Spotify. {spotify_error}")
+    if parsed:
+        kind = parsed[0]
+        query = spotify_api.url_for(*parsed)  # drop ?si= tracking params
+        if not title:
+            title, image, total = spotify_api.describe(*parsed)
+    kind = kind or "track"
+    return downloader.submit(query=query, kind=kind, title=title, image=image,
+                             total=1 if kind == "track" else total, **common)
 
-        logger.info(f"Processing download: {query} ({download_type})")
 
-        # Update status
-        download_status["current"]["status"] = "processing"
-        download_status["current"]["progress"] = 0
-        download_status["current"]["songs_completed"] = 0
+@app.get("/api/jobs")
+def jobs():
+    return {"jobs": downloader.list()}
 
-        # Map 'aac' to 'm4a' for spotdl CLI
-        cli_format = format.lower()
-        if cli_format == "aac":
-            cli_format = "m4a"
 
-        # Use subprocess to call spotdl CLI which handles everything properly
-        import subprocess
-        try:
-            # Get total songs count from Spotify API
-            total_songs = 1  # default for single track
-            folder_name = None
-            if download_type == "playlist" or download_type == "album":
-                try:
-                    import spotipy
-                    sp = spotipy.Spotify(
-                        client_credentials_manager=spotipy.SpotifyClientCredentials(
-                            client_id=os.getenv("SPOTIPY_CLIENT_ID"),
-                            client_secret=os.getenv("SPOTIPY_CLIENT_SECRET")
-                        )
-                    )
-                    if download_type == "playlist":
-                        playlist_id = query.split("/playlist/")[-1].split("?")[0]
-                        try:
-                            playlist = sp.playlist(playlist_id)
-                            folder_name = playlist.get('name', None)
-                            total_songs = playlist.get('tracks', {}).get('total', 1)
-                            logger.info(f"Fetched playlist: {folder_name} with {total_songs} songs")
-                        except Exception as e:
-                            logger.warning(f"Could not fetch playlist info: {e}")
-                    elif download_type == "album":
-                        album_id = query.split("/album/")[-1].split("?")[0]
-                        try:
-                            album = sp.album(album_id)
-                            folder_name = album.get('name', None)
-                            total_songs = album.get('total_tracks', 1)
-                            logger.info(f"Fetched album: {folder_name} with {total_songs} songs")
-                        except Exception as e:
-                            logger.warning(f"Could not fetch album info: {e}")
-                except ImportError:
-                    logger.warning("spotipy not installed, using default folder name")
-                except Exception as e:
-                    logger.warning(f"Error fetching info from Spotify: {e}")
-                
-                # Sanitize folder name
-                if folder_name:
-                    folder_name = "".join(c if c.isalnum() or c in (' ', '-', '_') else '' for c in folder_name).strip()[:100]
-                
-                # If folder_name is empty or None, create a default one
-                if not folder_name:
-                    folder_name = f"{download_type}_{download_id[:8]}"
-                
-                output_subdir = DOWNLOAD_DIR / folder_name
-                output_subdir.mkdir(parents=True, exist_ok=True)
-                output_dir = str(output_subdir)
-                logger.info(f"Created folder: {folder_name}")
-            else:
-                output_dir = str(DOWNLOAD_DIR)
-            download_status["current"]["total"] = total_songs
-            # Build spotdl command
-            cmd = [
-                "spotdl",
-                "download",
-                query,
-                "--output",
-                output_dir,
-                "--format",
-                cli_format,
-                "--force-update-metadata",
-                "--ytm-data",
-                "--add-unavailable",
-                "--threads",
-                "4"
-            ]
-            
-            if include_lyrics:
-                cmd.append("--generate-lrc")
-            logger.info(f"Running command: {' '.join(cmd)}")
-            logger.info(f"Output directory: {output_dir}")
-            logger.info(f"Expected songs: {total_songs}")
-            timeout_seconds = 1800 if download_type == "playlist" else 600
-            music_extensions = {'.mp3', '.wav', '.flac', '.opus', '.m4a', '.aac'}
-            output_path = Path(output_dir) if output_dir else None
-            # Start the download process and stream output
-            import time
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-            downloaded_count = 0
-            last_count = 0
-            start_time = time.time()
-            while True:
-                line = process.stdout.readline()
-                if not line and process.poll() is not None:
-                    break
-                # Heuristic: spotdl outputs 'Downloaded' or '100%|' per song
-                if line:
-                    if 'Downloaded' in line or '100%|' in line:
-                        downloaded_count += 1
-                # Always count files in output folder for more accuracy
-                if output_path and output_path.exists():
-                    files = [f for f in output_path.rglob('*') if f.is_file() and f.suffix.lower() in music_extensions]
-                    downloaded_count = max(downloaded_count, len(files))
-                # Update status every new song or every second
-                if downloaded_count != last_count or (time.time() - start_time) % 1 < 0.2:
-                    download_status["current"]["songs_completed"] = downloaded_count
-                    download_status["current"]["progress"] = downloaded_count
-                    last_count = downloaded_count
-                    await asyncio.sleep(0.1)
-            process.wait()
-            await asyncio.sleep(0.5)
-            if process.returncode == 0:
-                # Final count
-                if output_path and output_path.exists():
-                    files = [f for f in output_path.rglob('*') if f.is_file() and f.suffix.lower() in music_extensions]
-                    downloaded_count = len(files)
-                if downloaded_count == 0:
-                    downloaded_count = 1
-                download_status["current"]["status"] = "completed"
-                download_status["current"]["progress"] = total_songs
-                download_status["current"]["songs_completed"] = downloaded_count
-                download_status["current"]["total"] = total_songs
-                download_status["downloads"].append({
-                    "id": download_id,
-                    "query": query,
-                    "type": download_type,
-                    "songs_downloaded": downloaded_count,
-                    "status": "completed",
-                    "timestamp": datetime.now().isoformat(),
-                    "output_dir": output_dir
-                })
-                logger.info(f"Download completed: {query} ({downloaded_count} / {total_songs} songs)")
-            else:
-                error_msg = "Process failed"
-                logger.error(f"Spotdl returned error: {error_msg}")
-                raise Exception(f"Spotdl error: {error_msg}")
-        except subprocess.TimeoutExpired:
-            timeout_msg = "Download timed out (playlist downloads can take 20+ minutes, please wait...)"
-            logger.warning(timeout_msg)
-            download_status["current"]["status"] = "timeout"
-            download_status["current"]["progress"] = 50
-            raise Exception(timeout_msg)
-        except Exception as download_error:
-            logger.error(f"Spotdl download error: {download_error}")
-            raise
-            logger.error(f"Spotdl download error: {download_error}")
-            raise
-    
-    except Exception as e:
-        logger.error(f"Error processing download: {e}")
-        download_status["current"]["status"] = "failed"
-        download_status["current"]["error"] = str(e)
+@app.delete("/api/jobs/{job_id}")
+def cancel_job(job_id: str):
+    if not downloader.cancel(job_id):
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"ok": True}
+
 
 if __name__ == "__main__":
     import uvicorn

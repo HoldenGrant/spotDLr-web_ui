@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- spotDLr app icon: macOS grid (824px rounded square on a 1024px canvas), same mark as the favicon -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a2a2a"/>
+      <stop offset="1" stop-color="#0b0b0b"/>
+    </linearGradient>
+    <linearGradient id="disc" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3be477"/>
+      <stop offset="1" stop-color="#1db954"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)" filter="url(#shadow)"/>
+  <rect x="101" y="101" width="822" height="822" rx="184" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="2"/>
+  <circle cx="512" cy="512" r="290" fill="url(#disc)"/>
+  <!-- download arrow -->
+  <path d="M472 300h80v196l70-70 57 57-167 167-167-167 57-57 70 70z" fill="#0b0b0b"/>
+  <rect x="345" y="690" width="334" height="50" rx="25" fill="#0b0b0b"/>
+</svg>

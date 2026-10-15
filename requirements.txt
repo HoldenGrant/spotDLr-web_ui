@@ -4,3 +4,4 @@ python-multipart==0.0.6
 spotdl==4.4.3
 spotipy==2.24.0
 python-dotenv==1.0.0
+yt-dlp-ejs==0.8.0  # YouTube JS challenge solver for yt-dlp (needs Node.js or Deno)

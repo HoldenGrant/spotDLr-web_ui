@@ -1,0 +1,270 @@
+"""
+Local music library, built from the tags spotDL embeds in every file.
+
+Nothing is stored in a database: the downloads/ folder *is* the library.
+Each file's tags are read once and cached until its mtime or size changes,
+so a rescan of ~250 files costs a few milliseconds after the first one.
+"""
+
+import hashlib
+import re
+import threading
+from collections import Counter, OrderedDict
+from pathlib import Path
+
+import mutagen
+
+AUDIO_EXTENSIONS = {".mp3", ".m4a", ".flac", ".opus", ".ogg", ".wav", ".aac"}
+MEDIA_TYPES = {
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".aac": "audio/aac",
+    ".flac": "audio/flac",
+    ".wav": "audio/wav",
+    ".ogg": "audio/ogg",
+    ".opus": "audio/ogg",  # Opus files are Ogg containers; browsers expect audio/ogg
+}
+SPOTIFY_TRACK_ID = re.compile(r"open\.spotify\.com/track/([A-Za-z0-9]{22})")
+# spotDL and our YouTube downloader both put the source URL in the comment tag
+YOUTUBE_ID = re.compile(r"(?:[?&]v=|youtu\.be/)([\w-]{11})")
+# Folder names spotDL/old versions produced when the album/playlist name lookup failed
+JUNK_FOLDER_NAME = re.compile(r"^(https?open|album_\d|playlist_\d|artist_\d)")
+
+
+class Library:
+    def __init__(self, root: Path):
+        self.root = root
+        self._lock = threading.Lock()
+        self._cache = {}  # relative path -> (mtime, size, track dict)
+        self._tracks_by_id = {}
+        self._covers = OrderedDict()  # (track id, mtime) -> (bytes, mime), LRU
+
+    # ---------- scanning ----------
+
+    def scan(self):
+        """Return every track, refreshing tags only for files that changed."""
+        with self._lock:
+            seen = {}
+            for path in self.root.rglob("*"):
+                if not path.is_file() or path.suffix.lower() not in AUDIO_EXTENSIONS:
+                    continue
+                rel = path.relative_to(self.root).as_posix()
+                stat = path.stat()
+                cached = self._cache.get(rel)
+                if cached and cached[0] == stat.st_mtime and cached[1] == stat.st_size:
+                    track = cached[2]
+                else:
+                    track = _read_track(path, rel, stat)
+                    self._cache[rel] = (stat.st_mtime, stat.st_size, track)
+                seen[rel] = track
+            # Forget deleted files
+            for rel in set(self._cache) - set(seen):
+                del self._cache[rel]
+            tracks = sorted(seen.values(), key=lambda t: t["added"], reverse=True)
+            self._tracks_by_id = {t["id"]: t for t in tracks}
+            return tracks
+
+    def snapshot(self):
+        """Library payload for the frontend: tracks plus folder-based collections."""
+        tracks = self.scan()
+        return {"tracks": tracks, "collections": _collections(tracks)}
+
+    def spotify_index(self):
+        """{spotify track id: local track id} for marking search results as owned."""
+        return {t["spotify_id"]: t["id"] for t in self.scan() if t["spotify_id"]}
+
+    # ---------- lookups ----------
+
+    def youtube_index(self):
+        """{youtube video id: local track id}."""
+        return {t["youtube_id"]: t["id"] for t in self.scan() if t["youtube_id"]}
+
+    def path_for(self, track_id):
+        track = self._tracks_by_id.get(track_id) or {t["id"]: t for t in self.scan()}.get(track_id)
+        return (self.root / track["path"]) if track else None
+
+    def cover(self, track_id):
+        """Embedded cover art as (bytes, mime), or None."""
+        path = self.path_for(track_id)
+        if not path or not path.exists():
+            return None
+        key = (track_id, path.stat().st_mtime)
+        if key in self._covers:
+            self._covers.move_to_end(key)
+            return self._covers[key]
+        art = _read_cover(path)
+        if art:
+            self._covers[key] = art
+            if len(self._covers) > 400:  # ~100 KB each, so this caps memory around 40 MB
+                self._covers.popitem(last=False)
+        return art
+
+
+# ---------- tag reading ----------
+
+def _first(tags, key):
+    value = tags.get(key) if tags else None
+    if isinstance(value, list):
+        return str(value[0]) if value else None
+    return str(value) if value else None
+
+
+def _read_track(path: Path, rel: str, stat):
+    # Filenames are "{artists} - {title}.ext"; used only when tags are missing
+    stem = path.stem
+    fallback_artist, _, fallback_title = stem.partition(" - ")
+    if not fallback_title:
+        fallback_artist, fallback_title = "", stem
+
+    title, artists, album, album_artist, date, duration, genre_tag = fallback_title, [], None, None, None, 0, None
+    spotify_id, youtube_id, has_cover = None, None, False
+    try:
+        easy = mutagen.File(path, easy=True)
+        if easy is not None:
+            tags = easy.tags or {}
+            title = _first(tags, "title") or fallback_title
+            artists = [str(a) for a in tags.get("artist", [])] if tags else []
+            album = _first(tags, "album")
+            album_artist = _first(tags, "albumartist")
+            date = _first(tags, "date")
+            genre_tag = _first(tags, "genre")
+            duration = round(getattr(easy.info, "length", 0) or 0, 2)
+        full = mutagen.File(path)
+        if full is not None:
+            spotify_id = _find_spotify_id(full)
+            youtube_id = _find_youtube_id(full)
+            has_cover = _has_cover(full)
+    except Exception:
+        pass  # unreadable tags: keep filename-based fallbacks
+
+    if not artists:
+        artists = [a.strip() for a in fallback_artist.split(",") if a.strip()] or ["Unknown artist"]
+    parts = rel.split("/")
+    return {
+        "id": hashlib.sha1(rel.encode()).hexdigest()[:16],
+        "path": rel,
+        "folder": parts[0] if len(parts) > 1 else None,
+        "title": title,
+        "artists": artists,
+        "album": album or title,
+        "album_artist": album_artist or artists[0],
+        "year": (date or "")[:4] or None,
+        "duration": duration,
+        "added": stat.st_mtime,
+        "size": stat.st_size,
+        "spotify_id": spotify_id,
+        "youtube_id": youtube_id,
+        "has_cover": has_cover,
+        "genre_tag": genre_tag,  # spotDL's Spotify genre, when present; see genres.py
+    }
+
+
+def _find_spotify_id(audio):
+    """spotDL stores the track's Spotify URL in a WOAS tag (----:spotdl:WOAS in M4A)."""
+    for key, value in (audio.tags or {}).items():
+        if "woas" not in str(key).lower():
+            continue
+        values = value if isinstance(value, list) else [value]
+        for v in values:
+            if isinstance(v, (bytes, bytearray)):  # MP4FreeForm is a bytes subclass
+                raw = bytes(v).decode(errors="ignore")
+            else:  # ID3 WOAS frame has .url; Vorbis comments are plain strings
+                raw = str(getattr(v, "url", v))
+            match = SPOTIFY_TRACK_ID.search(raw)
+            if match:
+                return match.group(1)
+    return None
+
+
+def _find_youtube_id(audio):
+    """The YouTube video id from the comment tag: ©cmt (M4A), COMM (ID3) or comment (Vorbis)."""
+    tags = audio.tags or {}
+    candidates = []
+    for key, value in tags.items():
+        k = str(key).lower()
+        if k in ("©cmt", "comment", "description") or k.startswith("comm"):
+            values = value if isinstance(value, list) else [value]
+            candidates += [str(getattr(v, "text", [v])[0] if hasattr(v, "text") else v) for v in values]
+    for text in candidates:
+        match = YOUTUBE_ID.search(text)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _has_cover(audio):
+    tags = audio.tags or {}
+    if "covr" in tags:  # MP4
+        return True
+    if any(str(k).startswith("APIC") for k in tags.keys()):  # MP3 (ID3)
+        return True
+    if getattr(audio, "pictures", None):  # FLAC
+        return True
+    return "metadata_block_picture" in tags  # Ogg/Opus
+
+
+def _read_cover(path: Path):
+    try:
+        audio = mutagen.File(path)
+        tags = audio.tags or {}
+        if "covr" in tags and tags["covr"]:
+            cover = tags["covr"][0]
+            mime = "image/png" if cover.imageformat == 14 else "image/jpeg"  # MP4Cover.FORMAT_PNG == 14
+            return bytes(cover), mime
+        for key in tags.keys():
+            if str(key).startswith("APIC"):
+                return tags[key].data, tags[key].mime or "image/jpeg"
+        if getattr(audio, "pictures", None):
+            picture = audio.pictures[0]
+            return picture.data, picture.mime or "image/jpeg"
+        if "metadata_block_picture" in tags:
+            import base64
+            from mutagen.flac import Picture
+            picture = Picture(base64.b64decode(tags["metadata_block_picture"][0]))
+            return picture.data, picture.mime or "image/jpeg"
+    except Exception:
+        return None
+    return None
+
+
+# ---------- collections ----------
+
+def _collections(tracks):
+    """One collection per top-level folder: an album if every track shares an album tag, else a playlist."""
+    folders = {}
+    for track in tracks:
+        if track["folder"]:
+            folders.setdefault(track["folder"], []).append(track)
+
+    collections = []
+    for folder, items in folders.items():
+        items.sort(key=lambda t: t["path"])
+        albums = Counter(t["album"] for t in items)
+        is_album = len(albums) == 1
+        name = folder
+        if is_album and (JUNK_FOLDER_NAME.match(folder) or len(items) > 1):
+            name = items[0]["album"]
+        elif JUNK_FOLDER_NAME.match(folder):
+            name = albums.most_common(1)[0][0]
+
+        covers, seen_albums = [], set()
+        for track in items:
+            if track["has_cover"] and track["album"] not in seen_albums:
+                covers.append(track["id"])
+                seen_albums.add(track["album"])
+            if len(covers) == 4:
+                break
+
+        collections.append({
+            "key": folder,
+            "name": name,
+            "kind": "album" if is_album else "playlist",
+            "artist": items[0]["album_artist"] if is_album else None,
+            "year": items[0]["year"] if is_album else None,
+            "track_ids": [t["id"] for t in items],
+            "cover_ids": covers[:1] if is_album else covers,
+            "duration": round(sum(t["duration"] for t in items)),
+            "added": max(t["added"] for t in items),
+        })
+    collections.sort(key=lambda c: c["added"], reverse=True)
+    return collections

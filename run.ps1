@@ -11,16 +11,25 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-# Check if spotdl is installed
-$spotdlInstalled = python -m pip show spotdl 2>$null
-if (-not $spotdlInstalled) {
-    Write-Host "spotdl is not installed. Installing..."
-    python -m pip install spotdl
+# Install/check dependencies
+python -m pip install -r requirements.txt --quiet
+
+# Load Spotify credentials from .env (get them from https://developer.spotify.com/dashboard)
+if (Test-Path ".env") {
+    Get-Content ".env" | ForEach-Object {
+        if ($_ -match '^\s*(SPOTIPY_CLIENT_ID|SPOTIPY_CLIENT_SECRET)\s*=\s*(.+?)\s*$') {
+            Set-Item -Path "env:$($Matches[1])" -Value $Matches[2]
+        }
+    }
 }
 
-# Set your Spotify credentials here (get them from https://developer.spotify.com/dashboard)
-$env:SPOTIPY_CLIENT_ID = "5f573c9620494bae87890c0f08a60293"
-$env:SPOTIPY_CLIENT_SECRET = "212476d9b0f3472eaa762d90b19b0ba8"
+if (-not $env:SPOTIPY_CLIENT_ID -or -not $env:SPOTIPY_CLIENT_SECRET) {
+    Write-Host "Spotify credentials are required. Create an app at https://developer.spotify.com/dashboard/"
+    $env:SPOTIPY_CLIENT_ID = Read-Host "Enter your Spotify Client ID"
+    $env:SPOTIPY_CLIENT_SECRET = Read-Host "Enter your Spotify Client Secret"
+    "SPOTIPY_CLIENT_ID=$env:SPOTIPY_CLIENT_ID`nSPOTIPY_CLIENT_SECRET=$env:SPOTIPY_CLIENT_SECRET" | Set-Content ".env"
+    Write-Host "Credentials saved to .env for future use"
+}
 
 Write-Host "✓ Spotify credentials loaded"
 Write-Host ""

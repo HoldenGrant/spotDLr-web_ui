@@ -1,5 +1,13 @@
 # Environment files
+.env
 .env.local
+# spotipy's cached Spotify access token
+.cache
+# cached cover images from YouTube/Spotify
+.imgcache/
+# genres looked up on Deezer
+.genres.json
+.genres.json.tmp
 *.spotdl-config
 
 # Python
@@ -23,6 +31,7 @@ wheels/
 *.egg-MANIFEST
 
 # Virtual environments
+.venv/
 venv/
 ENV/
 env/

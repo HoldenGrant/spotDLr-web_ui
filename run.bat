@@ -69,125 +69,13 @@ if %errorlevel% neq 0 (
 )
 
 
-echo Checking required Python libraries...
-if not exist requirements.txt (
-    echo Error: requirements.txt file not found
-    echo Please make sure you are running this script from the correct directory
-    pause
-    exit /b 1
-)
-
-echo Upgrading pip...
-python -m pip install --upgrade pip --quiet
-
-echo Installing/checking dependencies...
-python -m pip install -r requirements.txt --quiet
-
-if %errorlevel% neq 0 (
-    echo Failed to install some dependencies
-    echo Trying with user installation...
-    python -m pip install -r requirements.txt --user --quiet
-    if %errorlevel% neq 0 (
-        echo Dependency installation failed
-        echo You may need to install dependencies manually:
-        echo python -m pip install -r requirements.txt
-        pause
-    )
-)
-
-echo Dependencies installed successfully
+REM Everything after Python itself is handled by server.ps1 (the same script the spotDLr shortcut uses):
+REM private .venv, dependencies, FFmpeg, Node.js check. Spotify keys are optional.
+echo Starting spotDLr... (keep this window open; close it to stop spotDLr)
+echo It opens in your browser at http://localhost:8000 when ready.
 echo.
-
-echo Checking FFmpeg installation for SpotDL...
-spotdl --download-ffmpeg >nul 2>&1
-if %errorlevel% neq 0 (
-    echo Installing FFmpeg for SpotDL...
-    spotdl --download-ffmpeg
-    if %errorlevel% neq 0 (
-        echo Warning: FFmpeg installation may have failed
-        echo SpotDL might not work properly without FFmpeg
-    ) else (
-        echo FFmpeg installed successfully
-    )
-) else (
-    echo FFmpeg is already installed
-)
+start "" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "for ($i = 0; $i -lt 600; $i++) { try { Invoke-RestMethod http://localhost:8000/api/status/init -TimeoutSec 2 | Out-Null; Start-Process http://localhost:8000; break } catch { Start-Sleep 1 } }"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0launcher\windows\server.ps1"
 echo.
-
-echo Setting Spotify credentials...
-if exist .env (
-    echo Reading credentials from .env file...
-    for /f "usebackq delims=" %%i in (".env") do (
-        set "line=%%i"
-        for /f "tokens=1,2 delims==" %%A in ("!line!") do (
-            if "%%A"=="SPOTIPY_CLIENT_ID" set "SPOTIPY_CLIENT_ID=%%B"
-            if "%%A"=="SPOTIPY_CLIENT_SECRET" set "SPOTIPY_CLIENT_SECRET=%%B"
-        )
-    )
-) else (
-    echo No .env file found, will prompt for credentials...
-)
-
-if not defined SPOTIPY_CLIENT_ID (
-    echo.
-    echo Spotify credentials are required to use this app.
-    echo Please visit: https://developer.spotify.com/dashboard/
-    echo 1. Create a new app
-    echo 2. Copy your Client ID and Client Secret
-    echo.
-    set /p SPOTIPY_CLIENT_ID="Enter your Spotify Client ID: "
-)
-if not defined SPOTIPY_CLIENT_SECRET (
-    set /p SPOTIPY_CLIENT_SECRET="Enter your Spotify Client Secret: "
-)
-
-REM Validate credentials are not empty
-if "!SPOTIPY_CLIENT_ID!"=="" (
-    echo Error: Client ID cannot be empty
-    pause
-    exit /b 1
-)
-if "!SPOTIPY_CLIENT_SECRET!"=="" (
-    echo Error: Client Secret cannot be empty  
-    pause
-    exit /b 1
-)
-
-REM Save credentials to .env file for future use
-if not exist .env (
-    echo SPOTIPY_CLIENT_ID=!SPOTIPY_CLIENT_ID!> .env
-    echo SPOTIPY_CLIENT_SECRET=!SPOTIPY_CLIENT_SECRET!>> .env
-    echo Credentials saved to .env file for future use
-)
-
-echo Credentials loaded successfully
-echo.
-
-echo Starting SpotDL Web App...
-echo Server will run at: http://localhost:8000
-echo Press Ctrl+C to stop
-echo.
-
-REM Set environment variables for Python process
-set "SPOTIPY_CLIENT_ID=%SPOTIPY_CLIENT_ID%"
-set "SPOTIPY_CLIENT_SECRET=%SPOTIPY_CLIENT_SECRET%"
-
-echo Debug: SPOTIPY_CLIENT_ID is set to: %SPOTIPY_CLIENT_ID%
-echo Debug: SPOTIPY_CLIENT_SECRET is set to: [HIDDEN]
-echo.
-
-python app.py
-goto :eof
-
-REM Function to refresh environment variables
-:RefreshEnv
-echo Refreshing environment variables...
-for /f "skip=2 tokens=2*" %%A in ('reg query "HKCU\Environment" /v PATH 2^>nul') do (
-    if not "%%B"=="" set "UserPath=%%B"
-)
-for /f "skip=2 tokens=2*" %%A in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v PATH 2^>nul') do (
-    if not "%%B"=="" set "SystemPath=%%B"
-)
-if defined UserPath set "PATH=%SystemPath%;%UserPath%"
-set "PATH=%PATH%;%USERPROFILE%\AppData\Local\Programs\Python\Python311;%USERPROFILE%\AppData\Local\Programs\Python\Python311\Scripts"
-goto :eof
+echo spotDLr stopped.
+pause
