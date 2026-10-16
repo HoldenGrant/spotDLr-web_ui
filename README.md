@@ -9,6 +9,7 @@ Your own music library and player, with a Spotify-style interface. Search Spotif
 - 🔗 **Paste any Spotify or YouTube Music link** (song, album, playlist). Spotify links work without Spotify API access: the song list is read from Spotify's public player and each song is found on YouTube Music
 - ✅ **Knows what you already have**: every result shows a green check (play it) or a download button, matched by exact Spotify or YouTube ID, then title + artist
 - 💿 **Album, playlist and artist pages**, with "Download N missing" for partly downloaded albums
+- 📊 **Stats page** (chart icon, top right): library charts (songs added per month, genres, top artists, release decades) and listening stats (listening time, top songs and artists, a weekday × hour heatmap) for the last 7/30/90 days, 12 months or all time. Every chart has a table view. Listening history stays on your computer (`plays.jsonl`); a song counts after 30 s of real listening
 - 🏷️ **Browse by genre** on Home, a page per genre, and genre chips on All songs. Genres are looked up once on Deezer's public API (no account) in the background and cached in `.genres.json`; your files aren't modified
 - 📚 **Your Library**: playlists and albums (one per folder), artists, and All songs, built from the tags and cover art in your files
 - 🎧 **Player** with play/pause, next/previous, shuffle, repeat (all/one), seek, volume, and keyboard shortcuts
@@ -19,7 +20,16 @@ Your own music library and player, with a Spotify-style interface. Search Spotif
 
 ## 🚀 Quick Start
 
-### Windows: open it like an app
+### Windows: the installer (easiest)
+
+Download **spotDLr-Setup.exe** from the [Releases page](https://github.com/HoldenGrant/spotDLr-web_ui/releases), double-click it (if Windows says *"Windows protected your PC"*: **More info → Run anyway**), and open **spotDLr** from the Start menu. Nothing else to install: Python, FFmpeg and Node.js are built in, and no Spotify account is needed. Music goes to **Music\spotDLr**; settings and the log to `%LOCALAPPDATA%\spotDLr`. Closing the window closes spotDLr.
+
+**Publishing a new installer:** push a version tag. GitHub Actions builds it on Windows, installs and tests it, and attaches it to a Release:
+```bash
+git tag v2.0.0 && git push origin v2.0.0
+```
+
+### Windows: from source (developers)
 
 1. Install **Python 3.13** and **Node.js** once: `winget install Python.Python.3.13` and `winget install OpenJS.NodeJS` (Node is needed for YouTube downloads).
 2. Double-click **`make_launcher.bat`** once. It creates a **spotDLr** shortcut in the Start menu and on the Desktop.
@@ -245,6 +255,8 @@ If you prefer manual setup instead of using the launcher scripts:
 | GET / POST | `/api/credentials` | Connection status / test and save new keys |
 | GET | `/api/library` | All tracks (from tags, each with a `genre`) and collections (folders) |
 | GET | `/api/genres/status` | Background genre lookup progress |
+| GET | `/api/stats?days=` | Library + listening stats (`days`: 7, 30, 90, 365, or 0 = all time) |
+| POST | `/api/plays` | The player reports a listen (`track_id`, `seconds`) |
 | GET | `/api/img?u=` | Cached proxy for remote cover images |
 | GET | `/api/stream/{track_id}` | Audio, with HTTP Range support for seeking |
 | GET | `/api/art/{track_id}` | Embedded cover art |

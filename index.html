@@ -33,6 +33,7 @@
                 </label>
             </div>
             <div class="topbar-right">
+                <a class="icon-btn big" id="statsBtn" href="#/stats" aria-label="Your stats" title="Your stats"></a>
                 <a class="icon-btn big" id="downloadsBtn" href="#/downloads" aria-label="Downloads">
                     <span class="badge" id="downloadsBadge" hidden>0</span>
                 </a>
@@ -79,6 +80,7 @@
                 </div>
             </div>
             <div class="extras">
+                <button class="icon-btn" id="nowBtn" aria-label="Now playing view" aria-pressed="false"></button>
                 <button class="icon-btn vol" id="muteBtn" aria-label="Mute"></button>
                 <input class="bar volume" id="volumeBar" type="range" min="0" max="100" value="80" aria-label="Volume">
             </div>
@@ -86,6 +88,7 @@
     </div>
 
     <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+    <div id="nowRoot"></div>
     <div id="modalRoot"></div>
 
     <script src="/static/app.js"></script>

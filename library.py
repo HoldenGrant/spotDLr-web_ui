@@ -7,6 +7,7 @@ so a rescan of ~250 files costs a few milliseconds after the first one.
 """
 
 import hashlib
+import os
 import re
 import threading
 from collections import Counter, OrderedDict
@@ -28,6 +29,10 @@ SPOTIFY_TRACK_ID = re.compile(r"open\.spotify\.com/track/([A-Za-z0-9]{22})")
 # spotDL and our YouTube downloader both put the source URL in the comment tag
 YOUTUBE_ID = re.compile(r"(?:[?&]v=|youtu\.be/)([\w-]{11})")
 # Folder names spotDL/old versions produced when the album/playlist name lookup failed
+# Written by the downloader into a playlist/album folder: every song in order, including songs that
+# were already in the library and so live in another folder. Standard m3u8, so VLC etc. read it too.
+PLAYLIST_FILE = "playlist.m3u8"
+
 JUNK_FOLDER_NAME = re.compile(r"^(https?open|album_\d|playlist_\d|artist_\d)")
 
 
@@ -37,6 +42,7 @@ class Library:
         self._lock = threading.Lock()
         self._cache = {}  # relative path -> (mtime, size, track dict)
         self._tracks_by_id = {}
+        self._playlists = {}  # folder -> [relative track paths] from its playlist.m3u8
         self._covers = OrderedDict()  # (track id, mtime) -> (bytes, mime), LRU
 
     # ---------- scanning ----------
@@ -44,8 +50,11 @@ class Library:
     def scan(self):
         """Return every track, refreshing tags only for files that changed."""
         with self._lock:
-            seen = {}
+            seen, playlists = {}, {}
             for path in self.root.rglob("*"):
+                if path.name == PLAYLIST_FILE and path.parent.parent == self.root:
+                    playlists[path.parent.name] = _read_playlist(path, self.root)
+                    continue
                 if not path.is_file() or path.suffix.lower() not in AUDIO_EXTENSIONS:
                     continue
                 rel = path.relative_to(self.root).as_posix()
@@ -62,12 +71,13 @@ class Library:
                 del self._cache[rel]
             tracks = sorted(seen.values(), key=lambda t: t["added"], reverse=True)
             self._tracks_by_id = {t["id"]: t for t in tracks}
+            self._playlists = playlists
             return tracks
 
     def snapshot(self):
         """Library payload for the frontend: tracks plus folder-based collections."""
         tracks = self.scan()
-        return {"tracks": tracks, "collections": _collections(tracks)}
+        return {"tracks": tracks, "collections": _collections(tracks, self._playlists)}
 
     def spotify_index(self):
         """{spotify track id: local track id} for marking search results as owned."""
@@ -229,16 +239,42 @@ def _read_cover(path: Path):
 
 # ---------- collections ----------
 
-def _collections(tracks):
-    """One collection per top-level folder: an album if every track shares an album tag, else a playlist."""
-    folders = {}
+def _read_playlist(path: Path, root: Path):
+    """Entries of an m3u8 as paths relative to the library root (entries outside the library are dropped)."""
+    try:
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+    except OSError:
+        return []
+    out = []
+    for line in lines:
+        line = line.strip().replace("\\", "/")
+        if not line or line.startswith("#"):
+            continue
+        rel = os.path.normpath(os.path.join(path.parent.name, line)).replace(os.sep, "/")
+        if not rel.startswith("../"):
+            out.append(rel)
+    return out
+
+
+def _collections(tracks, playlists=None):
+    """One collection per top-level folder: an album if every track shares an album tag, else a playlist.
+
+    A folder's playlist.m3u8 (when there is one) sets the order and can pull in songs from other folders.
+    """
+    playlists = playlists or {}
+    folders, by_path = {}, {t["path"]: t for t in tracks}
     for track in tracks:
         if track["folder"]:
             folders.setdefault(track["folder"], []).append(track)
 
     collections = []
-    for folder, items in folders.items():
-        items.sort(key=lambda t: t["path"])
+    for folder in set(folders) | set(playlists):
+        own = sorted(folders.get(folder, []), key=lambda t: t["path"])
+        listed = list({t["id"]: t for t in (by_path.get(r) for r in playlists.get(folder, [])) if t}.values())
+        listed_ids = {t["id"] for t in listed}
+        items = listed + [t for t in own if t["id"] not in listed_ids]  # files not in the m3u8 go last
+        if not items:
+            continue
         albums = Counter(t["album"] for t in items)
         is_album = len(albums) == 1
         name = folder

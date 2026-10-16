@@ -381,6 +381,9 @@ def spotify_items(kind, spotify_id):
 
 def js_runtime():
     """yt-dlp needs a JavaScript runtime to unlock YouTube audio links (since late 2025)."""
+    from paths import bundled
+    if bundled("node.exe"):  # the installer ships its own
+        return "node", bundled("node.exe")
     for name in ("deno", "node", "bun"):
         path = shutil.which(name)
         if path:
@@ -389,7 +392,8 @@ def js_runtime():
 
 
 def ffmpeg_path():
-    found = shutil.which("ffmpeg")
+    from paths import bundled
+    found = bundled("ffmpeg.exe") or shutil.which("ffmpeg")  # the installer ships its own
     if found:
         return found
     # spotDL's own copy (spotdl --download-ffmpeg); it's ffmpeg.exe on Windows

@@ -55,7 +55,23 @@ Built into the bundle at build time: the project path, and this Terminal's `PATH
 
 To start completely fresh: `rm -rf .venv`.
 
-## Windows: the spotDLr shortcut (launcher)
+## Windows: the installer (spotDLr-Setup.exe)
+
+**For non-technical users.** One download, nothing else to install.
+
+| Piece | File |
+|---|---|
+| Entry point (`spotDLr.exe`) | `desktop.py`: probes ports 8000–8010 for a running spotDLr (its `search_source` field); else starts the server **in-process on a thread** on the first free port, opens Edge/Chrome `--app` with its **own profile** (so it's a separate browser process), and stops the server when that window closes. Output goes to `%LOCALAPPDATA%\spotDLr\spotDLr.log` (a windowed exe has no stdout, and uvicorn's logging would crash) |
+| Data locations | `paths.py`: frozen → music `Music\spotDLr` (the real Music folder via `SHGetKnownFolderPath`, so OneDrive redirection works), settings/caches `%LOCALAPPDATA%\spotDLr`; from source → the project folder, unchanged |
+| Bundle | `installer/spotDLr.spec` (PyInstaller onedir): `index.html`, `static/`, `collect_all` for ytmusicapi / yt_dlp / yt_dlp_ejs, all uvicorn submodules, `installer/bin/ffmpeg.exe` + `node.exe` → `_internal/bin/`; spotDL excluded |
+| Installer | `installer/spotDLr.iss` (Inno Setup 6): per-user (`%LOCALAPPDATA%\Programs\spotDLr`, no admin), Start menu + optional desktop icon, "Open spotDLr" at the end; uninstall keeps music and settings |
+| Build + test | `.github/workflows/windows-installer.yml` on `windows-latest`: downloads FFmpeg (BtbN) and Node 22.12.0, PyInstaller, Inno Setup, then installs silently and smoke-tests (`/api/status/init`, page, `app.js`, library, bundled tools; search and a real download only *warn* because YouTube may block CI IPs). Every push → artifact; `v*` tag → public Release with `installer/RELEASE_NOTES.md` |
+
+In the installed app **spotDL never runs**: `sys.executable -m spotdl` would launch spotDLr.exe itself, so every download goes through YouTube Music (Spotify links via the embed), even with Spotify keys.
+
+**Checked on the Mac (Oct 15):** `desktop.py` from source (isolated dirs: empty library, second launch detects the first, port taken by another app → next port), and a **PyInstaller build of the same spec run frozen**: page + static served, YouTube Music search, a real download through yt-dlp's bundled JS solver, tags, log in the data dir. The Windows build itself runs first in CI.
+
+## Windows: the spotDLr shortcut (launcher, from source)
 
 Double-click **`make_launcher.bat`** once → `launcher/windows/make_shortcuts.ps1` creates `spotDLr.lnk` in the Start menu and on the Desktop (icon `launcher/icon.ico`). The shortcut runs `powershell -WindowStyle Hidden -File launcher/windows/launch.ps1`:
 

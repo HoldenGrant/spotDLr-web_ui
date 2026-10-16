@@ -4,9 +4,18 @@ Planned work, not started. Related: [[Home]] · [[Launchers & Setup]] · [[Bug L
 
 ---
 
-## Next: test the Windows launcher on a real PC
+## Next: first Windows installer release (for Holden's sister)
 
-Built Oct 15 but never run on Windows (no Windows machine here). First run: double-click `make_launcher.bat`, open spotDLr from the Start menu, and report any message box or the contents of `%LOCALAPPDATA%\spotDLr\spotDLr.log`. See [[Launchers & Setup#Windows: the spotDLr shortcut (launcher)]].
+Built Oct 15; needs Holden to push and tag. Then GitHub Actions builds, tests and publishes it:
+1. Commit and push the packaging work, and watch **Actions → Windows installer** go green.
+2. `git tag v2.0.0 && git push origin v2.0.0` publishes `spotDLr-Setup.exe` on the Releases page.
+3. Send the link; the release notes walk through the one-time "Windows protected your PC" step.
+
+See [[Launchers & Setup#Windows: the installer (spotDLr-Setup.exe)]].
+
+## Later: test the from-source Windows launcher on a real PC
+
+Built Oct 15 but never run on Windows (no Windows machine here). First run: double-click `make_launcher.bat`, open spotDLr from the Start menu, and report any message box or the contents of `%LOCALAPPDATA%\spotDLr\spotDLr.log`. See [[Launchers & Setup#Windows: the spotDLr shortcut (launcher, from source)]].
 
 ## Done: open spotDLr like an app (no typing `localhost:8000`)
 

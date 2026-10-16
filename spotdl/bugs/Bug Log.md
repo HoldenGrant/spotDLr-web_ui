@@ -30,7 +30,7 @@ Spotify's embed player (`open.spotify.com/embed/playlist/…`) lists at most **1
 
 ### Windows launcher untested on a real PC
 
-Everything Windows-side was checked on the Mac only (portable PowerShell 7.4.6: parse, PS 5.1 compatibility scan, logic tests). See [[Launchers & Setup#Windows: the spotDLr shortcut (launcher)]] for what's still unverified.
+Everything Windows-side was checked on the Mac only (portable PowerShell 7.4.6: parse, PS 5.1 compatibility scan, logic tests). See [[Launchers & Setup#Windows: the spotDLr shortcut (launcher, from source)]] for what's still unverified.
 
 ### Small stuff
 
@@ -42,6 +42,22 @@ Everything Windows-side was checked on the Mac only (portable PowerShell 7.4.6: 
 - Spotify search and album/playlist/artist pages have only been tested against a mock built from real library IDs, because the current credentials are dead. Re-test once `.env` has working keys.
 
 ## Fixed
+
+### Now Playing flashed when toggling lyrics (Oct 16)
+
+Turning lyrics on or off made the whole view blink. `renderNowView()` rebuilt everything with `root.innerHTML`, including the backdrop and panel, so (1) the backdrop's 0.2 s `nv-fade` animation replayed on every render, and (2) the new panel started at the default grey `--nv: #535353` until the cover colour promise resolved, then faded to it over the panel's 0.6 s background transition. Song changes did the same, less visibly. **Fix:** the backdrop and panel are created once per opening; re-renders only replace the panel's contents. Cover colours already computed (`NV.colors`) are applied synchronously; a new song keeps the previous tint until its own colour is ready, so it never goes grey. **Checked (headless Chrome):** 10 lyrics toggles plus 3 song changes gave 0 `nv-fade` animations and 0 grey frames out of ~490 animation frames, with the same backdrop and panel elements throughout; close and reopen still fades in once.
+
+### Lyrics: every lookup failed, then 12 of 40 failed (Oct 16)
+
+First test of `/api/lyrics`: 40 of 40 returned 502, though `curl` reached LRCLIB fine. The real exception was `CERTIFICATE_VERIFY_FAILED`: **python.org's Python on macOS ships without root certificates**, so `urllib` can't verify any HTTPS site, while `requests` (used everywhere else) brings `certifi`. **Fix 1:** `lyrics.py` uses `requests`. Then 12 of 40 failed in clusters. LRCLIB answered `503 {"name": "ServerOverloaded", "message": "The server is busy, please retry in a moment"}` to a burst, and one failed request aborted the whole lookup even when the next way of asking (`/search` after `/get`) would have found it. **Fix 2:** 429/5xx/connection errors get two retries (1 s, 3 s), a failed request moves on to the next attempt, and only "nothing found *and* something failed" is an error (not cached, so it's retried later). **Checked:** a fresh sample of 40 songs, paced like real listening: 38 synced, 1 plain, 1 none (white noise), 0 errors; a second pass from the cache took 69 ms for all 40.
+
+### App window kept running the old UI after an update (Oct 16)
+
+After the Now Playing view shipped, the spotDLr window showed no ↗︎ button: `curl` got the new `index.html`, but Chrome never asked for it. `/` and `/static/*` went out with an ETag and Last-Modified but **no Cache-Control**, so Chrome applied heuristic freshness (≈10% of the time since Last-Modified, so a week-old file counts as fresh for ~17 h) and served its own copy. **Fix:** the `local_only` middleware adds `Cache-Control: no-cache` to `/` and `/static/*`, so every load revalidates and gets a 304 when unchanged (checked with `If-None-Match`). A copy cached before the fix still needs one hard reload (⌘⇧R).
+
+### Playlists left out songs you already had (Oct 16)
+
+"Good Vibes Morning Mix" (50 songs): the job said `42 new, 8 already in library`, but the playlist showed 42 songs. Collections were *folders*, and owned songs are skipped (rightly: no duplicate files), so the 8 stayed in their old folders and never joined the playlist. **Fix:** the ownership callbacks now return `{id: path}` instead of a set, `_run_ytm` collects every song's path in order (owned or new), and `write_playlist()` writes `playlist.m3u8` (relative paths, written atomically) into the folder; `library._collections()` uses it for membership and order. **Checked:** a throwaway library (cross-folder entries resolved, order kept, a folder with only an m3u8 still listed), then re-ran the real playlist: `50 already in library`, and the playlist shows 50 songs, 8 of them `../` entries. The spotDL path (`_run`, only used with working Spotify keys) doesn't write an m3u8 yet.
 
 ### Windows: FFmpeg lookup missed ffmpeg.exe; run.bat demanded Spotify keys (Oct 15)
 

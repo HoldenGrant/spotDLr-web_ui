@@ -49,6 +49,18 @@ const ICONS = {
     check: '<circle fill="currentColor" stroke="none" cx="12" cy="12" r="10"/><path stroke="#000" stroke-width="2.4" d="m7.5 12.3 3 3 6-6.3"/>',
     clock: '<circle cx="12" cy="12" r="9.5"/><path d="M12 6.5V12l3.5 2"/>',
     back: '<path d="m15 18-6-6 6-6"/>',
+    up: '<path d="m18 15-6-6-6 6"/>',
+    down: '<path d="m6 9 6 6 6-6"/>',
+    wave: '<path d="M2 12h3l3-7 4 14 4-10 2 3h4"/>',
+    bars: '<path d="M4 20v-6"/><path d="M9 20V8"/><path d="M14 20V4"/><path d="M19 20v-9"/>',
+    ring: '<circle cx="12" cy="12" r="5"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="M2 12h3"/><path d="M19 12h3"/><path d="m4.9 4.9 2.1 2.1"/><path d="m17 17 2.1 2.1"/><path d="m4.9 19.1 2.1-2.1"/><path d="m17 7 2.1-2.1"/>',
+    sparkle: '<circle cx="5" cy="6" r="1.5"/><circle cx="17" cy="4" r="1"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="15" r="1.5"/><circle cx="6" cy="18" r="1"/>',
+    vinyl: '<circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="12" r="3.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/>',
+    sun: '<path d="M7 13a5 5 0 0 1 10 0"/><path d="M3 17h18"/><path d="M6 21h12"/><path d="M12 3v3"/><path d="m5 7 1.5 1.5"/><path d="m19 7-1.5 1.5"/>',
+    mic: '<rect x="9" y="2.5" width="6" height="11.5" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3.5"/>',
+    checkPlain: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+    off: '<circle cx="12" cy="12" r="9.5"/><path d="m5.3 5.3 13.4 13.4"/>',
+    expand: '<path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="M9 21H3v-6"/><path d="m3 21 7-7"/>',
     forward: '<path d="m9 18 6-6-6-6"/>',
     close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
     settings: '<path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1.5 14h5"/><path d="M9.5 8h5"/><path d="M17.5 16h5"/>',
@@ -59,6 +71,7 @@ const ICONS = {
     link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
     speaker: '<path fill="currentColor" stroke="none" d="M11 4.7 6.3 8.5H3v7h3.3l4.7 3.8z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/>',
     warn: '<path d="M12 3 2 20.5h20z"/><path d="M12 10v4.5"/><path d="M12 17.5v.01"/>',
+    chart: '<path d="M3 20.5h18"/><path d="M6 17V11"/><path d="M11 17V5"/><path d="M16 17v-8"/><path d="M21 17v-4"/>',
     spotDLr: '<path fill="currentColor" stroke="none" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 5h2v6.6l2.3-2.3 1.4 1.4L12 17.4l-4.7-4.7 1.4-1.4 2.3 2.3z"/>',
 };
 const icon = (name, size = 16, cls = '') => new Safe(
@@ -180,37 +193,47 @@ function artistArt(a, cls = '') {
     return a.coverId ? html`<div class="art round ${cls}"><img src="${artUrl(a.coverId)}" alt="" loading="lazy"></div>` : html`<div class="art round ${cls}">${icon('user', 24)}</div>`;
 }
 
-// Average colour of an image, darkened a little, for the hero gradient.
-const heroColors = new Map();
+// Average colour of an image, darkened a little so white text stays readable. Resolves to null when
+// it can't be read. Only same-origin images work (our /api/art and /api/img), since it reads pixels.
+const coverColors = new Map(); // url -> Promise<colour | null>
+function coverColor(imgUrl) {
+    if (!imgUrl) return Promise.resolve(null);
+    if (!coverColors.has(imgUrl)) {
+        coverColors.set(imgUrl, new Promise((resolve) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onerror = () => resolve(null);
+            img.onload = () => {
+                try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = canvas.height = 12;
+                    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                    ctx.drawImage(img, 0, 0, 12, 12);
+                    const px = ctx.getImageData(0, 0, 12, 12).data;
+                    let r = 0, g = 0, b = 0, n = 0;
+                    for (let i = 0; i < px.length; i += 4) {
+                        const lum = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+                        if (lum < 18 || lum > 240) continue; // ignore near-black/white borders
+                        r += px[i]; g += px[i + 1]; b += px[i + 2]; n++;
+                    }
+                    if (!n) return resolve(null);
+                    const scale = Math.min(1, 150 / Math.max(r / n, g / n, b / n));
+                    resolve(`rgb(${Math.round(r / n * scale)}, ${Math.round(g / n * scale)}, ${Math.round(b / n * scale)})`);
+                } catch { resolve(null); }
+            };
+            img.src = imgUrl;
+        }));
+    }
+    return coverColors.get(imgUrl);
+}
+
 function applyHeroColor(imgUrl) {
     const view = $('#view');
-    const set = (c) => view.style.setProperty('--hero', c);
-    if (!imgUrl) return set('#535353');
-    if (heroColors.has(imgUrl)) return set(heroColors.get(imgUrl));
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-        try {
-            const canvas = document.createElement('canvas');
-            canvas.width = canvas.height = 12;
-            const ctx = canvas.getContext('2d', { willReadFrequently: true });
-            ctx.drawImage(img, 0, 0, 12, 12);
-            const px = ctx.getImageData(0, 0, 12, 12).data;
-            let r = 0, g = 0, b = 0, n = 0;
-            for (let i = 0; i < px.length; i += 4) {
-                const lum = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
-                if (lum < 18 || lum > 240) continue; // ignore near-black/white borders
-                r += px[i]; g += px[i + 1]; b += px[i + 2]; n++;
-            }
-            if (!n) return set('#535353');
-            const scale = Math.min(1, 150 / Math.max(r / n, g / n, b / n)); // keep white text readable
-            const color = `rgb(${Math.round(r / n * scale)}, ${Math.round(g / n * scale)}, ${Math.round(b / n * scale)})`;
-            heroColors.set(imgUrl, color);
-            if (view.dataset.heroSrc === imgUrl) set(color);
-        } catch { set('#535353'); }
-    };
-    view.dataset.heroSrc = imgUrl;
-    img.src = imgUrl;
+    view.dataset.heroSrc = imgUrl || '';
+    view.style.setProperty('--hero', '#535353');
+    coverColor(imgUrl).then((color) => {
+        if (color && view.dataset.heroSrc === imgUrl) view.style.setProperty('--hero', color);
+    });
 }
 
 // ---------- player ----------
@@ -253,12 +276,74 @@ function playContext(trackIds, startIndex, context) {
     loadAndPlay();
 }
 
+// ---------- listening history (for the Stats page) ----------
+// Count only time actually heard: each timeupdate adds the step since the last one if it's small and
+// forward. A seek is a jump, not listening. The server decides if it counts (30 s, or half a short song).
+const listen = { id: null, seconds: 0, last: null };
+
+function startListen(trackId) {
+    flushListen();
+    listen.id = trackId;
+    listen.seconds = 0;
+    listen.last = null;
+}
+
+function flushListen(useBeacon = false) {
+    if (listen.id && listen.seconds >= 10) {
+        const body = JSON.stringify({ track_id: listen.id, seconds: Math.round(listen.seconds * 10) / 10 });
+        if (useBeacon && navigator.sendBeacon) navigator.sendBeacon('/api/plays', new Blob([body], { type: 'application/json' }));
+        else fetch('/api/plays', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true }).catch(() => {});
+    }
+    listen.id = null;
+    listen.seconds = 0;
+    listen.last = null;
+}
+
+// ---------- resume where you left off ----------
+// The queue, play order, position in it, context (the playlist/album/…) and time in the song, saved in
+// localStorage. On launch the player comes back paused at that spot and the app opens that playlist.
+// ~17 bytes per queued song, so even All songs (600) is ~10 KB.
+
+function saveSession() {
+    const t = currentTrack();
+    if (!t) return;
+    store.set('session', {
+        queue: P.queue, order: P.order, pos: P.pos, context: P.context,
+        trackId: t.id, time: Math.floor(P.audio.currentTime || 0),
+    });
+}
+
+const RESUMABLE_PAGE = /^#\/(songs$|collection\/|artist\/|genre\/)/; // library pages only: a search page would re-run a YouTube search
+
+function restoreSession() {
+    const saved = store.get('session', null);
+    if (!saved || !Array.isArray(saved.queue)) return null;
+    // Songs deleted since are dropped; rebuild the order around what's left
+    const queue = saved.queue.filter((id) => S.byId.has(id));
+    const start = queue.indexOf(saved.trackId);
+    if (start < 0) return null;
+    const oldToNew = new Map(saved.queue.map((id, i) => [i, queue.indexOf(id)]));
+    const order = (saved.order || []).map((i) => oldToNew.get(i)).filter((i) => i !== undefined && i >= 0);
+    P.queue = queue;
+    P.context = saved.context || null;
+    if (order.length === queue.length) { P.order = order; P.pos = order.indexOf(start); } else buildOrder(start);
+    const t = currentTrack();
+    startListen(t.id);   // counting only happens while it actually plays
+    P.audio.src = `/api/stream/${encodeURIComponent(t.id)}`;
+    if (saved.time > 0) P.audio.addEventListener('loadedmetadata', () => { if (saved.time < P.audio.duration - 1) P.audio.currentTime = saved.time; }, { once: true });
+    updateNowPlaying();
+    updateControls();
+    return P.context && RESUMABLE_PAGE.test(P.context.href || '') ? P.context.href : null;
+}
+
 function loadAndPlay() {
     const t = currentTrack();
     if (!t) return;
+    startListen(t.id);
     P.audio.src = `/api/stream/${encodeURIComponent(t.id)}`;
     P.audio.play().catch((err) => { if (err.name !== 'AbortError') toast(`Couldn't play "${t.title}"`, 'error'); });
     updateNowPlaying();
+    saveSession();
 }
 
 function togglePlay() {
@@ -271,7 +356,7 @@ function togglePlay() {
 
 function next(auto = false) {
     if (!currentTrack()) return;
-    if (auto && P.repeat === 'one') { P.audio.currentTime = 0; P.audio.play(); return; }
+    if (auto && P.repeat === 'one') { startListen(currentTrack().id); P.audio.currentTime = 0; P.audio.play(); return; }
     if (P.pos < P.order.length - 1) P.pos++;
     else if (P.repeat !== 'off') { if (P.shuffle) buildOrder(-1); else P.pos = 0; }
     else { if (auto) { P.audio.pause(); P.audio.currentTime = 0; } return; }
@@ -291,12 +376,15 @@ function toggleShuffle() {
     const cur = P.order[P.pos];
     if (P.queue.length) buildOrder(cur ?? -1);
     updateControls();
+    renderNowView();  // the previous/next songs changed
+    saveSession();
 }
 
 function cycleRepeat() {
     P.repeat = { off: 'all', all: 'one', one: 'off' }[P.repeat];
     store.set('repeat', P.repeat);
     updateControls();
+    renderNowView();
 }
 
 const isContextPlaying = (key) => P.context && P.context.key === key && !P.audio.paused;
@@ -310,6 +398,7 @@ function updateNowPlaying() {
     $('#npTitle').href = P.context ? P.context.href : '#/songs';
     $('#npArtist').innerHTML = html`${t.artists.map((a, i) => html`${i ? ', ' : ''}<a href="${artistHref(a)}">${a}</a>`)}`.toString();
     document.title = `${t.title} • ${t.artists.join(', ')}`;
+    renderNowView();
     if ('mediaSession' in navigator) {
         navigator.mediaSession.metadata = new MediaMetadata({
             title: t.title,
@@ -347,6 +436,628 @@ function markPlaying() {
     const t = currentTrack();
     $$('.track[data-id]').forEach((row) => row.classList.toggle('playing', !!t && row.dataset.id === t.id));
     $$('.lib-item[data-key]').forEach((item) => item.classList.toggle('playing', !!P.context && P.context.key === item.dataset.key));
+}
+
+// ---------- Now Playing view ----------
+// Full view of the current song: info + genre on the left, a vertical feed of the previous / current / next
+// covers in the middle (scroll, ↑/↓ or click to move), background tinted from the cover.
+
+const NV = { open: false, opener: null, prevId: null, nextId: null, wheel: 0, wheelLock: 0, lyrics: store.get('nvLyrics', false), colors: new Map() };
+
+// ---------- lyrics ----------
+// /api/lyrics gives {lines: [{t, text}] | null, plain, instrumental}. While shown, a rAF loop finds the
+// current line: the last one whose time has passed, by binary search (~6 steps for 60 lines), checked
+// every frame because timeupdate only fires ~4x/s and would light lines up to 250 ms late.
+
+const LYRICS_LEAD = 0.25;   // seconds early: a line should light up as it starts, not just after
+const L = { data: new Map(), raf: 0, index: -2, userScrollUntil: 0 }; // data: track id -> {state, result|error}
+
+function fetchLyrics(trackId) {
+    const known = L.data.get(trackId);
+    if (known && known.state !== 'error') return;
+    L.data.set(trackId, { state: 'loading' });
+    api(`/lyrics/${encodeURIComponent(trackId)}`)
+        .then((result) => L.data.set(trackId, { state: 'ok', result }))
+        .catch((err) => L.data.set(trackId, { state: 'error', error: err.message }))
+        .finally(() => { const t = currentTrack(); if (NV.open && NV.lyrics && t && t.id === trackId) fillLyrics(); });
+}
+
+function lyricsBody(trackId) {
+    const entry = L.data.get(trackId);
+    if (!entry || entry.state === 'loading') {
+        return html`<div class="nv-lyrics-msg" aria-busy="true">${[70, 55, 80, 45, 65].map((w) => html`<div class="skeleton nv-lyrics-skel" style="width:${w}%"></div>`)}</div>`;
+    }
+    if (entry.state === 'error') {
+        return html`<div class="nv-lyrics-msg"><p>Couldn't load lyrics. ${entry.error}</p><button class="pill-btn" data-lyrics-retry>Try again</button></div>`;
+    }
+    const r = entry.result;
+    if (r.lines) {
+        return html`<div class="nv-lines">${r.lines.map((line, i) => line.text
+            ? html`<button class="nv-line" data-line="${i}" data-t="${line.t}" tabindex="-1">${line.text}</button>`
+            : html`<div class="nv-line gap" data-line="${i}" aria-hidden="true">♪</div>`)}</div>
+            <p class="nv-lyrics-credit">Lyrics from ${r.source === 'file' ? 'the song\'s .lrc file' : 'LRCLIB'}</p>`;
+    }
+    if (r.plain) {
+        return html`<div class="nv-lines plain">${r.plain.split('\n').map((text) => html`<p class="nv-line">${text || '\u00a0'}</p>`)}</div>
+            <p class="nv-lyrics-credit">Not time-synced • LRCLIB</p>`;
+    }
+    if (r.instrumental) return html`<div class="nv-lyrics-msg"><p class="big">♪ Instrumental</p></div>`;
+    return html`<div class="nv-lyrics-msg"><p class="big">No lyrics for this song</p><p>LRCLIB doesn't have them yet.</p></div>`;
+}
+
+function fillLyrics() {
+    const box = $('#nowRoot .nv-lyrics');
+    const t = currentTrack();
+    if (!box || !t) return;
+    box.innerHTML = lyricsBody(t.id).toString();
+    box.scrollTop = 0;
+    L.index = -2;
+    startLyrics();
+}
+
+// The last line with t <= now, or -1 before the first
+function lineAt(lines, now) {
+    let lo = 0, hi = lines.length - 1, found = -1;
+    while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (lines[mid].t <= now) { found = mid; lo = mid + 1; } else hi = mid - 1;
+    }
+    return found;
+}
+
+function lyricsTick() {
+    L.raf = 0;
+    const t = currentTrack();
+    const entry = t && L.data.get(t.id);
+    const box = $('#nowRoot .nv-lyrics');
+    if (!NV.open || !NV.lyrics || !box || !entry || entry.state !== 'ok' || !entry.result.lines || document.hidden) return;
+    const index = lineAt(entry.result.lines, P.audio.currentTime + LYRICS_LEAD);
+    if (index !== L.index) {
+        L.index = index;
+        $$('.nv-line[data-line]', box).forEach((el) => {
+            const i = +el.dataset.line;
+            el.classList.toggle('active', i === index);
+            el.classList.toggle('past', i < index);
+        });
+        const active = index >= 0 && $(`.nv-line[data-line="${index}"]`, box);
+        if (Date.now() > L.userScrollUntil) {
+            // Keep the current line ~40% down the box, like Spotify
+            const top = active ? active.offsetTop - box.clientHeight * 0.4 + active.offsetHeight / 2 : 0;
+            box.scrollTo({ top, behavior: reducedMotion.matches ? 'auto' : 'smooth' });
+        }
+    }
+    L.raf = requestAnimationFrame(lyricsTick);
+}
+
+function startLyrics() {
+    if (!L.raf && NV.open && NV.lyrics) L.raf = requestAnimationFrame(lyricsTick);
+}
+
+function toggleLyrics() {
+    NV.lyrics = !NV.lyrics;
+    store.set('nvLyrics', NV.lyrics);
+    NV.prevId = NV.nextId = null; // no slide animation for the swap
+    renderNowView();
+}
+
+// ---------- visualizer ----------
+// The <audio> element feeds an AnalyserNode, which hands us the sound as numbers 60 times a second:
+// getByteFrequencyData = loudness (0-255) per frequency band, getByteTimeDomainData = the waveform itself.
+// Works because songs stream from our own server; the browser zeroes the data for other-site audio.
+// Once connected, ALL playback goes through the AudioContext, so it's created on a click (browsers start
+// a context made without one suspended = silence) and resumed on every play.
+
+const VIZ_MODES = [
+    ['bars', 'Bars', 'bars'], ['wave', 'Wave', 'wave'], ['ring', 'Ring', 'ring'], ['particles', 'Particles', 'sparkle'],
+    ['vinyl', 'Vinyl', 'vinyl'], ['retro', 'Retro', 'sun'], ['off', 'Off', 'off'],
+];
+const VIZ = Object.fromEntries(VIZ_MODES.map(([key, label, iconName]) => [key, { label, icon: iconName }]));
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const V = {
+    mode: store.get('vizMode', reducedMotion.matches ? 'off' : 'bars'),
+    ctx: null, analyser: null, freq: null, wave: null,
+    canvas: null, raf: 0, color: [83, 83, 83], bands: {}, last: 0,
+    smooth: { bass: 0, treble: 0, level: 0 },
+    particles: null, stars: null, rotation: 0, arm: null, ridge: null, cover: null, // per-mode state
+};
+if (!VIZ[V.mode]) V.mode = 'bars';
+
+function ensureAudioGraph() {
+    if (V.analyser) return true;
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return false;
+    try {
+        V.ctx = new AudioCtx();
+        const source = V.ctx.createMediaElementSource(P.audio);
+        V.analyser = V.ctx.createAnalyser();
+        V.analyser.fftSize = 2048;               // 1024 frequency bins, each sampleRate/2048 ≈ 21.5 Hz wide
+        V.analyser.smoothingTimeConstant = 0.8;  // blend 80% of the last frame in, so bars fall smoothly
+        source.connect(V.analyser);
+        V.analyser.connect(V.ctx.destination);   // forget this and the music goes silent
+        V.freq = new Uint8Array(V.analyser.frequencyBinCount);
+        V.wave = new Uint8Array(V.analyser.fftSize);
+        P.audio.addEventListener('play', () => V.ctx.state === 'suspended' && V.ctx.resume());
+        return true;
+    } catch { return false; }
+}
+
+// Bars on a log scale, like hearing: 30 Hz to 16 kHz in equal *ratios*. Linear bins would give the bass
+// (where most of the energy is) 3 bars and spend 50 on hiss. Returns [firstBin, lastBin] per bar.
+function vizBands(count, sampleRate) {
+    const binHz = sampleRate / 2048;
+    const bands = [];
+    for (let i = 0; i < count; i++) {
+        const lo = 30 * Math.pow(16000 / 30, i / count);
+        const hi = 30 * Math.pow(16000 / 30, (i + 1) / count);
+        const first = Math.floor(lo / binHz);
+        bands.push([first, Math.max(first, Math.floor(hi / binHz))]);
+    }
+    return bands;
+}
+
+function setVizColor(css) {
+    const m = /rgb\((\d+), (\d+), (\d+)\)/.exec(css || '');
+    V.color = m ? [+m[1], +m[2], +m[3]] : [83, 83, 83];
+}
+
+const bandsFor = (count) => V.bands[count] || (V.bands[count] = vizBands(count, V.ctx.sampleRate));
+// Loudness 0-1 of each log-spaced band: its loudest bin
+function bandLevels(count) {
+    return bandsFor(count).map(([first, last]) => {
+        let peak = 0;
+        for (let k = first; k <= last; k++) peak = Math.max(peak, V.freq[k]);
+        return peak / 255;
+    });
+}
+const binAverage = (from, to) => { let sum = 0; for (let k = from; k <= to; k++) sum += V.freq[k]; return sum / ((to - from + 1) * 255); };
+const lerp = (a, b, t) => a + (b - a) * t;
+const tint = (alpha, lift = 0.55) => { const [r, g, b] = V.color.map((c) => Math.round(c + (255 - c) * lift)); return `rgba(${r}, ${g}, ${b}, ${alpha})`; };
+
+// Each mode draws one frame onto the full-panel canvas. f = { w, h, dt, now, bass, treble, level, card, playing }
+// card = the current cover's box inside the panel ({ x, y, size, cx, cy }), so Ring and Vinyl follow it as it slides.
+const VIZ_DRAW = {
+    bars(g, f) {
+        const levels = bandLevels(64), stripH = f.h * 0.32, gap = 3, barW = (f.w - gap * 63) / 64;
+        levels.forEach((v, i) => {
+            const barH = Math.max(2, v * v * stripH);      // squared: quiet stays low, loud jumps out
+            g.fillStyle = tint((0.14 + 0.36 * v) * (NV.lyrics ? 0.6 : 1)); // faint enough that white text on top stays readable
+            g.beginPath();
+            g.roundRect(i * (barW + gap), f.h - barH, barW, barH, [3, 3, 0, 0]);
+            g.fill();
+        });
+    },
+    wave(g, f) {
+        V.analyser.getByteTimeDomainData(V.wave);          // 2048 samples, 128 = silence
+        // Every 8th sample: 256 points is smoother than 2048 (~2 per pixel, jagged) and ⅛ of the work
+        const points = V.wave.length / 8, step = f.w / (points - 1), mid = f.h * 0.8, amp = f.h * 0.18;
+        g.lineWidth = 2;
+        g.strokeStyle = tint(NV.lyrics ? 0.5 : 0.85);
+        g.beginPath();
+        for (let i = 0; i < points; i++) {
+            const y = mid + ((V.wave[i * 8] - 128) / 128) * amp;
+            i ? g.lineTo(i * step, y) : g.moveTo(0, y);
+        }
+        g.stroke();
+    },
+    // The spectrum bent into a circle around the (now round) cover, mirrored left/right so it's symmetric:
+    // bass at the top, treble meeting at the bottom.
+    ring(g, f) {
+        if (!f.card) return;
+        const levels = bandLevels(48), inner = f.card.size / 2 + 10, maxLen = f.card.size * 0.2;
+        g.lineCap = 'round';
+        g.lineWidth = Math.max(2, f.card.size * 0.012);
+        for (let side = -1; side <= 1; side += 2) {
+            levels.forEach((v, i) => {
+                const angle = -Math.PI / 2 + side * (i + 0.5) * (Math.PI / 48);
+                const len = 3 + v * v * maxLen;
+                const cos = Math.cos(angle), sin = Math.sin(angle);
+                g.strokeStyle = tint(0.35 + 0.6 * v);
+                g.beginPath();
+                g.moveTo(f.card.cx + cos * inner, f.card.cy + sin * inner);
+                g.lineTo(f.card.cx + cos * (inner + len), f.card.cy + sin * (inner + len));
+                g.stroke();
+            });
+        }
+        // A soft glow behind the cover that swells with the bass
+        const glow = g.createRadialGradient(f.card.cx, f.card.cy, inner * 0.8, f.card.cx, f.card.cy, inner + maxLen * (0.6 + f.bass));
+        glow.addColorStop(0, tint(0.25 * f.bass + 0.05, 0.3));
+        glow.addColorStop(1, tint(0, 0.3));
+        g.fillStyle = glow;
+        g.fillRect(0, 0, f.w, f.h);
+    },
+    // From VYBE: drifting dots. Bass = faster and bigger, treble = brighter, overall loudness = more opaque.
+    particles(g, f) {
+        if (!V.particles) {
+            V.particles = Array.from({ length: 700 }, () => ({
+                x: Math.random(), y: Math.random(), vx: (Math.random() - 0.5) * 0.04, vy: (Math.random() - 0.5) * 0.04, size: 0.6 + Math.random() * 1.4,
+            }));
+        }
+        const speed = (0.3 + f.bass * 2.4) * f.dt, grow = 1 + f.bass * 1.6;
+        const alpha = Math.min(1, (0.35 + f.treble * 0.65) * (0.5 + f.level * 0.8) + 0.1);
+        g.fillStyle = tint(Math.min(0.75, alpha), 0.4);
+        g.beginPath();
+        for (const p of V.particles) {
+            p.x = (p.x + p.vx * speed + 1) % 1;            // wrap around the edges
+            p.y = (p.y + p.vy * speed + 1) % 1;
+            const r = p.size * grow;
+            g.moveTo(p.x * f.w + r, p.y * f.h);
+            g.arc(p.x * f.w, p.y * f.h, r, 0, Math.PI * 2);
+        }
+        g.fill();                                         // one fill for all dots: ~1 draw call instead of 700
+    },
+    // From VYBE: a record at real 33⅓ RPM with the cover as its label; the tonearm swings off when paused.
+    vinyl(g, f) {
+        if (!f.card) return;
+        const { cx, cy } = f.card, R = f.card.size / 2;
+        if (f.playing) V.rotation += (33.333 / 60) * Math.PI * 2 * f.dt; // revolutions/s → radians this frame
+        const glowR = R * (1.12 + f.bass * 0.25);
+        const glow = g.createRadialGradient(cx, cy, R * 0.7, cx, cy, glowR);
+        glow.addColorStop(0, tint(0.2 + f.bass * 0.35, 0.3));
+        glow.addColorStop(1, tint(0, 0.3));
+        g.fillStyle = glow;
+        g.beginPath(); g.arc(cx, cy, glowR, 0, Math.PI * 2); g.fill();
+
+        g.save();
+        g.translate(cx, cy);
+        g.rotate(V.rotation);
+        g.fillStyle = '#0b0b0e';
+        g.beginPath(); g.arc(0, 0, R, 0, Math.PI * 2); g.fill();
+        for (let i = 0; i < 26; i++) {                     // grooves
+            g.strokeStyle = i % 4 === 0 ? 'rgba(255,255,255,.09)' : 'rgba(255,255,255,.04)';
+            g.lineWidth = 1;
+            g.beginPath(); g.arc(0, 0, R * (0.36 + (i / 26) * 0.6), 0, Math.PI * 2); g.stroke();
+        }
+        const sheen = g.createLinearGradient(-R, -R, R, R);
+        sheen.addColorStop(0, 'rgba(255,255,255,0)'); sheen.addColorStop(0.48, 'rgba(255,255,255,.06)');
+        sheen.addColorStop(0.52, 'rgba(255,255,255,.06)'); sheen.addColorStop(1, 'rgba(255,255,255,0)');
+        g.fillStyle = sheen;
+        g.beginPath(); g.arc(0, 0, R, 0, Math.PI * 2); g.fill();
+        const label = R * 0.36;
+        g.save();
+        g.beginPath(); g.arc(0, 0, label, 0, Math.PI * 2); g.clip();
+        if (V.cover && V.cover.complete && V.cover.naturalWidth) {
+            const side = Math.min(V.cover.naturalWidth, V.cover.naturalHeight); // centre-crop, like object-fit: cover
+            g.drawImage(V.cover, (V.cover.naturalWidth - side) / 2, (V.cover.naturalHeight - side) / 2, side, side, -label, -label, label * 2, label * 2);
+        } else { g.fillStyle = tint(1, 0); g.fillRect(-label, -label, label * 2, label * 2); }
+        g.restore();
+        g.fillStyle = '#050507';
+        g.beginPath(); g.arc(0, 0, R * 0.025, 0, Math.PI * 2); g.fill();
+        g.restore();
+
+        // Tonearm: aimed at a real point on the record (not guessed), easing between playing and resting
+        const pivotX = cx + R * 1.08, pivotY = cy - R * 1.02;
+        const tipX = cx + Math.cos(-0.85) * R * 0.75, tipY = cy + Math.sin(-0.85) * R * 0.75;
+        const armLen = Math.hypot(tipX - pivotX, tipY - pivotY), playAngle = Math.atan2(tipY - pivotY, tipX - pivotX);
+        V.arm = lerp(V.arm ?? playAngle - 1.15, f.playing ? playAngle : playAngle - 1.15, Math.min(1, f.dt * 3));
+        const armW = Math.max(2, R * 0.03);
+        g.save();
+        g.translate(pivotX, pivotY);
+        g.rotate(V.arm);
+        g.strokeStyle = '#d8d8de'; g.lineWidth = armW; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(0, 0); g.lineTo(armLen, 0); g.stroke();
+        g.fillStyle = '#c9c9d2'; g.fillRect(armLen - armW * 1.6, -armW * 0.9, armW * 3.2, armW * 1.8);
+        g.fillStyle = '#2a2a32'; g.beginPath(); g.arc(0, 0, armW * 1.8, 0, Math.PI * 2); g.fill();
+        g.fillStyle = '#c9c9d2'; g.beginPath(); g.arc(0, 0, armW * 0.6, 0, Math.PI * 2); g.fill();
+        g.restore();
+    },
+    // From VYBE: synthwave. Starfield, a striped sun, a scrolling perspective grid, and the spectrum as a
+    // mountain range mirrored from the centre (bass at the edges), so both sides rise together.
+    retro(g, f) {
+        const horizon = f.h * 0.66, cx = f.w / 2;
+        const sky = g.createLinearGradient(0, 0, 0, horizon);
+        sky.addColorStop(0, '#0c0616'); sky.addColorStop(1, '#1b0a2e');
+        g.fillStyle = sky; g.fillRect(0, 0, f.w, horizon);
+        const ground = g.createLinearGradient(0, horizon, 0, f.h);
+        ground.addColorStop(0, '#170a28'); ground.addColorStop(1, '#040207');
+        g.fillStyle = ground; g.fillRect(0, horizon, f.w, f.h - horizon);
+        if (!V.stars) V.stars = Array.from({ length: 90 }, () => ({ x: Math.random(), y: Math.random(), r: 0.5 + Math.random() * 1.3, phase: Math.random() * 6.28 }));
+        const t = f.now / 1000;
+        g.fillStyle = '#ffe3f7';
+        for (const star of V.stars) {
+            g.globalAlpha = 0.25 + 0.3 * (1 + Math.sin(t * 1.4 + star.phase));
+            g.beginPath(); g.arc(star.x * f.w, star.y * horizon, star.r, 0, Math.PI * 2); g.fill();
+        }
+        g.globalAlpha = 1;
+        const sunR = f.h * 0.17;
+        g.save();
+        g.beginPath(); g.arc(cx, horizon, sunR, 0, Math.PI * 2); g.clip();
+        const sun = g.createLinearGradient(0, horizon - sunR, 0, horizon + sunR);
+        sun.addColorStop(0, '#ffd23f'); sun.addColorStop(0.5, '#ff7a3d'); sun.addColorStop(1, '#ff2f8f');
+        g.fillStyle = sun; g.fillRect(cx - sunR, horizon - sunR, sunR * 2, sunR * 2);
+        g.fillStyle = '#1b0a2e';
+        for (let y = horizon - sunR * 0.05, gap = sunR * 0.05; y < horizon + sunR; y += gap, gap *= 1.22) g.fillRect(cx - sunR, y, sunR * 2, gap * 0.6);
+        g.restore();
+        g.strokeStyle = 'rgba(255, 90, 210, .35)'; g.lineWidth = 1;
+        for (let i = 0; i <= 16; i++) { g.beginPath(); g.moveTo(cx, horizon); g.lineTo(f.w * (i / 16 - 0.5) * 2.6 + cx, f.h); g.stroke(); }
+        const scroll = (t * 0.12) % 1;
+        for (let i = 0; i <= 14; i++) {
+            const k = ((i + scroll) / 14) % 1, y = horizon + (f.h - horizon) * k ** 1.9;
+            g.globalAlpha = 0.15 + (1 - k) * 0.1;
+            g.beginPath(); g.moveTo(0, y); g.lineTo(f.w, y); g.stroke();
+        }
+        g.globalAlpha = 1;
+        // Mountains: 36 log bands, eased, bass at the outer edge, mirrored onto the right half
+        const levels = bandLevels(36);
+        V.ridge = V.ridge || new Float32Array(36);
+        levels.forEach((v, i) => { V.ridge[i] = lerp(V.ridge[i], v, Math.min(1, f.dt * 12)); });
+        const half = f.w / 2, step = half / 36, peak = f.h * 0.3;
+        const pts = Array.from(V.ridge, (v, i) => ({ x: i * step + step / 2, y: horizon - v * peak }));
+        pts.push({ x: half, y: pts[35].y });
+        const trace = () => {
+            g.moveTo(0, horizon); g.lineTo(pts[0].x, pts[0].y);
+            for (let i = 0; i < pts.length - 1; i++) g.quadraticCurveTo(pts[i].x, pts[i].y, (pts[i].x + pts[i + 1].x) / 2, (pts[i].y + pts[i + 1].y) / 2);
+            for (let i = pts.length - 1; i > 0; i--) g.quadraticCurveTo(f.w - pts[i].x, pts[i].y, f.w - (pts[i].x + pts[i - 1].x) / 2, (pts[i].y + pts[i - 1].y) / 2);
+            g.lineTo(f.w - pts[0].x, pts[0].y); g.lineTo(f.w, horizon);
+        };
+        g.save();
+        g.shadowColor = 'rgba(255, 47, 200, .65)'; g.shadowBlur = 18;
+        g.beginPath(); trace(); g.closePath();
+        const fill = g.createLinearGradient(0, horizon - peak, 0, horizon);
+        fill.addColorStop(0, '#ff2fd0'); fill.addColorStop(0.55, '#ff4d7a'); fill.addColorStop(1, '#ff9a3d');
+        g.fillStyle = fill; g.fill();
+        g.restore();
+        g.beginPath(); trace();
+        g.strokeStyle = 'rgba(255, 220, 245, .8)'; g.lineWidth = 1.5; g.stroke();
+    },
+};
+const PULSE_MODES = new Set(['bars', 'wave', 'ring', 'particles', 'retro']); // Vinyl replaces the cover; no pulse
+
+function vizFrame(now) {
+    V.raf = 0;
+    if (!NV.open || V.mode === 'off' || !V.analyser || document.hidden) return;
+    const canvas = V.canvas, section = canvas.parentElement;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+        canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    }
+    const g = canvas.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+
+    V.analyser.getByteFrequencyData(V.freq);
+    const dt = Math.min(0.1, (now - (V.last || now)) / 1000); // seconds since last frame, so speed doesn't depend on refresh rate
+    V.last = now;
+    // bins 2-6 ≈ 43-150 Hz (kick, bass); 140-460 ≈ 3-10 kHz (hi-hats, sibilance); eased so they don't flicker
+    V.smooth.bass = lerp(V.smooth.bass, binAverage(2, 6), 0.35);
+    V.smooth.treble = lerp(V.smooth.treble, binAverage(140, 460), 0.25);
+    V.smooth.level = lerp(V.smooth.level, binAverage(0, 511), 0.2);
+
+    const cardEl = $('.nv-card.current', section);
+    let card = null;
+    if (cardEl) {
+        const a = cardEl.getBoundingClientRect(), b = section.getBoundingClientRect();
+        const size = cardEl.offsetWidth;                  // unscaled size: the pulse shouldn't feed back into the ring
+        card = { size, cx: a.left - b.left + a.width / 2, cy: a.top - b.top + a.height / 2 };
+    }
+    const bass = V.smooth.bass;
+    VIZ_DRAW[V.mode](g, { w, h, dt, now, bass, treble: V.smooth.treble, level: V.smooth.level, card, playing: !P.audio.paused });
+    if (cardEl) cardEl.style.transform = PULSE_MODES.has(V.mode) && !reducedMotion.matches ? `scale(${1 + 0.035 * bass * bass})` : '';
+    V.raf = requestAnimationFrame(vizFrame);
+}
+
+function startViz() {
+    if (V.raf || !NV.open || V.mode === 'off' || !ensureAudioGraph()) return;
+    if (V.ctx.state === 'suspended') V.ctx.resume();
+    V.last = 0;
+    V.raf = requestAnimationFrame(vizFrame);
+}
+
+function stopViz() {
+    cancelAnimationFrame(V.raf);
+    V.raf = 0;
+    if (V.canvas) V.canvas.getContext('2d').clearRect(0, 0, V.canvas.width, V.canvas.height);
+    const cover = $('#nowRoot .nv-card.current');
+    if (cover) cover.style.transform = '';
+}
+
+function setVizMode(mode) {
+    if (!VIZ[mode]) return;
+    V.mode = mode;
+    store.set('vizMode', mode);
+    const section = $('#nowRoot .nv');
+    if (section) section.dataset.viz = mode;               // CSS: round cover for Ring, hidden cover for Vinyl
+    const btn = $('#nowRoot [data-nv-viz]');
+    if (btn) { btn.innerHTML = vizButtonInner().s; btn.classList.toggle('on', mode !== 'off'); }
+    $$('#nowRoot [data-viz-option]').forEach((item) => item.setAttribute('aria-checked', item.dataset.vizOption === mode));
+    stopViz();
+    startViz();
+}
+const cycleVizMode = () => setVizMode(VIZ_MODES[(VIZ_MODES.findIndex(([k]) => k === V.mode) + 1) % VIZ_MODES.length][0]);
+const vizButtonInner = () => html`${icon(VIZ[V.mode].icon, 16)}<span>${VIZ[V.mode].label}</span>${icon('down', 14, 'chev')}`;
+const vizMenu = () => html`<div class="nv-viz-menu" role="menu" aria-label="Visualizer" hidden>
+    ${VIZ_MODES.map(([key, label, iconName]) => html`<button role="menuitemradio" aria-checked="${key === V.mode}" data-viz-option="${key}" tabindex="-1">${icon(iconName, 16)}<span>${label}</span>${icon('checkPlain', 16, 'tick')}</button>`)}
+</div>`;
+
+// Dropdown: button toggles, ↑/↓ move, Enter/Space pick, Esc/Tab/click-outside close (Esc here doesn't close the view)
+function vizMenuOpen() { const m = $('#nowRoot .nv-viz-menu'); return !!m && !m.hidden; }
+function openVizMenu(focusCurrent = true) {
+    const menu = $('#nowRoot .nv-viz-menu'), btn = $('#nowRoot [data-nv-viz]');
+    if (!menu) return;
+    menu.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    if (focusCurrent) ($('[aria-checked="true"]', menu) || $('[data-viz-option]', menu)).focus();
+}
+function closeVizMenu(returnFocus = true) {
+    const menu = $('#nowRoot .nv-viz-menu'), btn = $('#nowRoot [data-nv-viz]');
+    if (!menu || menu.hidden) return;
+    menu.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+    if (returnFocus) btn.focus();
+}
+
+// The song `offset` steps away in play order, or null. Wraps only when that's what next() would do.
+function neighbour(offset) {
+    if (!currentTrack()) return null;
+    let i = P.pos + offset;
+    if ((i < 0 || i >= P.order.length) && P.repeat === 'all' && !P.shuffle) i = (i + P.order.length) % P.order.length;
+    return i >= 0 && i < P.order.length ? S.byId.get(P.queue[P.order[i]]) || null : null;
+}
+
+function stepSong(offset) {
+    if (offset > 0) return neighbour(1) && next();
+    if (!neighbour(-1)) return;
+    P.pos = P.pos > 0 ? P.pos - 1 : P.order.length - 1; // previous song, even past the 3 s "restart" point
+    loadAndPlay();
+}
+
+function nvCard(t, step) {
+    if (!t) return html`<div class="nv-card empty" aria-hidden="true"></div>`;
+    const art = t.has_cover ? html`<img src="${artUrl(t.id)}" alt="">` : icon('note', 64);
+    if (!step) return html`<div class="nv-card current">${art}</div>`;
+    return html`<button class="nv-card" data-nv-step="${step}" aria-label="${step > 0 ? 'Next' : 'Previous'}: ${t.title}" tabindex="-1">${art}</button>`;
+}
+
+function renderNowView() {
+    const root = $('#nowRoot');
+    const t = currentTrack();
+    if (!NV.open || !t) { root.innerHTML = ''; return; }
+    const prevT = neighbour(-1), nextT = neighbour(1);
+    // Slide the feed the way the songs moved: the old "next" coming up from below, or the old "previous" from above
+    const dir = t.id === NV.nextId ? 'up' : t.id === NV.prevId ? 'down' : '';
+    NV.prevId = prevT && prevT.id;
+    NV.nextId = nextT && nextT.id;
+    const context = P.context || { label: 'All songs', href: '#/songs' };
+    const year = t.year ? ` • ${t.year}` : '';
+    const hadFocus = root.contains(document.activeElement) ? document.activeElement.dataset.nvFocus : null;
+
+    // The backdrop and panel are built once per opening; re-renders (song change, lyrics on/off) only replace
+    // what's inside. Rebuilding them replayed the backdrop's fade-in and reset the tint to grey: a visible flash.
+    let section = $('.nv', root);
+    if (!section) {
+        root.innerHTML = `<div class="nv-backdrop" data-nv-close><section class="nv" role="dialog" aria-label="Now playing" tabindex="-1" data-nv-focus="panel"></section></div>`;
+        section = $('.nv', root);
+    }
+    section.dataset.viz = V.mode;
+    section.innerHTML = html`
+                <header class="nv-head">
+                    <a class="nv-context" href="${context.href}">${context.label}</a>
+                    <div class="nv-head-actions">
+                        <button class="nv-pill ${NV.lyrics ? 'on' : ''}" data-nv-lyrics data-nv-focus="lyrics" aria-pressed="${NV.lyrics}" title="Lyrics (L)">${icon('mic', 16)}<span>Lyrics</span></button>
+                        <div class="nv-viz-wrap">
+                            <button class="nv-viz ${V.mode !== 'off' ? 'on' : ''}" data-nv-viz data-nv-focus="viz" aria-haspopup="menu" aria-expanded="false" title="Visualizer (V)"><span class="sr-only">Visualizer: </span>${vizButtonInner()}</button>
+                            ${vizMenu()}
+                        </div>
+                        <button class="icon-btn" data-nv-close data-nv-focus="close" aria-label="Close">${icon('close', 20)}</button>
+                    </div>
+                </header>
+                <div class="nv-body">
+                    <div class="nv-info">
+                        <h2 class="nv-title ${t.title.length > 40 ? 'long' : ''}">${t.title}</h2>
+                        <p class="nv-artists">${t.artists.map((a, i) => html`${i ? ', ' : ''}<a href="${artistHref(a)}">${a}</a>`)}</p>
+                        <p class="nv-album">${t.album}${year}</p>
+                        <div class="nv-progress" aria-hidden="true"><i></i></div>
+                        ${t.genre ? html`<div class="nv-tags"><a class="chip small" href="${genreHref(t.genre)}">#${t.genre.toLowerCase()}</a></div>` : ''}
+                        ${nextT ? html`<p class="nv-upnext"><span>Up next</span>${nextT.title} • ${nextT.artists.join(', ')}</p>` : ''}
+                    </div>
+                    ${NV.lyrics
+                        ? html`<div class="nv-lyrics" tabindex="0" aria-label="Lyrics">${lyricsBody(t.id)}</div>`
+                        : html`<div class="nv-feed ${dir}" aria-live="polite">${nvCard(prevT, -1)}${nvCard(t, 0)}${nvCard(nextT, 1)}</div>`}
+                    <div class="nv-nav">
+                        <button class="icon-btn" data-nv-step="-1" data-nv-focus="up" aria-label="Previous song" ${prevT ? '' : 'disabled'}>${icon('up', 24)}</button>
+                        <button class="icon-btn" data-nv-step="1" data-nv-focus="down" aria-label="Next song" ${nextT ? '' : 'disabled'}>${icon('down', 24)}</button>
+                    </div>
+                </div>`.toString();
+    // One canvas for the whole time the view is open, moved into each re-render, so drawing never restarts
+    if (!V.canvas) { V.canvas = document.createElement('canvas'); V.canvas.className = 'nv-viz-canvas'; V.canvas.setAttribute('aria-hidden', 'true'); }
+    section.prepend(V.canvas);
+    if (t.has_cover && (!V.cover || V.cover.dataset.id !== t.id)) { V.cover = new Image(); V.cover.dataset.id = t.id; V.cover.src = artUrl(t.id); }
+    else if (!t.has_cover) V.cover = null;
+    const focusEl = hadFocus && $(`[data-nv-focus="${hadFocus}"]`, root);
+    if (focusEl && !focusEl.disabled) focusEl.focus(); else if (hadFocus) section.focus();
+    updateNowProgress();
+    if (NV.lyrics) { fetchLyrics(t.id); L.index = -2; startLyrics(); }
+    const coverUrl = t.has_cover ? artUrl(t.id) : null;
+    const applyColor = (color) => { section.style.setProperty('--nv', color || '#535353'); setVizColor(color); };
+    if (NV.colors.has(coverUrl)) applyColor(NV.colors.get(coverUrl)); // known: no grey frame in between
+    else coverColor(coverUrl).then((color) => { NV.colors.set(coverUrl, color); if (currentTrack() === t) applyColor(color); });
+}
+
+function updateNowProgress() {
+    const bar = NV.open && $('#nowRoot .nv-progress i');
+    if (bar) bar.style.width = `${P.audio.duration ? (P.audio.currentTime / P.audio.duration) * 100 : 0}%`;
+}
+
+function openNowView() {
+    if (!currentTrack() || NV.open) return;
+    NV.open = true;
+    NV.opener = document.activeElement;
+    NV.prevId = NV.nextId = null; // no slide on open
+    renderNowView();
+    $('#nowBtn').setAttribute('aria-pressed', 'true');
+    $('#nowRoot .nv').focus();
+    startViz();  // opening is a click, so the AudioContext may start here
+}
+
+function closeNowView() {
+    if (!NV.open) return;
+    NV.open = false;
+    stopViz();
+    renderNowView();
+    $('#nowBtn').setAttribute('aria-pressed', 'false');
+    if (NV.opener && NV.opener.isConnected) NV.opener.focus();
+}
+
+function bindNowView() {
+    $('#nowBtn').innerHTML = icon('expand', 16).s;
+    $('#nowBtn').addEventListener('click', () => (NV.open ? closeNowView() : openNowView()));
+    $('#player').addEventListener('click', (e) => { if (e.target.closest('#npArt')) openNowView(); });
+    const root = $('#nowRoot');
+    root.addEventListener('click', (e) => {
+        const step = e.target.closest('[data-nv-step]');
+        if (step) { stepSong(+step.dataset.nvStep); return; }
+        const line = e.target.closest('.nv-line[data-t]');
+        if (line) { P.audio.currentTime = +line.dataset.t; if (P.audio.paused) P.audio.play(); L.userScrollUntil = 0; return; }
+        if (e.target.closest('[data-nv-lyrics]')) { toggleLyrics(); return; }
+        if (e.target.closest('[data-lyrics-retry]')) { const t = currentTrack(); if (t) { L.data.delete(t.id); fillLyrics(); fetchLyrics(t.id); } return; }
+        const option = e.target.closest('[data-viz-option]');
+        if (option) { setVizMode(option.dataset.vizOption); closeVizMenu(); return; }
+        if (e.target.closest('[data-nv-viz]')) { vizMenuOpen() ? closeVizMenu() : openVizMenu(e.detail === 0); return; } // detail 0 = keyboard
+        if (vizMenuOpen()) { closeVizMenu(false); if (!e.target.closest('a, button')) return; }
+        // Close on the X, on the dimmed area around the panel, or when a link inside navigates away
+        if (e.target.closest('button[data-nv-close]') || e.target.matches('.nv-backdrop') || e.target.closest('a')) closeNowView();
+    });
+    // On document, not the view: focus may be on the player bar (e.g. after pausing) while the view is open
+    document.addEventListener('keydown', (e) => {
+        if (!NV.open || $('#modalRoot').children.length) return;
+        const el = e.target instanceof Element ? e.target : document.body;
+        if (vizMenuOpen()) {
+            const items = $$('#nowRoot [data-viz-option]'), i = items.indexOf(document.activeElement);
+            if (e.key === 'Escape') { e.preventDefault(); closeVizMenu(); }
+            else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus();
+            } else if (e.key === 'Home' || e.key === 'End') { e.preventDefault(); items[e.key === 'Home' ? 0 : items.length - 1].focus(); }
+            else if (e.key === 'Tab') closeVizMenu(false);
+            return;                                        // Enter/Space click the focused option natively
+        }
+        if (e.key === 'Escape') { e.preventDefault(); closeNowView(); }
+        else if (e.key === 'ArrowDown' && el.closest('[data-nv-viz]')) { e.preventDefault(); openVizMenu(); }
+        else if (e.key.toLowerCase() === 'l' && !e.metaKey && !e.ctrlKey && !el.closest('input, textarea, select')) toggleLyrics();
+        else if (e.key.toLowerCase() === 'v' && !e.metaKey && !e.ctrlKey && !el.closest('input, textarea, select')) cycleVizMode();
+        else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && (root.contains(el) || el === document.body)) {
+            e.preventDefault();
+            stepSong(e.key === 'ArrowDown' ? 1 : -1);
+        }
+    });
+    // One song per scroll gesture: a trackpad fires dozens of small wheel events, so add them up and then pause
+    root.addEventListener('wheel', (e) => {
+        if (!e.target.closest('.nv-feed')) return;
+        e.preventDefault();
+        if (Date.now() < NV.wheelLock) return;
+        NV.wheel += e.deltaY;
+        if (Math.abs(NV.wheel) > 60) {
+            stepSong(NV.wheel > 0 ? 1 : -1);
+            NV.wheel = 0;
+            NV.wheelLock = Date.now() + 700;
+        }
+    }, { passive: false });
+    for (const type of ['wheel', 'touchmove', 'pointerdown']) {
+        root.addEventListener(type, (e) => { if (e.target.closest('.nv-lyrics')) L.userScrollUntil = Date.now() + 3000; }, { passive: true });
+    }
+    window.addEventListener('hashchange', closeNowView);
+    // rAF stops in a hidden window anyway; restart drawing when it comes back
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) { startViz(); startLyrics(); } });
 }
 
 function setRangeFill(input) {
@@ -394,17 +1105,28 @@ function bindPlayer() {
     showVolume();
 
     P.audio.addEventListener('timeupdate', () => {
+        if (!P.audio.paused && listen.id) {
+            const now = P.audio.currentTime;
+            if (listen.last !== null && now > listen.last && now - listen.last < 1.5) listen.seconds += now - listen.last;
+            listen.last = now;
+        }
         if (P.seeking) return;
         const d = P.audio.duration || 0;
         seek.value = d ? Math.round((P.audio.currentTime / d) * 1000) : 0;
         setRangeFill(seek);
         $('#timeCurrent').textContent = fmtTime(P.audio.currentTime);
         $('#timeTotal').textContent = fmtTime(d);
+        updateNowProgress();
     });
     P.audio.addEventListener('loadedmetadata', () => { $('#timeTotal').textContent = fmtTime(P.audio.duration); });
     P.audio.addEventListener('play', updateControls);
     P.audio.addEventListener('pause', updateControls);
-    P.audio.addEventListener('ended', () => next(true));
+    P.audio.addEventListener('ended', () => { flushListen(); next(true); });  // report before moving on (or stopping)
+    P.audio.addEventListener('seeking', () => { listen.last = null; });  // a jump isn't listening
+    window.addEventListener('pagehide', () => { flushListen(true); saveSession(); });
+    P.audio.addEventListener('pause', saveSession);
+    let lastSave = 0;
+    P.audio.addEventListener('timeupdate', () => { if (Date.now() - lastSave > 5000) { lastSave = Date.now(); saveSession(); } });
     P.audio.addEventListener('error', () => {
         const t = currentTrack();
         if (t && P.audio.src) { toast(`Couldn't load "${t.title}". Skipping.`, 'error'); setTimeout(() => next(true), 600); }
@@ -1200,6 +1922,243 @@ function viewDownloads() {
     </div>`;
 }
 
+// ---------- stats page ----------
+
+const STATS_RANGES = [[7, 'Last 7 days'], [30, 'Last 30 days'], [90, 'Last 90 days'], [365, 'Last 12 months'], [0, 'All time']];
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const fmtListen = (sec) => {
+    const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+    return h ? `${h.toLocaleString()} hr ${m} min` : `${m} min`;
+};
+const fmtCompact = (n) => n >= 1e6 ? `${(n / 1e6).toFixed(1).replace(/\.0$/, '')}M` : n >= 1e4 ? `${(n / 1e3).toFixed(1).replace(/\.0$/, '')}K` : Math.round(n).toLocaleString();
+const fmtBytes = (b) => b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.round(b / 1e6)} MB`;
+const fmtMinutes = (sec) => sec >= 3600 ? `${(sec / 3600).toFixed(1).replace(/\.0$/, '')} hr` : `${Math.round(sec / 60)} min`;
+// "Dec '25", not "Dec 25" (which reads as the 25th of December)
+const monthAxis = (key, i) => { const [y, m] = key.split('-').map(Number); return m === 1 || i === 0 ? `${MONTHS[m - 1]} '${String(y).slice(2)}` : MONTHS[m - 1]; };
+const monthLong = (key) => { const [y, m] = key.split('-').map(Number); return `${MONTHS[m - 1]} ${y}`; };
+const dayAxis = (key) => { const d = new Date(`${key}T12:00`); return `${MONTHS[d.getMonth()]} ${d.getDate()}`; };
+const dayLong = (key) => new Date(`${key}T12:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+const hourName = (h) => `${h % 12 || 12} ${h < 12 ? 'am' : 'pm'}`;
+
+// Axis top: the next "clean" number (1, 2, 4, 5, 10 × 10^n) at or above the max
+function niceMax(value) {
+    if (value <= 0) return 1;
+    const exp = 10 ** Math.floor(Math.log10(value));
+    return [1, 2, 4, 5, 10].map((m) => m * exp).find((v) => v >= value);
+}
+
+// Time axes must be clean in the unit shown (whole hours, or minutes), not in seconds: 5040 s = "1.4 hr"
+const niceTime = (seconds) => {
+    if (seconds > 3600) return niceMax(seconds / 3600) * 3600;
+    let minutes = niceMax(Math.max(seconds, 60) / 60);
+    if (minutes % 2) minutes = niceMax(minutes + 0.001);  // a 5-min top would put the middle tick at 2.5 min
+    return minutes * 60;
+};
+
+function chartCard({ title, sub, body, table, wide = false }) {
+    return html`<section class="chart-card ${wide ? 'wide' : ''}">
+        <header class="chart-head">
+            <div><h3>${title}</h3>${sub ? html`<p>${sub}</p>` : ''}</div>
+            <button class="chip small" data-action="toggle-table" aria-pressed="false">Table</button>
+        </header>
+        <div class="chart-body">${body}</div>
+        <div class="chart-table">${table}</div>
+    </section>`;
+}
+
+function dataTable(headers, rows) {
+    return html`<table><thead><tr>${headers.map((h, i) => html`<th class="${i ? 'num' : ''}">${h}</th>`)}</tr></thead>
+        <tbody>${rows.map((r) => html`<tr>${r.map((c, i) => html`<td class="${i ? 'num' : ''}">${c}</td>`)}</tr>`)}</tbody></table>`;
+}
+
+// Columns: one series, values from a single baseline, ≤24px wide, 4px rounded tops. Only the peak gets a label.
+function columnChart(data, { fmt, axisLabel, tipLabel }) {
+    const values = data.map((d) => d.value);
+    const peak = Math.max(0, ...values);
+    const top = fmt === fmtMinutes ? niceTime(peak) : niceMax(peak);
+    const integer = values.every(Number.isInteger) && fmt === fmtCompact;
+    const ticks = [0, top / 2, top].filter((t) => !integer || Number.isInteger(t));
+    const every = Math.ceil(data.length / 8);
+    const peakIndex = values.indexOf(peak);
+    return html`<div class="cols-chart" style="--n:${data.length}">
+        <div class="y-axis">${ticks.map((t) => html`<span style="bottom:${(t / top) * 100}%">${fmt(t)}</span>`)}</div>
+        <div class="plot">
+            ${ticks.map((t) => html`<i class="gridline" style="bottom:${(t / top) * 100}%"></i>`)}
+            ${data.map((d, i) => html`<div class="col" tabindex="0" role="img" aria-label="${tipLabel(d.key)}: ${fmt(d.value)}"
+                    data-tip-label="${tipLabel(d.key)}" data-tip-value="${fmt(d.value)}">
+                <span class="col-bar" style="height:${d.value > 0 ? `max(2px, ${(d.value / top) * 100}%)` : '0'}">${i === peakIndex && peak > 0 ? html`<em class="col-value">${fmt(d.value)}</em>` : ''}</span>
+            </div>`)}
+        </div>
+        <div class="x-axis">${data.map((d, i) => {
+            // Every nth label plus the last one, skipping a regular label that would sit on top of the last
+            const last = data.length - 1;
+            const show = i === last || (i % every === 0 && last - i >= every);
+            return html`<span>${show ? axisLabel(d.key, i) : ''}</span>`;
+        })}</div>
+    </div>`;
+}
+
+// Horizontal bars: label · bar · value at the tip
+function barList(items, { fmt, labelOf = (d) => d.key, hrefOf }) {
+    const top = Math.max(1, ...items.map((d) => d.value));
+    return html`<ol class="hbars">${items.map((d) => {
+        const href = hrefOf && hrefOf(d);  // "Other" has nowhere to go: plain text, not a link to this page
+        return html`
+        <li class="hbar-row" tabindex="0" data-tip-label="${labelOf(d)}" data-tip-value="${fmt(d.value)}">
+            <span class="hbar-label">${href ? html`<a href="${href}">${labelOf(d)}</a>` : labelOf(d)}</span>
+            <span class="hbar-track"><span class="hbar" style="width:${(d.value / top) * 100}%"></span></span>
+            <span class="hbar-value">${fmt(d.value)}</span>
+        </li>`;
+    })}</ol>`;
+}
+
+// Weekday × hour grid, 5 validated steps of one green (dark → bright); empty cells are a neutral tile
+function heatmap(rows) {
+    const peak = Math.max(0, ...rows.flat());
+    const level = (v) => (v <= 0 || !peak ? 0 : Math.min(5, Math.ceil((v / peak) * 5)));
+    return html`<div class="heat">
+        <div class="heat-grid">
+            ${rows.map((row, day) => html`<span class="heat-day">${WEEKDAYS[day]}</span>${row.map((v, hour) => html`<span class="heat-cell l${level(v)}" tabindex="0"
+                    role="img" aria-label="${WEEKDAYS[day]} ${hourName(hour)}: ${fmtMinutes(v)}" data-tip-label="${WEEKDAYS[day]}, ${hourName(hour)}" data-tip-value="${fmtMinutes(v)}"></span>`)}`)}
+            <span></span>${Array.from({ length: 24 }, (_, h) => html`<span class="heat-hour">${h % 6 === 0 ? hourName(h) : ''}</span>`)}
+        </div>
+        <div class="heat-legend" aria-hidden="true">Less ${[0, 1, 2, 3, 4, 5].map((l) => html`<span class="heat-cell l${l}"></span>`)} More</div>
+    </div>`;
+}
+
+function statTile(label, value, delta) {
+    return html`<div class="stat-tile"><div class="stat-label">${label}</div><div class="stat-value">${value}</div>${delta || ''}</div>`;
+}
+
+function deltaText(current, previous, rangeLabel) {
+    if (previous === null || previous === undefined) return '';
+    if (!previous) return current ? html`<div class="stat-delta">New this period</div>` : '';
+    const pct = Math.round(((current - previous) / previous) * 100);
+    const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '';
+    return html`<div class="stat-delta">${arrow} ${Math.abs(pct)}% vs previous ${rangeLabel.replace('Last ', '').replace('12 months', 'year')}</div>`;
+}
+
+let statsCache = null;
+async function viewStats() {
+    const days = store.get('statsDays', 30);
+    let data;
+    try { data = await api(`/stats?days=${days}`); statsCache = data; }
+    catch (err) { if (!statsCache) return errorView(err.message); data = statsCache; }
+    const lib = data.library;
+    const lis = data.listening;
+    const rangeLabel = (STATS_RANGES.find(([d]) => d === days) || STATS_RANGES[1])[1];
+
+    // Library: genres as top 10 + Other (bars, not a donut: there are more than 7 classes)
+    const knownGenres = lib.genres.filter((g) => g.key !== 'Unknown');
+    const genreBars = knownGenres.slice(0, 10);
+    const otherGenres = knownGenres.slice(10).reduce((sum, g) => sum + g.value, 0);
+    if (otherGenres) genreBars.push({ key: 'Other', value: otherGenres });
+
+    const librarySection = html`
+    <section class="stats-section">
+        <h2 class="section-title">Your library</h2>
+        <div class="stat-row">
+            ${statTile('Songs', lib.songs.toLocaleString())}
+            ${statTile('Artists', lib.artists.toLocaleString())}
+            ${statTile('Albums', lib.albums.toLocaleString())}
+            ${statTile('Music', fmtListen(lib.seconds))}
+            ${statTile('On disk', fmtBytes(lib.bytes))}
+        </div>
+        <div class="chart-grid">
+            ${chartCard({ title: 'Songs added', sub: 'Per month', wide: true,
+                body: columnChart(lib.added_by_month, { fmt: fmtCompact, axisLabel: monthAxis, tipLabel: monthLong }),
+                table: dataTable(['Month', 'Songs'], lib.added_by_month.map((d) => [monthLong(d.key), d.value])) })}
+            ${chartCard({ title: 'Genres', sub: `${lib.genres_known.toLocaleString()} of ${lib.songs.toLocaleString()} songs have a genre`,
+                body: barList(genreBars, { fmt: fmtCompact, hrefOf: (d) => d.key === 'Other' ? null : genreHref(d.key) }),
+                table: dataTable(['Genre', 'Songs'], knownGenres.map((g) => [g.key, g.value])) })}
+            ${chartCard({ title: 'Top artists', sub: 'By number of songs',
+                body: barList(lib.top_artists, { fmt: fmtCompact, hrefOf: (d) => artistHref(d.key) }),
+                table: dataTable(['Artist', 'Songs'], lib.top_artists.map((a) => [a.key, a.value])) })}
+            ${lib.decades.length ? chartCard({ title: 'Release decades', sub: `${lib.years_known.toLocaleString()} of ${lib.songs.toLocaleString()} songs have a release year`, wide: true,
+                body: columnChart(lib.decades, { fmt: fmtCompact, axisLabel: (k) => k, tipLabel: (k) => k }),
+                table: dataTable(['Decade', 'Songs'], lib.decades.map((d) => [d.key, d.value])) }) : ''}
+        </div>
+    </section>`;
+
+    const bucketAxis = lis.bucket === 'day' ? dayAxis : monthAxis;
+    const bucketLong = lis.bucket === 'day' ? dayLong : monthLong;
+    const listeningBody = !lis.plays
+        ? html`<div class="empty stats-empty">${icon('chart', 40)}<h2>No listening ${days ? 'in this period' : 'yet'}</h2>
+            <p>Songs count once they've played for 30 seconds. Play some music and your stats appear here.</p></div>`
+        : html`
+        <div class="stat-row">
+            <div class="stat-tile hero-tile"><div class="stat-label">Listening time</div><div class="hero-value">${fmtListen(lis.seconds)}</div>${deltaText(lis.seconds, lis.previous_seconds, rangeLabel)}</div>
+            ${statTile('Plays', lis.plays.toLocaleString(), deltaText(lis.plays, lis.previous_plays, rangeLabel))}
+            ${statTile('Different songs', lis.songs.toLocaleString())}
+            ${statTile('Artists', lis.artists.toLocaleString())}
+        </div>
+        <div class="chart-grid">
+            ${chartCard({ title: 'Listening time', sub: lis.bucket === 'day' ? 'Per day' : 'Per month', wide: true,
+                body: columnChart(lis.per_bucket, { fmt: fmtMinutes, axisLabel: bucketAxis, tipLabel: bucketLong }),
+                table: dataTable([lis.bucket === 'day' ? 'Day' : 'Month', 'Listening'], lis.per_bucket.map((d) => [bucketLong(d.key), fmtMinutes(d.value)])) })}
+            ${chartCard({ title: 'Top songs', sub: 'Most played',
+                body: html`<ol class="top-songs">${lis.top_songs.map((t, i) => {
+                    const local = t.in_library ? S.byId.get(t.id) : null;
+                    return html`<li class="top-song" ${local ? html`data-action="play-local" data-local-id="${t.id}" tabindex="0"` : ''}>
+                        <span class="rank">${i + 1}</span>${trackArt(local)}
+                        <span class="top-song-text"><span class="title-name">${t.title}</span><span class="title-sub">${t.artists.join(', ')}</span></span>
+                        <span class="top-song-plays">${plural(t.plays, 'play')}</span></li>`;
+                })}</ol>`,
+                table: dataTable(['Song', 'Artist', 'Plays', 'Listening'], lis.top_songs.map((t) => [t.title, t.artists.join(', '), t.plays, fmtMinutes(t.seconds)])) })}
+            ${chartCard({ title: 'Top artists', sub: 'By listening time',
+                body: barList(lis.top_artists, { fmt: fmtMinutes, hrefOf: (d) => artistHref(d.key) }),
+                table: dataTable(['Artist', 'Listening'], lis.top_artists.map((a) => [a.key, fmtMinutes(a.value)])) })}
+            ${chartCard({ title: 'When you listen', sub: 'By weekday and hour', wide: true,
+                body: heatmap(lis.heatmap),
+                table: dataTable(['Day', ...Array.from({ length: 24 }, (_, h) => hourName(h))], lis.heatmap.map((row, d) => [WEEKDAYS[d], ...row.map((v) => (v ? fmtMinutes(v) : '–'))])) })}
+            ${chartCard({ title: 'Genres you play', sub: 'By listening time', wide: true,
+                body: barList(lis.genres.slice(0, 10), { fmt: fmtMinutes }),
+                table: dataTable(['Genre', 'Listening'], lis.genres.map((g) => [g.key, fmtMinutes(g.value)])) })}
+        </div>`;
+
+    return html`<div class="view-pad stats-page">
+        <h1 class="greeting" style="margin-top:8px">Your stats</h1>
+        ${librarySection}
+        <section class="stats-section">
+            <h2 class="section-title">Listening</h2>
+            <div class="filter-row" role="group" aria-label="Time range">${STATS_RANGES.map(([d, label]) =>
+                html`<button class="chip ${d === days ? 'active' : ''}" data-stats-days="${d}" aria-pressed="${d === days}">${label}</button>`)}</div>
+            <div class="stats-listening">${listeningBody}</div>
+        </section>
+    </div>`;
+}
+
+// One shared tooltip for every chart mark (hover or keyboard focus); text only, never innerHTML
+function bindChartTooltip() {
+    const tip = document.createElement('div');
+    tip.className = 'chart-tip';
+    tip.setAttribute('role', 'tooltip');
+    tip.hidden = true;
+    const value = document.createElement('strong');
+    const label = document.createElement('span');
+    tip.append(value, label);
+    document.body.appendChild(tip);
+    const show = (e) => {
+        const mark = e.target.closest && e.target.closest('[data-tip-value]');
+        if (!mark) return;
+        value.textContent = mark.dataset.tipValue;
+        label.textContent = mark.dataset.tipLabel;
+        tip.hidden = false;
+        const box = mark.getBoundingClientRect();
+        const left = Math.min(window.innerWidth - tip.offsetWidth - 8, Math.max(8, box.left + box.width / 2 - tip.offsetWidth / 2));
+        tip.style.left = `${left}px`;
+        tip.style.top = `${Math.max(8, box.top - tip.offsetHeight - 8)}px`;
+    };
+    const hide = (e) => { if (e.target.closest && e.target.closest('[data-tip-value]')) tip.hidden = true; };
+    document.addEventListener('pointerover', show);
+    document.addEventListener('focusin', show);
+    document.addEventListener('pointerout', hide);
+    document.addEventListener('focusout', hide);
+    document.addEventListener('scroll', () => { tip.hidden = true; }, true);
+}
+
 // ---------- router ----------
 
 function route() {
@@ -1215,6 +2174,7 @@ function route() {
         case 'spotify': case 'ytm': return { name: 'remote', source: name, kind: parts[0], id: parts.slice(1).join('/') };
         case 'downloads': return { name: 'downloads' };
         case 'genres': return { name: 'genres' };
+        case 'stats': return { name: 'stats' };
         case 'genre': return { name: 'genre', genre: parts.join('/') };
         default: return { name: 'home' };
     }
@@ -1249,6 +2209,7 @@ async function render({ keepScroll = false } = {}) {
         case 'remote': content = await viewRemote(r.source, r.kind, r.id); break;
         case 'downloads': content = viewDownloads(); break;
         case 'genres': content = viewGenres(); break;
+        case 'stats': content = await viewStats(); break;
         case 'genre': content = viewGenre(r.genre); break;
         default: content = viewHome();
     }
@@ -1316,6 +2277,11 @@ function bindEvents() {
                 actionEl.setAttribute('aria-pressed', P.shuffle);
             } else if (action === 'cancel-job') {
                 api(`/jobs/${encodeURIComponent(actionEl.dataset.jobId)}`, { method: 'DELETE' }).then(() => schedulePoll(200)).catch((err) => toast(err.message, 'error'));
+            } else if (action === 'toggle-table') {
+                const card = actionEl.closest('.chart-card');
+                const on = card.classList.toggle('show-table');
+                actionEl.textContent = on ? 'Chart' : 'Table';
+                actionEl.setAttribute('aria-pressed', on);
             } else if (action === 'settings') openSettings();
             else if (action === 'connect-spotify') openSettings('spotify');
             return;
@@ -1327,6 +2293,13 @@ function bindEvents() {
         }
         const libItem = e.target.closest('.lib-item[data-href]');
         if (libItem) location.hash = libItem.dataset.href;
+        const range = e.target.closest('[data-stats-days]');
+        if (range) {
+            store.set('statsDays', +range.dataset.statsDays);
+            $('#view').classList.add('refreshing');  // keep the old charts, dimmed, while the new range loads
+            rerender().then(() => $('#view').classList.remove('refreshing'));
+            return;
+        }
         const chip = e.target.closest('[data-lib-filter]');
         if (chip) { S.libFilter = chip.dataset.libFilter; store.set('libFilter', S.libFilter); renderSidebar(); }
     });
@@ -1388,6 +2361,7 @@ function paintChrome() {
     $('#searchClear').innerHTML = icon('close', 18).s;
     $('#downloadsBtn').insertAdjacentHTML('afterbegin', icon('downloadPlain', 20).s);
     $('#settingsBtn').innerHTML = icon('settings', 20).s;
+    $('#statsBtn').innerHTML = icon('chart', 20).s;
     $('#libraryTitle').innerHTML = html`${icon('library', 22)}<span>Your Library</span>`.s;
     $('#libraryFilter').insertAdjacentHTML('afterbegin', icon('search', 14).s);
 }
@@ -1410,10 +2384,16 @@ async function pollGenres() {
 (async function boot() {
     paintChrome();
     bindImageFallback();
+    bindChartTooltip();
     bindPlayer();
+    bindNowView();
     bindEvents();
     try { S.init = await api('/status/init'); } catch { S.init = { initialized: false, message: 'Server not reachable' }; }
     try { await loadLibrary(); } catch (err) { toast(`Couldn't load your library: ${err.message}`, 'error'); }
+    const resumePage = restoreSession();
+    // Opening or reloading the app on Home (or no page, as the app window opens) shows the last playlist.
+    // Reloading any other page (Stats, a search, another playlist) stays on it.
+    if (resumePage && ['', '#', '#/'].includes(location.hash)) history.replaceState(null, '', resumePage);
     await render();
     pollJobs();
     pollGenres();

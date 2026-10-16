@@ -14,6 +14,8 @@ Base: `http://localhost:8000`. No auth, local use only. Related: [[Backend]] · 
 | GET | `/api/search?q=[&source=]` | Search: YouTube Music, or Spotify when connected |
 | GET | `/api/ytm/{kind}/{id}` | YouTube Music `album` / `playlist` / `artist` |
 | GET | `/api/spotify/{kind}/{id}` | `album` / `playlist` / `artist` details |
+| GET | `/api/stats?days=` | Library + listening stats; `days` 7/30/90/365/0 (all time), else `400` |
+| POST | `/api/plays` | Record a listen `{track_id, seconds}` → `{recorded}` (≥ 30 s, or half a short song) |
 | POST | `/api/download` | Queue a download |
 | GET | `/api/jobs` | Queue + recent history |
 | DELETE | `/api/jobs/{id}` | Cancel |
@@ -77,6 +79,13 @@ Tracks are newest first. Collections are ordered by their newest track.
 | `bytes=1000000-` | `206`, to the end |
 | `bytes=-500` | `206`, last 500 bytes |
 | start past the end | `416`, `Content-Range: bytes */2851626` |
+
+### `GET /api/lyrics/{track_id}`
+
+```json
+{"lines": [{"t": 17.04, "text": "Sunday morning, rain is falling"}], "plain": null, "instrumental": false, "source": "lrclib"}
+```
+`lines` = time-synced (sorted by `t`, in seconds), else `plain` = text only, else `instrumental`, else all empty = no lyrics. `source`: `file` (the song's `.lrc` next to it) or `lrclib`. Lookup order: `.lrc` → cache (`DATA_DIR/.lyrics/<sha1>.json`, keyed by `song_key` + rounded duration; misses retried after 7 days) → LRCLIB `/api/get` (artist, title, duration ±2 s) → `/api/search` (artist ≥0.8 similar, title match, duration within 4 s; synced preferred). Same title cleanup and "Artist - Song" splitting as genres. **502** when LRCLIB was unreachable *and* nothing was found; that result isn't cached, so it's tried again next time. Plain `def` (blocking network call).
 
 ### `GET /api/art/{track_id}`
 

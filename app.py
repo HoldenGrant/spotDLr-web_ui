@@ -25,8 +25,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 # Load SPOTIPY_CLIENT_ID / SPOTIPY_CLIENT_SECRET from .env next to this file
-BASE_DIR = Path(__file__).resolve().parent
-ENV_FILE = BASE_DIR / ".env"
+from paths import APP_DIR, DATA_DIR, FROZEN, MUSIC_DIR  # noqa: E402  (see paths.py: source vs installed app)
+
+BASE_DIR = APP_DIR
+ENV_FILE = DATA_DIR / ".env"
 load_dotenv(ENV_FILE)
 
 import spotify_api  # noqa: E402  (reads env vars, so it comes after load_dotenv)
@@ -34,13 +36,15 @@ import spotify_embed  # noqa: E402
 import ytmusic  # noqa: E402
 from downloader import Downloader  # noqa: E402
 from genres import Genres  # noqa: E402
+import stats  # noqa: E402
 from library import MEDIA_TYPES, Library  # noqa: E402
+from lyrics import Lyrics, LyricsError  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-DOWNLOAD_DIR = BASE_DIR / "downloads"
-DOWNLOAD_DIR.mkdir(exist_ok=True)
+DOWNLOAD_DIR = MUSIC_DIR
+DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="spotDLr", version="2.0.0")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
@@ -59,22 +63,35 @@ async def local_only(request: Request, call_next):
     origin = request.headers.get("origin")
     if request.method not in ("GET", "HEAD", "OPTIONS") and origin and urlparse(origin).netloc != host:
         return JSONResponse({"detail": "Cross-site request blocked"}, status_code=403)
-    return await call_next(request)
+    response = await call_next(request)
+    # The page and its scripts: always revalidate (a 304 when unchanged). Without this, Chrome guesses
+    # freshness from Last-Modified and can keep running an old app.js for hours after an update.
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        response.headers.setdefault("Cache-Control", "no-cache")
+    return response
 
 
 library = Library(DOWNLOAD_DIR)
-genres = Genres(BASE_DIR / ".genres.json", library.scan)  # fills in genres from Deezer in the background
+genres = Genres(DATA_DIR / ".genres.json", library.scan)  # fills in genres from Deezer in the background
+plays = stats.Plays(DATA_DIR / "plays.jsonl")  # listening history for the Stats page
+lyrics = Lyrics(DATA_DIR / ".lyrics")  # one cached lookup per song
 downloader = Downloader(
     DOWNLOAD_DIR,
     on_finished=lambda job: logger.info(f"Job {job['id']} {job['status']}: {job['title']} ({job['message']})"),
-    owned_video_ids=lambda: set(library.youtube_index()),
-    owned_spotify_ids=lambda: set(library.spotify_index()),
+    owned_video_ids=lambda: {v: library.path_for(i) for v, i in library.youtube_index().items()},
+    owned_spotify_ids=lambda: {v: library.path_for(i) for v, i in library.spotify_index().items()},
+    save_lyrics=lyrics.save_lrc,  # "Include lyrics": an .lrc next to each new song
 )
 
 
 class CredentialsRequest(BaseModel):
     client_id: str
     client_secret: str
+
+
+class PlayRequest(BaseModel):
+    track_id: str
+    seconds: float
 
 
 class DownloadRequest(BaseModel):
@@ -170,6 +187,26 @@ def get_library():
     return snapshot
 
 
+@app.post("/api/plays")
+def record_play(request: PlayRequest):
+    """The player reports how long a song actually played; it counts from 30 s (or half a short song)."""
+    track = next((t for t in library.scan() if t["id"] == request.track_id), None)
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    return {"recorded": plays.record(dict(track, genre=genres.genre_for(track)), request.seconds)}
+
+
+@app.get("/api/stats")
+def get_stats(days: int = 30):
+    if days not in (0, 7, 30, 90, 365):
+        raise HTTPException(status_code=400, detail="days must be 7, 30, 90, 365 or 0 (all time)")
+    tracks = library.scan()
+    return {
+        "library": stats.library_stats(tracks, genres.genre_for),
+        "listening": stats.listening_stats(plays.load(), days, {t["id"] for t in tracks}),
+    }
+
+
 @app.get("/api/genres/status")
 def genre_status():
     return genres.status()
@@ -217,6 +254,19 @@ def _ranged_file(path: Path, media_type: str, range_header: Optional[str]):
     return StreamingResponse(chunks(), status_code=206, media_type=media_type, headers=headers)
 
 
+@app.get("/api/lyrics/{track_id}")
+def track_lyrics(track_id: str):
+    """{lines: [{t, text}] | null, plain: str | null, instrumental, source}. Plain def: LRCLIB is a blocking call."""
+    path = library.path_for(track_id)
+    track = library._tracks_by_id.get(track_id)
+    if not path or not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    try:
+        return lyrics.for_track(track, path)
+    except LyricsError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
 @app.get("/api/art/{track_id}")
 def art(track_id: str):
     cover = library.cover(track_id)
@@ -230,7 +280,7 @@ def art(track_id: str):
 
 # Google's image host rate-limits bursts (HTTP 429): a search page asks for 30-40 covers at once.
 # Fetch each cover once, at most 4 at a time, keep it on disk, and serve it from here.
-IMAGE_CACHE = BASE_DIR / ".imgcache"
+IMAGE_CACHE = DATA_DIR / ".imgcache"
 IMAGE_HOSTS = ("yt3.googleusercontent.com", "lh3.googleusercontent.com", "yt3.ggpht.com", "i.ytimg.com", "i.scdn.co",
                "mosaic.scdn.co", "image-cdn-ak.spotifycdn.com", "image-cdn-fa.spotifycdn.com")
 _image_slots = threading.BoundedSemaphore(4)
@@ -327,7 +377,10 @@ def download(request: DownloadRequest):
     # YouTube Music link, or free text while Spotify is unavailable → yt-dlp path (no Spotify needed)
     ytm = _ytmusic(ytmusic.parse_url, query)
     spotify_ok, spotify_error = spotify_api.check()
-    if not ytm and not spotify_api.parse_url(query) and not spotify_ok:
+    # Installed app (FROZEN): spotDL can't run there (`sys.executable -m spotdl` would start spotDLr.exe
+    # again), so everything goes through YouTube Music even when Spotify keys work
+    use_ytm_only = FROZEN or not spotify_ok
+    if not ytm and not spotify_api.parse_url(query) and use_ytm_only:
         songs = _ytmusic(ytmusic.search, query)["tracks"]
         if not songs:
             raise HTTPException(status_code=404, detail=f"Nothing found on YouTube Music for {query!r}")
@@ -344,7 +397,7 @@ def download(request: DownloadRequest):
     # Spotify link without a working API: read the song list from Spotify's public embed,
     # then match and download each song from YouTube Music
     parsed = spotify_api.parse_url(query)
-    if parsed and not spotify_ok:
+    if parsed and use_ytm_only:
         kind, item_id = parsed
         if kind == "artist":
             raise HTTPException(status_code=400, detail="Artists can't be downloaded as a whole. Open an album or song instead.")

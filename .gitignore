@@ -5,9 +5,12 @@
 .cache
 # cached cover images from YouTube/Spotify
 .imgcache/
+# listening history (Stats page)
+plays.jsonl
 # genres looked up on Deezer
 .genres.json
 .genres.json.tmp
+.lyrics/
 *.spotdl-config
 
 # Python
@@ -46,3 +49,8 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Windows installer build (see installer/ and .github/workflows/windows-installer.yml)
+installer/bin/
+dist-installer/
+*.spec.bak

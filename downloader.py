@@ -16,7 +16,7 @@ import time
 from collections import deque
 from pathlib import Path
 
-from library import AUDIO_EXTENSIONS
+from library import AUDIO_EXTENSIONS, PLAYLIST_FILE
 
 STALL_SECONDS = 300          # no output from spotDL for this long = stuck (e.g. dead credentials)
 BASE_TIMEOUT = 900           # plus PER_TRACK_TIMEOUT per expected track
@@ -31,6 +31,15 @@ def _audio_files(folder: Path):
     return {p for p in folder.rglob("*") if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS}
 
 
+def write_playlist(folder: Path, paths):
+    """playlist.m3u8 in the playlist's folder, so songs already owned elsewhere still show up in it, in order."""
+    folder.mkdir(parents=True, exist_ok=True)
+    lines = ["#EXTM3U"] + [Path(os.path.relpath(p, folder)).as_posix() for p in paths if p]
+    tmp = folder / (PLAYLIST_FILE + ".tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.replace(tmp, folder / PLAYLIST_FILE)
+
+
 def safe_folder_name(name: str):
     """Keep letters, digits and common punctuation; drop path separators and the like."""
     cleaned = "".join(c if c.isalnum() or c in " -_'&.,()!" else "" for c in name)
@@ -38,11 +47,13 @@ def safe_folder_name(name: str):
 
 
 class Downloader:
-    def __init__(self, download_dir: Path, on_finished=None, owned_video_ids=None, owned_spotify_ids=None):
+    def __init__(self, download_dir: Path, on_finished=None, owned_video_ids=None, owned_spotify_ids=None, save_lyrics=None):
         self.download_dir = download_dir
         self.on_finished = on_finished
-        self.owned_video_ids = owned_video_ids or (lambda: set())  # YouTube ids already in the library
-        self.owned_spotify_ids = owned_spotify_ids or (lambda: set())
+        self.save_lyrics = save_lyrics  # (audio path, title, artists) -> bool; writes an .lrc when lyrics exist
+        # {id: file path} of songs already in the library, by YouTube video id / Spotify track id
+        self.owned_video_ids = owned_video_ids or (lambda: {})
+        self.owned_spotify_ids = owned_spotify_ids or (lambda: {})
         self.jobs = {}          # id -> job dict (newest last)
         self.queue = queue.Queue()
         self.counter = itertools.count(1)
@@ -238,14 +249,17 @@ class Downloader:
         owned_videos, owned_spotify = self.owned_video_ids(), self.owned_spotify_ids()
         job["total"] = len(items)
         new, skipped, failed = 0, 0, []
+        paths = []  # every song's file, in playlist order, owned ones included
         log = deque(maxlen=40)
 
         for item in items:
             if job.get("cancel_requested"):
                 break
             name = item["name"]
-            if item["spotify_id"] in owned_spotify or item.get("video_id") in owned_videos:
+            owned = owned_spotify.get(item["spotify_id"]) or owned_videos.get(item.get("video_id"))
+            if owned:
                 skipped += 1
+                paths.append(owned)
                 log.append(f"Skipping {name} (already in library)")
             else:
                 job["message"] = f"Finding {name}" if item["spotify_id"] else f"Downloading {name}"
@@ -253,19 +267,25 @@ class Downloader:
                     meta = item["resolve"]()
                     if meta["video_id"] in owned_videos:
                         skipped += 1
+                        paths.append(owned_videos[meta["video_id"]])
                         log.append(f"Skipping {name} (already in library)")
                         job.update(done=new + skipped, log=list(log))
                         continue
                     job["message"] = f"Downloading {name}"
-                    _, existed = ytmusic.download_track(meta, output_dir, job["format"], job["bitrate"])
+                    path, existed = ytmusic.download_track(meta, output_dir, job["format"], job["bitrate"])
+                    paths.append(path)
                     skipped += existed
                     new += not existed
                     log.append(f"{'Skipping' if existed else 'Downloaded'} {name}")
+                    if job["lyrics"] and not existed and self.save_lyrics and self.save_lyrics(path, meta["title"], meta["artists"]):
+                        log.append(f"Saved lyrics for {name}")
                 except Exception as e:
                     failed.append(name)
                     log.append(f"Error: {name}: {str(e)[:200]}")
             job.update(done=new + skipped, log=list(log))
 
+        if job["kind"] in ("album", "playlist") and paths:
+            write_playlist(output_dir, paths)
         job["finished"] = time.time()
         job["new_files"] = new
         if job.get("cancel_requested"):

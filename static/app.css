@@ -514,3 +514,268 @@ code { font-family: ui-monospace, Menlo, monospace; font-size: .92em; background
 .chip-count { color: var(--sub); margin-left: 4px; font-size: 12px; }
 .chip.active .chip-count { color: #333; }
 .genre-progress { display: flex; align-items: center; gap: 8px; color: var(--sub); font-size: 13px; margin-bottom: 12px; }
+
+/* ---------- Stats page ----------
+   One series per chart, so one mark colour: #1a9847, the app green stepped into the dark-mode lightness
+   band (validated: band, chroma, contrast vs #121212). The bright #1ed760 is the hover accent only.
+   Heatmap: 5 steps of the same hue, validated as an ordinal ramp (lowest step 2.23:1 vs the surface). */
+:root {
+    --chart-mark: #1a9847;
+    --chart-accent: #1ed760;
+    --chart-grid: #262626;
+    --heat-0: #1e1e1e;
+    --heat-1: #16592e;
+    --heat-2: #18783b;
+    --heat-3: #1a9847;
+    --heat-4: #1cb754;
+    --heat-5: #1ed760;
+}
+.stats-page .greeting { margin-bottom: 8px; }
+.stats-section { margin-top: 32px; }
+.stats-section > .section-title { margin-bottom: 16px; }
+.filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+.chip.small { height: 28px; padding: 0 12px; font-size: 13px; }
+#view.refreshing .stats-listening { opacity: .45; transition: opacity .2s; }
+
+.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.stat-tile { background: #181818; border-radius: 8px; padding: 16px; min-width: 0; }
+.stat-label { color: var(--sub); font-size: 13px; }
+.stat-value { font-size: 26px; font-weight: 700; margin-top: 4px; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hero-tile { grid-column: span 2; }
+.hero-value { font-size: 48px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; margin-top: 4px; }
+.stat-delta { color: var(--sub); font-size: 12px; margin-top: 6px; }
+
+.chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.chart-card { background: #181818; border-radius: 8px; padding: 16px 20px 20px; min-width: 0; }
+.chart-card.wide { grid-column: 1 / -1; }
+.chart-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+.chart-head h3 { font-size: 16px; font-weight: 700; }
+.chart-head p { color: var(--sub); font-size: 13px; }
+.chart-table { display: none; overflow-x: auto; max-height: 360px; overflow-y: auto; }
+.chart-card.show-table .chart-table { display: block; }
+.chart-card.show-table .chart-body { display: none; }
+.chart-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.chart-table th { text-align: left; color: var(--sub); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: #181818; }
+.chart-table td { padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,.05); white-space: nowrap; }
+.chart-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* columns */
+.cols-chart { display: grid; grid-template-columns: 48px minmax(0, 1fr); grid-template-rows: 200px auto; column-gap: 8px; }
+.y-axis { position: relative; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.y-axis span { position: absolute; right: 0; transform: translateY(50%); white-space: nowrap; }
+.plot { position: relative; display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); align-items: end; border-bottom: 1px solid #3a3a3a; }
+.gridline { position: absolute; left: 0; right: 0; height: 1px; background: var(--chart-grid); pointer-events: none; }
+.col { height: 100%; display: flex; align-items: flex-end; justify-content: center; position: relative; outline: none; cursor: default; }
+.col-bar { position: relative; width: min(24px, 70%); min-height: 0; background: var(--chart-mark); border-radius: 4px 4px 0 0; transition: background-color .15s; }
+.col:hover .col-bar, .col:focus-visible .col-bar { background: var(--chart-accent); }
+.col:focus-visible { box-shadow: inset 0 0 0 1px rgba(255,255,255,.4); border-radius: 4px; }
+.col-value { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 4px; font-style: normal; font-size: 11px; color: var(--text); white-space: nowrap; }
+.x-axis { grid-column: 2; display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); font-size: 11px; color: var(--muted); padding-top: 6px; }
+.x-axis span { white-space: nowrap; overflow: visible; text-align: left; }
+
+/* horizontal bars */
+.hbars { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.hbar-row { display: grid; grid-template-columns: minmax(80px, 34%) minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 4px 6px; border-radius: 4px; outline: none; }
+.hbar-row:hover, .hbar-row:focus-visible { background: var(--hover); }
+.hbar-row:hover .hbar, .hbar-row:focus-visible .hbar { background: var(--chart-accent); }
+.hbar-label { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hbar-label a:hover { text-decoration: underline; }
+.hbar-track { height: 12px; display: flex; align-items: center; }
+.hbar { display: block; height: 12px; min-width: 2px; background: var(--chart-mark); border-radius: 0 4px 4px 0; transition: background-color .15s; }
+.hbar-value { font-size: 12px; color: var(--sub); font-variant-numeric: tabular-nums; text-align: right; min-width: 48px; }
+
+/* top songs */
+.top-songs { list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.top-song { display: grid; grid-template-columns: 20px 40px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 6px; border-radius: 4px; }
+.top-song[data-action] { cursor: pointer; }
+.top-song:hover { background: var(--hover); }
+.top-song .rank { color: var(--sub); text-align: right; font-variant-numeric: tabular-nums; }
+.top-song .art { width: 40px; height: 40px; border-radius: 4px; box-shadow: none; }
+.top-song-text { min-width: 0; display: flex; flex-direction: column; }
+.top-song-plays { color: var(--sub); font-size: 12px; white-space: nowrap; }
+
+/* heatmap */
+.heat-grid { display: grid; grid-template-columns: 36px repeat(24, minmax(0, 1fr)); gap: 2px; align-items: center; }
+.heat-day { font-size: 11px; color: var(--muted); }
+.heat-hour { font-size: 11px; color: var(--muted); white-space: nowrap; padding-top: 4px; }
+.heat-cell { display: block; aspect-ratio: 1; max-height: 28px; border-radius: 3px; background: var(--heat-0); outline: none; }
+.heat-cell.l1 { background: var(--heat-1); }
+.heat-cell.l2 { background: var(--heat-2); }
+.heat-cell.l3 { background: var(--heat-3); }
+.heat-cell.l4 { background: var(--heat-4); }
+.heat-cell.l5 { background: var(--heat-5); }
+.heat-grid .heat-cell:hover, .heat-grid .heat-cell:focus-visible { box-shadow: 0 0 0 2px #fff; }
+.heat-legend { display: flex; align-items: center; justify-content: flex-end; gap: 3px; font-size: 11px; color: var(--muted); margin-top: 12px; }
+.heat-legend .heat-cell { width: 12px; height: 12px; }
+
+/* tooltip: value first and strong, label after */
+.chart-tip { position: fixed; z-index: 70; pointer-events: none; background: #2a2a2a; border: 1px solid rgba(255,255,255,.1); border-radius: 6px; padding: 6px 10px; box-shadow: 0 8px 24px rgba(0,0,0,.5); display: flex; flex-direction: column; font-size: 12px; max-width: 260px; }
+.chart-tip[hidden] { display: none; }
+.chart-tip strong { font-size: 14px; color: var(--text); }
+.chart-tip span { color: var(--sub); }
+.stats-empty { padding: 48px 24px; background: #181818; border-radius: 8px; }
+
+@media (max-width: 1000px) {
+    .chart-grid { grid-template-columns: minmax(0, 1fr); }
+    .hero-tile { grid-column: auto; }
+    .hero-value { font-size: 40px; }
+}
+
+/* ---------- Now Playing view ----------
+   Opens over the app but stops above the player bar, so play/pause/seek/volume stay usable.
+   --nv is the cover's average colour (coverColor), darkened so white text stays readable. */
+.nv-backdrop {
+    position: fixed; inset: 0 0 80px 0; z-index: 50; background: rgba(0, 0, 0, .6);
+    display: grid; place-items: center; padding: 24px;
+    animation: nv-fade .2s ease-out;
+}
+.nv {
+    --nv: #535353;
+    --card: min(56vh, 440px);
+    position: relative; width: min(1180px, 100%); height: 100%; max-height: 760px;
+    display: flex; flex-direction: column; border-radius: 12px; overflow: hidden;
+    background: linear-gradient(100deg, #121212 30%, color-mix(in srgb, var(--nv) 75%, #121212) 100%);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, .5); transition: background .6s;
+}
+.nv:focus-visible { outline: none; }
+.nv-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 24px 0; }
+.nv-context { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nv-context:hover { text-decoration: underline; }
+.nv-head .icon-btn { color: var(--text); }
+.nv-body {
+    flex: 1; min-height: 0; display: grid; align-items: center; gap: 32px;
+    grid-template-columns: minmax(0, 1fr) auto 56px; padding: 0 24px 0 40px;
+}
+.nv-info { min-width: 0; }
+.nv-title { font-size: 32px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.15; overflow-wrap: anywhere; }
+.nv-title.long { font-size: 24px; }
+.nv-artists { margin-top: 8px; color: var(--sub); font-size: 16px; }
+.nv-artists a:hover { color: var(--text); text-decoration: underline; }
+.nv-album { margin-top: 2px; color: var(--muted); font-size: 14px; }
+.nv-progress { margin-top: 24px; width: min(280px, 100%); height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .25); overflow: hidden; }
+.nv-progress i { display: block; height: 100%; width: 0; background: #fff; border-radius: 2px; }
+.nv-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+.nv-tags .chip { background: rgba(255, 255, 255, .1); }
+.nv-tags .chip:hover { background: rgba(255, 255, 255, .2); }
+.nv-upnext { margin-top: 32px; font-size: 13px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nv-upnext span { display: block; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+
+/* The feed: three square covers stacked; the column is shorter than all three, so the previous and next
+   ones peek in at the top and bottom edges. A song change re-renders and slides one card's height. */
+.nv-feed {
+    height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center;
+    gap: 24px; overflow: hidden; --shift: calc(var(--card) + 24px);
+    -webkit-mask-image: linear-gradient(transparent, #000 12%, #000 88%, transparent);
+    mask-image: linear-gradient(transparent, #000 12%, #000 88%, transparent);
+}
+.nv-card {
+    flex: none; width: var(--card); height: var(--card); border-radius: 10px; overflow: hidden;
+    background: var(--elevated); display: grid; place-items: center; color: var(--muted);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, .45);
+}
+.nv-card img { width: 100%; height: 100%; object-fit: cover; }
+.nv-card.empty { background: transparent; box-shadow: none; }
+button.nv-card { opacity: .55; transition: opacity .2s; }
+button.nv-card:hover { opacity: .85; }
+.nv-feed.up > * { animation: nv-slide-up .35s cubic-bezier(.2, .7, .2, 1); }
+.nv-feed.down > * { animation: nv-slide-down .35s cubic-bezier(.2, .7, .2, 1); }
+@keyframes nv-slide-up { from { transform: translateY(var(--shift)); } }
+@keyframes nv-slide-down { from { transform: translateY(calc(-1 * var(--shift))); } }
+@keyframes nv-fade { from { opacity: 0; } }
+
+.nv-nav { display: flex; flex-direction: column; gap: 16px; align-items: center; }
+.nv-nav .icon-btn { width: 44px; height: 44px; color: var(--text); background: rgba(0, 0, 0, .25); }
+.nv-nav .icon-btn:hover:not(:disabled) { background: rgba(0, 0, 0, .45); }
+#nowBtn[aria-pressed="true"] { color: var(--green); }
+#npArt { cursor: pointer; }
+
+@media (max-width: 900px) {
+    .nv { --card: min(44vh, 340px); }
+    .nv-body { grid-template-columns: minmax(0, 1fr) auto; padding: 0 16px 0 24px; gap: 20px; }
+    .nv-nav { display: none; }
+    .nv-title { font-size: 24px; }
+}
+@media (max-width: 600px) {
+    .nv-backdrop { padding: 8px; }
+    .nv { --card: min(38vh, calc(100vw - 64px)); max-height: none; }
+    .nv-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; padding: 0 16px 16px; gap: 12px; }
+    .nv-info { order: 2; }
+    .nv-tags, .nv-upnext { margin-top: 12px; }
+    .nv-progress { margin-top: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .nv-feed.up > *, .nv-feed.down > *, .nv-backdrop { animation: none; }
+}
+
+/* Visualizer: one canvas over the whole panel, behind the content. Bars/Wave use the bottom of it;
+   Ring and Vinyl draw around/over the current cover, measured each frame. */
+.nv-viz-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+.nv[data-viz="ring"] .nv-card.current { border-radius: 50%; }
+.nv[data-viz="vinyl"] .nv-card.current { background: transparent; box-shadow: none; }
+.nv[data-viz="vinyl"] .nv-card.current > * { visibility: hidden; }   /* the canvas draws it as a record */
+.nv[data-viz="retro"] { background: #0c0616; }
+.nv-viz-wrap { position: relative; }
+.nv-viz .chev { opacity: .7; transition: transform .15s; }
+.nv-viz[aria-expanded="true"] .chev { transform: rotate(180deg); }
+.nv-viz-menu {
+    position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; min-width: 180px; padding: 4px;
+    background: #282828; border-radius: 6px; box-shadow: 0 16px 24px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .06);
+}
+.nv-viz-menu[hidden] { display: none; }
+.nv-viz-menu button {
+    display: flex; align-items: center; gap: 12px; width: 100%; height: 40px; padding: 0 12px; border-radius: 4px;
+    color: var(--sub); font-size: 14px; text-align: left;
+}
+.nv-viz-menu button span { flex: 1; }
+.nv-viz-menu button:hover, .nv-viz-menu button:focus-visible { background: rgba(255, 255, 255, .1); color: var(--text); outline: none; }
+.nv-viz-menu button[aria-checked="true"] { color: var(--green); }
+.nv-viz-menu .tick { visibility: hidden; }
+.nv-viz-menu button[aria-checked="true"] .tick { visibility: visible; }
+.nv-head, .nv-body { position: relative; z-index: 1; }
+.nv-head { z-index: 2; }  /* above the body, so the visualizer menu opens over the covers */
+/* Full-panel scenes sit right behind the text: give the song info a dark, blurred backing */
+.nv[data-viz="retro"] .nv-lyrics, .nv[data-viz="particles"] .nv-lyrics {
+    background: rgba(10, 6, 18, .55); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); border-radius: 12px; padding-left: 24px; padding-right: 24px;
+}
+.nv[data-viz="retro"] .nv-info, .nv[data-viz="particles"] .nv-info {
+    background: rgba(10, 6, 18, .55); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    padding: 24px; margin-left: -24px; border-radius: 12px;
+    justify-self: start; width: max-content; max-width: calc(100% + 24px);  /* hug the text, not the whole column */
+}
+.nv-head-actions { display: flex; align-items: center; gap: 8px; }
+.nv-viz, .nv-pill {
+    display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 500px;
+    background: rgba(255, 255, 255, .08); color: var(--sub); font-size: 13px; font-weight: 600; transition: background .15s, color .15s;
+}
+.nv-viz:hover, .nv-pill:hover { background: rgba(255, 255, 255, .16); color: var(--text); }
+.nv-pill.on { color: var(--green); }
+.nv-viz.on { color: var(--text); }
+.nv-card.current { transition: transform .08s linear; }
+
+/* Lyrics: replaces the cover feed. Upcoming lines dim, past lines half-dim, the current one white.
+   Auto-scroll keeps it ~40% down; scrolling yourself pauses that for 3 s. */
+.nv-lyrics {
+    width: min(560px, 46vw); height: 100%; overflow-y: auto; scrollbar-width: none; padding: 30% 8px 45%;
+    -webkit-mask-image: linear-gradient(transparent, #000 14%, #000 80%, transparent);
+    mask-image: linear-gradient(transparent, #000 14%, #000 80%, transparent);
+}
+.nv-lyrics::-webkit-scrollbar { display: none; }
+.nv-lyrics:focus-visible { outline: none; }
+.nv-lines { display: flex; flex-direction: column; gap: 14px; }
+.nv-line {
+    display: block; text-align: left; font-size: 28px; font-weight: 800; line-height: 1.25; letter-spacing: -0.01em;
+    color: rgba(255, 255, 255, .32); transition: color .25s, transform .25s; transform-origin: left center; overflow-wrap: anywhere;
+}
+button.nv-line:hover { color: rgba(255, 255, 255, .8); }
+.nv-line.past { color: rgba(255, 255, 255, .62); }
+.nv-line.active { color: #fff; transform: scale(1.02); }
+.nv-line.gap { font-size: 22px; }
+.nv-lines.plain .nv-line { color: rgba(255, 255, 255, .85); font-size: 22px; }
+.nv-lyrics-credit { margin-top: 32px; font-size: 12px; color: var(--muted); }
+.nv-lyrics-msg { display: flex; flex-direction: column; gap: 12px; color: var(--sub); font-size: 15px; }
+.nv-lyrics-msg .big { font-size: 24px; font-weight: 800; color: var(--text); }
+.nv-lyrics-msg .pill-btn { align-self: flex-start; }
+.nv-lyrics-skel { height: 30px; border-radius: 6px; }
+@media (max-width: 900px) { .nv-lyrics { width: min(420px, 52vw); } .nv-line { font-size: 22px; } }
+@media (max-width: 600px) { .nv-lyrics { width: 100%; padding-top: 20%; } .nv-line { font-size: 20px; } }
+@media (prefers-reduced-motion: reduce) { .nv-line { transition: none; } .nv-line.active { transform: none; } }

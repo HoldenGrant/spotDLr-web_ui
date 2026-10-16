@@ -1,163 +1,130 @@
-# SpotDL Web App - Setup Guide
+# spotDLr: Setup Guide
 
-## Quick Start (2 minutes)
+Pick the section for your computer. No Spotify account or keys are needed: search and downloads use YouTube Music, and pasted Spotify links still work.
 
-### Step 1: Get Spotify API Credentials
-1. Visit https://developer.spotify.com/dashboard/
-2. Log in or create an account (free)
-3. Click "Create an App"
-4. Accept the terms and create the app
-5. You'll see **Client ID** and **Client Secret**
-6. Copy these values
+- [Windows: the installer (easiest)](#windows-the-installer-easiest)
+- [Mac: install and open like an app](#mac-install-and-open-like-an-app)
+- [Windows: from source (developers)](#windows-from-source-developers)
+- [Optional: connect Spotify](#optional-connect-spotify)
+- [Where your files live](#where-your-files-live)
+- [Troubleshooting](#troubleshooting)
 
-### Step 2: Run the App
+---
 
-**Option A: PowerShell (Windows)**
-```powershell
-cd c:\Users\holde\Desktop\gitlab\spodl
-.\run.ps1
-```
-- The script will prompt you for credentials if needed
-- Open browser to: http://localhost:8000
+## Windows: the installer (easiest)
 
-**Option B: Command Line**
+For anyone, no technical setup. Python, FFmpeg and Node.js are built in.
+
+1. Download **spotDLr-Setup.exe** from the [Releases page](https://github.com/HoldenGrant/spotDLr-web_ui/releases).
+2. Double-click it. If Windows says **"Windows protected your PC"** (the installer isn't signed), click **More info → Run anyway**. You only see this once.
+3. Click through the installer (no admin password needed) and leave **Open spotDLr** ticked.
+
+From then on, open **spotDLr** from the Start menu or the desktop icon. It opens in its own window, and closing the window closes spotDLr.
+
+**Uninstall:** Settings → Apps → spotDLr → Uninstall. Your music stays in **Music → spotDLr**.
+
+---
+
+## Mac: install and open like an app
+
+### 1. Put the project somewhere macOS lets apps read
+
+Clone or move it into your home folder, for example `~/Projects/spotDLr-web_ui`. **Not** Downloads, Documents or Desktop: macOS blocks new apps from reading those folders ("Operation not permitted").
+
 ```bash
-# Set environment variables first
-set SPOTIPY_CLIENT_ID=your_client_id_here
-set SPOTIPY_CLIENT_SECRET=your_client_secret_here
-
-# Then run the app
-cd c:\Users\holde\Desktop\gitlab\spodl
-python app.py
+mkdir -p ~/Projects && cd ~/Projects
+git clone https://github.com/HoldenGrant/spotDLr-web_ui.git
+cd spotDLr-web_ui
 ```
 
-**Option C: Python directly**
+### 2. Install the tools it needs (once)
+
 ```bash
-cd c:\Users\holde\Desktop\gitlab\spodl
-python app.py
+brew install python@3.13 ffmpeg node
 ```
 
-### Step 3: Use the Web App
-1. Open http://localhost:8000 in your browser
-2. Enter a Spotify URL or song name
-3. Select download options (format, bitrate)
-4. Click "Start Download"
-5. Downloaded files appear below
+- **Python 3.10–3.13.** spotDL doesn't support 3.14 yet, which is what plain `brew install python3` gives you.
+- **FFmpeg** converts and tags audio.
+- **Node.js** is needed for YouTube downloads; without it they fail with "HTTP Error 403".
 
-## Features
+### 3. Create the app (once)
 
-✅ Download Spotify tracks
-✅ Download playlists
-✅ Download albums
-✅ Download artist collections
-✅ Choose audio format (MP3, WAV, FLAC, Opus)
-✅ Adjust bitrate (128-320 kbps)
-✅ Real-time progress tracking
-✅ Download manager with file list
+```bash
+./make_launcher.sh
+```
 
-## Important Notes
+This puts **spotDLr** in Applications. Open it from Launchpad, Spotlight (⌘ Space, "spotDLr") or the Dock (drag it there to keep it). The first launch sets up a private Python environment (`.venv`) and takes a minute; after that it opens in a few seconds.
 
-⚠️ **Spotify Credentials Required**
-   - All downloads require valid Spotify API credentials
-   - Free tier is fine for personal use
-   - Create app at: https://developer.spotify.com/dashboard
+Re-run `./make_launcher.sh` if you move the project folder.
 
-📝 **Supported URLs**
-- Track: `https://open.spotify.com/track/...`
-- Playlist: `https://open.spotify.com/playlist/...`
-- Album: `https://open.spotify.com/album/...`
-- Artist: `https://open.spotify.com/artist/...`
+**Without the app:** double-click `run.command` (opens Terminal and a browser tab at `http://localhost:8000`), or run `./run.sh`.
 
-💾 **Downloads Location**
-- Files saved to: `c:\Users\holde\Desktop\gitlab\spodl\downloads\`
+---
+
+## Windows: from source (developers)
+
+1. Install the tools once (Command Prompt or PowerShell):
+   ```powershell
+   winget install Python.Python.3.13
+   winget install OpenJS.NodeJS
+   ```
+2. Clone the repo anywhere you like.
+3. Double-click **`make_launcher.bat`**. It creates a **spotDLr** shortcut in the Start menu and on the Desktop.
+4. Open spotDLr from the Start menu. The first launch installs dependencies into a private `.venv` and takes a few minutes; a tray message says so.
+
+**With a console window instead:** double-click `run.bat` (it can also install Python for you if it's missing).
+
+---
+
+## Optional: connect Spotify
+
+Only needed if you want search results from Spotify instead of YouTube Music. **Since February 2026, Spotify only allows this if the account that owns the Spotify app has Premium.**
+
+1. Go to [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard/) → **Create app**.
+2. Any name and description. **Redirect URI:** `http://127.0.0.1:8000/callback` (required by the form, never used). Tick **Web API**. Save.
+3. Open the app → **Settings** → copy the **Client ID**, then **View client secret** and copy that.
+4. In spotDLr: **Settings** (sliders icon, top right) → **Spotify connection** → paste both → **Save & test**.
+
+spotDLr tests the keys with Spotify before saving them. If Spotify answers *"Active premium subscription required"*, the keys are saved anyway and start working by themselves a few hours after the account gets Premium.
+
+---
+
+## Where your files live
+
+| | Mac / from source | Windows installer |
+|---|---|---|
+| Music | `downloads/` in the project folder | **Music → spotDLr** |
+| Settings (`.env`), caches, genres | the project folder | `%LOCALAPPDATA%\spotDLr` |
+| Log | `~/Library/Logs/spotDLr.log` (when opened from the app) | `%LOCALAPPDATA%\spotDLr\spotDLr.log` |
+
+Each folder inside the music folder shows up as a playlist or album in spotDLr. Your Spotify keys stay on your computer; `.env` is never committed to git.
+
+---
 
 ## Troubleshooting
 
-### "Connection refused"
-- Make sure the server is running: `python app.py`
-- Check port 8000 is not in use
+**"spotDLr couldn't start: port 8000 is being used by another app"** (Mac)
+Quit the other app, or find it with `lsof -nP -iTCP:8000 -sTCP:LISTEN`. (The Windows installer picks another port by itself.)
 
-### "No client_id" error
-- Set environment variables correctly:
-  ```bash
-  set SPOTIPY_CLIENT_ID=your_id
-  set SPOTIPY_CLIENT_SECRET=your_secret
-  ```
+**"The project folder isn't there anymore"** (Mac app or Windows shortcut)
+The folder was moved. Run `./make_launcher.sh` (Mac) or `make_launcher.bat` (Windows) again from its new location.
 
-### Slow downloads
-- Check your internet connection
-- Verify Spotify server status
-- Try downloading smaller playlists first
+**Mac: "Operation not permitted" in the log**
+The project is in Downloads, Documents or Desktop. Move it to e.g. `~/Projects/` and run `./make_launcher.sh` again.
 
-### Files not saving
-- Check `downloads/` folder exists
-- Verify write permissions to the folder
-- Check disk space availability
+**Downloads fail with "HTTP Error 403: Forbidden"**
+- Every download fails: Node.js is missing. Install it (`brew install node` / `winget install OpenJS.NodeJS`) and restart spotDLr. (Built into the Windows installer.)
+- Only a song or two fails: YouTube occasionally refuses a link. spotDLr retries automatically; if it still fails, click **Retry** in Downloads.
 
-## File Structure
+**A Spotify playlist only downloads 100 songs**
+Without a working Spotify connection, spotDLr reads Spotify links from Spotify's public player, which lists at most 100 songs.
 
-```
-spodl/
-├── app.py              # Backend server (Python/FastAPI)
-├── index.html          # Frontend UI (HTML/CSS/JS)
-├── run.ps1             # Startup script (PowerShell)
-├── requirements.txt    # Python dependencies
-├── README.md           # Full documentation
-├── SETUP.md            # This file
-└── downloads/          # Downloaded files (auto-created)
-```
+**Covers or genres missing**
+They come from YouTube/Deezer and fill in over a minute or two; refresh the page. A few uploads that aren't real releases never get a genre.
 
-## API Endpoints
+**Anything else**
+Check the log (see [Where your files live](#where-your-files-live)) and open an issue on GitHub with the last lines.
 
-The backend provides these REST endpoints:
+---
 
-- `GET /` - Web interface
-- `POST /api/download` - Start download
-- `GET /api/status` - Get download status
-- `GET /api/downloads` - List files
-- `GET /api/download/{file}` - Download file
-
-## Advanced Configuration
-
-Edit `app.py` to customize:
-
-```python
-# Change download directory
-DOWNLOAD_DIR = Path("my_downloads")
-
-# Change server port (default 8000)
-uvicorn.run(app, host="127.0.0.1", port=8080)
-
-# Change filename format
-spotdl.output = "{artist} - {title}"
-```
-
-## Security Notes
-
-⚠️ **For Local Use Only**
-- Don't expose this app to the internet
-- Don't share Spotify credentials
-- Create fresh API credentials if you suspect compromise
-
-## Copyright & Legal
-
-- Respect copyright laws in your country
-- Only download content you have rights to
-- spotDL is not affiliated with Spotify
-- Use responsibly
-
-## Support
-
-For issues with:
-- **spotDL tool**: https://github.com/spotDL/spotify-downloader
-- **This web app**: Check console logs and error messages
-- **Spotify API**: https://developer.spotify.com/documentation
-
-## Next Steps
-
-1. ✅ Set up Spotify credentials
-2. ✅ Run the app with `python app.py`
-3. ✅ Open http://localhost:8000
-4. ✅ Download your favorite music!
-
-Enjoy your music! 🎵
+Only download music you have the right to use. spotDLr isn't affiliated with Spotify, YouTube or Deezer.

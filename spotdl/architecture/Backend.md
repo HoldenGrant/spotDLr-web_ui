@@ -9,6 +9,10 @@ Four Python modules, ~890 lines. Related: [[How It Works]] · [[API Reference]] 
 | `spotify_api.py` | 235 | Spotify Web API (client credentials), trims responses |
 | `downloader.py` | ~300 | Download queue: one worker thread; spotDL jobs, or YouTube jobs song by song |
 | `ytmusic.py` | ~430 | YouTube Music search/pages (same shape as `spotify_api`), Spotify→YouTube matching, yt-dlp download, tagging |
+| `paths.py` | ~60 | Where code, music and settings live: the project folder from source, `Music\spotDLr` + `%LOCALAPPDATA%\spotDLr` in the installed app |
+| `desktop.py` | ~150 | Entry point of the Windows installer's `spotDLr.exe`: single instance, in-process server, app window, stop on close |
+| `stats.py` | ~160 | Listening history (`plays.jsonl`, one JSON line per listen with title/artist/genre copied in) and the library + listening stats for `/api/stats` |
+| `lyrics.py` | ~200 | Lyrics: the song's own `.lrc`, else LRCLIB (free, no key), cached one file per song in `.lyrics/`; LRC parser; writes `.lrc` after downloads when "Include lyrics" is on |
 | `genres.py` | ~230 | Genres from Deezer's public API, filled in by a background thread, cached in `.genres.json` |
 | `spotify_embed.py` | ~110 | Reads Spotify tracks/albums/playlists from the public embed player, no keys (≤100 songs) |
 
@@ -48,7 +52,7 @@ External: **FFmpeg** (Homebrew's or `~/.spotdl/ffmpeg`).
 - `spotify_id` comes from spotDL's `WOAS` tag: `----:spotdl:WOAS` in M4A, a `WOAS` frame in MP3, a Vorbis comment in FLAC/Opus.
 - IDs are per *path*, so the same filename in two playlists can't collide (the old `/api/download/{filename}` bug).
 
-**`_collections()`**: one collection per top-level folder. If every track shares one album tag, it's an **album**, named from the tag. That's why `httpsopenspotifycomalbum0mZ8…` shows as "Maybe I'm Dreaming". Otherwise it's a **playlist**, named after the folder. Up to 4 covers from distinct albums make the 2×2 mosaic.
+**`_collections()`**: one collection per top-level folder. If every track shares one album tag, it's an **album**, named from the tag. That's why `httpsopenspotifycomalbum0mZ8…` shows as "Maybe I'm Dreaming". Otherwise it's a **playlist**, named after the folder. Up to 4 covers from distinct albums make the 2×2 mosaic. If the folder has a **`playlist.m3u8`** (written by the downloader), its entries set the order and can point at files in other folders (`../Other Playlist/song.m4a`), so songs skipped as "already in library" still belong to the playlist. Files not in the m3u8 are appended; a folder with only an m3u8 is still a collection.
 
 **`cover(id)`**: embedded art as bytes, with an LRU cache of 400 (~40 MB max).
 
