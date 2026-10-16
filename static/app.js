@@ -2381,7 +2381,20 @@ async function pollGenres() {
     setTimeout(pollGenres, status.pending ? 15000 : 60000);
 }
 
+// ---------- window check-in ----------
+// The installed Windows app stops its server when the last window closes, and it learns that from the
+// page itself: a check-in every 15 s, a goodbye on close. (Harmless when running from source.)
+const WINDOW_ID = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2));
+const checkIn = () => fetch('/api/window/alive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: WINDOW_ID }) }).catch(() => {});
+function bindWindowCheckIn() {
+    checkIn();
+    setInterval(checkIn, 15000);
+    window.addEventListener('pagehide', () => navigator.sendBeacon('/api/window/bye', new Blob([JSON.stringify({ id: WINDOW_ID })], { type: 'application/json' })));
+    window.addEventListener('pageshow', (e) => { if (e.persisted) checkIn(); }); // back from the back/forward cache
+}
+
 (async function boot() {
+    bindWindowCheckIn();
     paintChrome();
     bindImageFallback();
     bindChartTooltip();

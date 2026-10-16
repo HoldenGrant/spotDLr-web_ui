@@ -89,6 +89,10 @@ class CredentialsRequest(BaseModel):
     client_secret: str
 
 
+class WindowRequest(BaseModel):
+    id: str
+
+
 class PlayRequest(BaseModel):
     track_id: str
     seconds: float
@@ -194,6 +198,38 @@ def record_play(request: PlayRequest):
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
     return {"recorded": plays.record(dict(track, genre=genres.genre_for(track)), request.seconds)}
+
+
+# ---------- open windows (the desktop app stops when the last one closes) ----------
+# Each page checks in every 15 s and says goodbye on close. desktop.py reads `windows` to decide when to
+# stop: watching Edge's process doesn't work, because Edge hands the window to another process and exits.
+windows = {}            # window id -> last check-in (time.time())
+windows_lock = threading.Lock()
+WINDOW_TIMEOUT = 180    # no check-in for this long = gone without a goodbye (crash, sleep); a hidden
+                        # window's timers can slow to once a minute, so this stays well above that
+
+
+@app.post("/api/window/alive")
+def window_alive(request: WindowRequest):
+    with windows_lock:
+        windows[request.id[:64]] = time.time()
+    return {"ok": True}
+
+
+@app.post("/api/window/bye")
+def window_bye(request: WindowRequest):
+    with windows_lock:
+        windows.pop(request.id[:64], None)
+    return {"ok": True}
+
+
+def open_windows():
+    """How many windows have checked in recently (drops ones that went quiet)."""
+    now = time.time()
+    with windows_lock:
+        for window_id in [w for w, seen in windows.items() if now - seen > WINDOW_TIMEOUT]:
+            del windows[window_id]
+        return len(windows)
 
 
 @app.get("/api/stats")

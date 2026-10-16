@@ -3,11 +3,17 @@ spotDLr desktop entry point: what spotDLr.exe (the Windows installer) runs.
 
   already running?  → open another window and exit
   otherwise         → start the server on a thread, open an app window, and when the
-                      user closes that window, stop the server and exit
+                      last spotDLr window closes, stop the server and exit
 
-The window is Edge (always on Windows) or Chrome in app mode, with its own profile folder,
-so it's a separate browser process that exits when the window closes; that's how we know
-when to stop. Env for tests: SPOTDLR_NO_BROWSER=1 (serve only), SPOTDLR_PORT=<first port>.
+The window is Edge (always on Windows) or Chrome in app mode, with its own profile folder.
+When to stop comes from the page, not the browser process: every window checks in every 15 s
+(/api/window/alive) and says goodbye on close (/api/window/bye). Waiting on the Edge process
+we started doesn't work: Edge often hands the window to another process and exits at once, and
+v2.0.0 stopped the server before the page had even loaded.
+
+Env for tests: SPOTDLR_NO_BROWSER=1 (serve only), SPOTDLR_PORT=<first port>,
+SPOTDLR_BROWSER=<path> (use this browser executable).
+
 """
 
 import json
@@ -23,6 +29,8 @@ import webbrowser
 from paths import DATA_DIR, FROZEN
 
 FIRST_PORT = int(os.environ.get("SPOTDLR_PORT", "8000"))
+FIRST_CONTACT_WAIT = 45   # seconds for the window to load the page before trying the default browser
+CLOSE_GRACE = 5           # seconds after the last window leaves before stopping (a reload comes straight back)
 PORTS = range(FIRST_PORT, FIRST_PORT + 11)
 LOG = DATA_DIR / "spotDLr.log"
 
@@ -68,6 +76,8 @@ def _free_port():
 
 
 def _browser():
+    if os.environ.get("SPOTDLR_BROWSER"):
+        return os.environ["SPOTDLR_BROWSER"]
     if sys.platform == "win32":
         bases = [os.environ.get(k) for k in ("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA")]
         relative = [r"Microsoft\Edge\Application\msedge.exe", r"Google\Chrome\Application\chrome.exe"]
@@ -77,18 +87,35 @@ def _browser():
     return next((c for c in candidates if os.path.exists(c)), None)
 
 
-def _open_window(url, wait):
+def _open_window(url):
     browser = _browser()
     if not browser:
         webbrowser.open(url)  # no Edge/Chrome: a normal tab
-        return None
-    # Own profile → own browser process, which exits when the spotDLr window is closed
+        return
+    # Own profile: the window doesn't mix with the user's normal browsing (tabs, history, extensions)
     profile = DATA_DIR / "browser-profile"
-    process = subprocess.Popen([browser, f"--app={url}", f"--user-data-dir={profile}",
-                                "--no-first-run", "--no-default-browser-check"])
-    if wait:
-        process.wait()
-    return process
+    subprocess.Popen([browser, f"--app={url}", f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check"])
+
+
+def _wait_for_windows(open_windows, url):
+    """Return once the last spotDLr window has closed."""
+    started = time.time()
+    while not open_windows():  # first, the window has to load the page
+        if started and time.time() - started > FIRST_CONTACT_WAIT:
+            print(f"No window after {FIRST_CONTACT_WAIT} s; opening the default browser", flush=True)
+            webbrowser.open(url)
+            started = None  # then just keep serving until a page turns up
+        time.sleep(0.5)
+    print("Window connected", flush=True)
+    empty_since = None
+    while True:
+        if open_windows():
+            empty_since = None
+        elif empty_since is None:
+            empty_since = time.time()
+        elif time.time() - empty_since > CLOSE_GRACE:
+            return
+        time.sleep(0.5)
 
 
 def main():
@@ -98,7 +125,7 @@ def main():
     if running:
         print(f"Already running on port {running}; opening a window", flush=True)
         if not os.environ.get("SPOTDLR_NO_BROWSER"):
-            _open_window(f"http://localhost:{running}", wait=False)
+            _open_window(f"http://127.0.0.1:{running}")
         return
 
     port = _free_port()
@@ -119,14 +146,17 @@ def main():
             _message(f"spotDLr couldn't start. Details are in {LOG}")
             return
         time.sleep(0.25)
-    print(f"Serving on http://localhost:{port}", flush=True)
+    # 127.0.0.1, not "localhost": the server listens on IPv4 only, and Windows may try localhost as IPv6 (::1) first
+    url = f"http://127.0.0.1:{port}"
+    print(f"Serving on {url}", flush=True)
 
     if os.environ.get("SPOTDLR_NO_BROWSER"):
         thread.join()  # tests: serve until killed
         return
 
-    _open_window(f"http://localhost:{port}", wait=True)
-    print("Window closed; stopping", flush=True)
+    _open_window(url)
+    _wait_for_windows(spotdlr.open_windows, url)
+    print("Last window closed; stopping", flush=True)
     server.should_exit = True
     thread.join(timeout=10)
 
