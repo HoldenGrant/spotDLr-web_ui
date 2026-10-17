@@ -4,14 +4,21 @@ Planned work, not started. Related: [[Home]] · [[Launchers & Setup]] · [[Bug L
 
 ---
 
-## Next: first Windows installer release (for Holden's sister)
+## Idea: companion player on a phone (noted Oct 16, not started)
 
-Built Oct 15; needs Holden to push and tag. Then GitHub Actions builds, tests and publishes it:
-1. Commit and push the packaging work, and watch **Actions → Windows installer** go green.
-2. `git tag v2.0.0 && git push origin v2.0.0` publishes `spotDLr-Setup.exe` on the Releases page.
-3. Send the link; the release notes walk through the one-time "Windows protected your PC" step.
+Play the computer's library from a phone or another device; the music stays on the Mac/Windows machine. Most of it exists already: the UI is a web page streaming from the server (`/api/stream` with Range support). Three things block it on purpose: the server listens only on `127.0.0.1`, the local-only guard accepts only `localhost`/`127.0.0.1`, and there is no login.
 
-See [[Launchers & Setup#Windows: the installer (spotDLr-Setup.exe)]].
+| Option | How the phone connects | Work | Away from home |
+|---|---|---|---|
+| **1. Same Wi-Fi** (recommended first) | `http://<computer's LAN IP>:8000` or a QR code shown in the app | small: listen on the LAN, pairing code, play-only access | no |
+| **2. Tailscale** (recommended second) | free private network on both devices | almost none in spotDLr | yes |
+| 3. Hosted web app + relay | desktop app connects out to a relay; the phone goes through it | large: run a server, and all audio passes through it | yes |
+
+Things to design: keep the computer awake while sharing (and a background "keep sharing" mode, since the Windows app stops when its last window closes); a pairing code (scan a QR code once) plus **play-only** remote access (no downloads, no Settings/Spotify keys); HTTPS, which "Add to Home Screen" as an installed app needs (Tailscale can provide it). Bandwidth: 256 kbps ≈ 32 KB/s ≈ 7 MB per 3½-min song ≈ 115 MB/hour on mobile data; home upload easily covers it.
+
+## Done: first Windows installer release (v2.0.0, then v2.0.1, Oct 16)
+
+v2.0.0 built, installed and smoke-tested on GitHub's Windows machine, then published. Holden's first real-PC test found the window opening on a dead localhost (Edge handed the window to another process and spotDLr stopped its server; see [[Bug Log]]). v2.0.1 fixed it and is **confirmed working on Windows**. Releases: https://github.com/HoldenGrant/spotDLr-web_ui/releases
 
 ## Later: test the from-source Windows launcher on a real PC
 

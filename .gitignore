@@ -54,3 +54,5 @@ Thumbs.db
 installer/bin/
 dist-installer/
 *.spec.bak
+likes.json
+likes.tmp

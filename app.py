@@ -7,6 +7,7 @@ Routes that touch Spotify or the disk are plain `def` on purpose: FastAPI runs
 those in a threadpool, so a slow call never blocks the event loop.
 """
 
+import base64
 import hashlib
 import logging
 import os
@@ -34,11 +35,14 @@ load_dotenv(ENV_FILE)
 import spotify_api  # noqa: E402  (reads env vars, so it comes after load_dotenv)
 import spotify_embed  # noqa: E402
 import ytmusic  # noqa: E402
-from downloader import Downloader  # noqa: E402
+from downloader import Downloader, write_playlist  # noqa: E402
 from genres import Genres  # noqa: E402
 import stats  # noqa: E402
 from library import MEDIA_TYPES, Library  # noqa: E402
 from lyrics import Lyrics, LyricsError  # noqa: E402
+import organize  # noqa: E402
+import version  # noqa: E402
+from organize import Exporter, Likes, OrganizeError  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -75,6 +79,8 @@ library = Library(DOWNLOAD_DIR)
 genres = Genres(DATA_DIR / ".genres.json", library.scan)  # fills in genres from Deezer in the background
 plays = stats.Plays(DATA_DIR / "plays.jsonl")  # listening history for the Stats page
 lyrics = Lyrics(DATA_DIR / ".lyrics")  # one cached lookup per song
+likes = Likes(DATA_DIR / "likes.json")
+exporter = Exporter(ytmusic.ffmpeg_path)  # "Send to device"
 downloader = Downloader(
     DOWNLOAD_DIR,
     on_finished=lambda job: logger.info(f"Job {job['id']} {job['status']}: {job['title']} ({job['message']})"),
@@ -87,6 +93,37 @@ downloader = Downloader(
 class CredentialsRequest(BaseModel):
     client_id: str
     client_secret: str
+
+
+class LikeRequest(BaseModel):
+    liked: bool
+
+
+class PlaylistRequest(BaseModel):
+    name: str
+    track_ids: list[str] = []
+
+
+class PlaylistTracksRequest(BaseModel):
+    track_ids: list[str]
+    action: str  # add | remove
+
+
+class AlbumRequest(BaseModel):
+    paths: list[str]               # as returned by /api/import
+    album: str
+    artist: str
+    year: Optional[str] = None
+    cover: Optional[str] = None    # data: URL of a JPEG/PNG
+
+
+class ExportRequest(BaseModel):
+    track_ids: list[str]
+    device: str                    # a path from /api/devices (or one the user typed)
+    subfolder: str = "Music"
+    collection: Optional[str] = None
+    format: str = "original"       # original | mp3
+    bitrate: int = 256
 
 
 class WindowRequest(BaseModel):
@@ -123,6 +160,8 @@ def check_initialization():
         "message": "Spotify connected" if ok else error,
         "search_source": "spotify" if ok else "ytm",
         "setup_url": "https://developer.spotify.com/dashboard/",
+        "version": version.VERSION,
+        "build": version.source_build(),  # git describe when running from source, else None
     }
 
 
@@ -188,6 +227,7 @@ def get_library():
     snapshot = library.snapshot()
     for track in snapshot["tracks"]:
         track["genre"] = genres.genre_for(track)
+    snapshot["liked"] = likes.ids()
     return snapshot
 
 
@@ -198,6 +238,112 @@ def record_play(request: PlayRequest):
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
     return {"recorded": plays.record(dict(track, genre=genres.genre_for(track)), request.seconds)}
+
+
+# ---------- organizing: likes, your playlists, adding files, sending to a device (organize.py) ----------
+
+@app.exception_handler(OrganizeError)
+def organize_error(request: Request, error: OrganizeError):
+    return JSONResponse({"detail": str(error)}, status_code=error.status)
+
+
+def _paths_for(track_ids):
+    """Library tracks → absolute paths, in order; unknown ids are an error, not silently dropped."""
+    paths = []
+    for track_id in track_ids:
+        path = library.path_for(track_id)
+        if not path:
+            raise OrganizeError("A song isn't in your library anymore. Refresh and try again.", 404)
+        paths.append(path)
+    return paths
+
+
+@app.post("/api/likes/{track_id}")
+def set_like(track_id: str, request: LikeRequest):
+    if not library.path_for(track_id):
+        raise HTTPException(status_code=404, detail="Track not found")
+    likes.set(track_id, request.liked)
+    return {"liked": likes.ids()}
+
+
+@app.post("/api/playlists")
+def create_playlist(request: PlaylistRequest):
+    return {"key": organize.create_playlist(DOWNLOAD_DIR, request.name, _paths_for(request.track_ids))}
+
+
+@app.post("/api/playlists/{key}/tracks")
+def change_playlist(key: str, request: PlaylistTracksRequest):
+    folder = organize.user_playlist(DOWNLOAD_DIR, key)
+    current = next((c["track_ids"] for c in library.snapshot()["collections"] if c["key"] == key), [])
+    if request.action == "add":
+        ids = current + [i for i in request.track_ids if i not in current]  # no duplicates, appended at the end
+    elif request.action == "remove":
+        ids = [i for i in current if i not in set(request.track_ids)]
+    else:
+        raise HTTPException(status_code=400, detail="action must be add or remove")
+    write_playlist(folder, _paths_for(ids))
+    return {"count": len(ids)}
+
+
+@app.delete("/api/playlists/{key}")
+def delete_playlist(key: str):
+    organize.delete_playlist(DOWNLOAD_DIR, key)
+    return {"deleted": key}
+
+
+@app.post("/api/import")
+async def import_file(request: Request, name: str, album: str = ""):
+    """Body = the raw file (no multipart, so no extra dependency). ?album= puts it in that album's folder."""
+    path = await organize.import_stream(DOWNLOAD_DIR, name, album, request.stream())
+    return {"path": path}
+
+
+@app.post("/api/import/album")
+def make_album(request: AlbumRequest):
+    album, artist = request.album.strip(), request.artist.strip()
+    if not album or not artist:
+        raise HTTPException(status_code=400, detail="An album needs a name and an artist")
+    cover = None
+    if request.cover:
+        header, _, data = request.cover.partition(",")
+        mime = header.removeprefix("data:").split(";")[0]
+        if mime not in ("image/jpeg", "image/png"):
+            raise HTTPException(status_code=415, detail="The cover must be a JPEG or PNG image")
+        cover = (base64.b64decode(data), mime)
+        if len(cover[0]) > 15_000_000:
+            raise HTTPException(status_code=413, detail="That cover image is over 15 MB")
+    tagged, untaggable = 0, []
+    for rel in request.paths:
+        path = (DOWNLOAD_DIR / rel).resolve()
+        if DOWNLOAD_DIR.resolve() not in path.parents or not path.is_file():
+            raise HTTPException(status_code=400, detail=f"Not a file in your library: {rel}")
+        if organize.tag_album(path, album, artist, request.year, cover):
+            tagged += 1
+        else:
+            untaggable.append(path.name)
+    return {"tagged": tagged, "untaggable": untaggable}
+
+
+@app.get("/api/devices")
+def devices():
+    return {"devices": organize.list_devices()}
+
+
+@app.post("/api/export")
+def export(request: ExportRequest):
+    tracks = [library._tracks_by_id.get(i) for i in request.track_ids]
+    items = [(path, (track or {}).get("duration") or 0) for path, track in zip(_paths_for(request.track_ids), tracks)]
+    if not items:
+        raise HTTPException(status_code=400, detail="No songs to send")
+    return exporter.start(items, request.device, request.subfolder, request.collection, request.format, request.bitrate)
+
+
+@app.get("/api/export/{job_id}")
+def export_status(job_id: str):
+    job = exporter.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="No such copy job")
+    return job
 
 
 # ---------- open windows (the desktop app stops when the last one closes) ----------

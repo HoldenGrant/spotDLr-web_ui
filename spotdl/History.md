@@ -25,7 +25,16 @@ Built from `git log`, plus uncommitted work. 22 commits, Dec 15, 2025 to Jan 6, 
 - Pinned dependency versions so they install without conflicts.
 - Added the **ETA countdown** and **folder accordions** in the downloads list.
 
+### Oct 17, 2026
+- **Version number in Settings** (bottom of the dialog), from `version.py`, with a "What's new" link to the changelog. The Windows build now refuses a version tag that doesn't match `version.py`.
+- Added `CHANGELOG.md` (by version, Keep a Changelog format). Each GitHub Release now starts with that version's changelog section, above the install steps.
+- **Like songs.** Tap ♥ on any song, in the player bar or in Now Playing. Liked Songs is at the top of Your Library.
+- **Make your own playlists.** + next to Your Library → New playlist. Then ⋯ (or right-click) on any song → Add to playlist. Nothing is copied: a playlist is just a list, and deleting it never deletes songs.
+- **Add your own music files.** + → Add music files, or drop files anywhere on the window. Add them as they are, or as **a new album**: the album name, artist, year and cover are written into the files, so every music player shows them as one album.
+- **Send to device.** ⋯ on a song, album or playlist → Send to device copies it onto a plugged-in MP3 player or USB drive. It converts to MP3 by default, because many players can't play the .m4a files spotDLr downloads, and keeps the playlist order. Sending again only adds what's new.
+
 ### Oct 16, 2026
+- **v2.0.1**: fixes the Windows app opening a window with nothing behind it on some PCs. The server now stays up until the last spotDLr window closes, instead of stopping when the first Edge process exits.
 - **v2.0.0 released**: the first Windows installer is on the [Releases page](https://github.com/HoldenGrant/spotDLr-web_ui/releases/tag/v2.0.0) (`spotDLr-Setup.exe`, 92 MB). The build installed and started it on GitHub's Windows machine; search worked; the test download was blocked by YouTube's bot check, which happens to cloud machines, so downloads and lyrics get their first real Windows test on a home PC.
 - **Lyrics.** In the Now Playing view, press **Lyrics** (or L) for lyrics that scroll along with the song: the current line lights up, and clicking any line jumps there. They come from LRCLIB, a free lyrics database. In a test of 40 random songs from the library, 38 had time-synced lyrics. Turn on **Include lyrics** in download settings and new downloads also save an `.lrc` lyrics file next to the song, for offline use and other players.
 - **Picks up where you left off.** When you open spotDLr, it shows the playlist (or album, artist, genre) you were last playing, with that song in the player, paused at the same spot. Press play to continue.

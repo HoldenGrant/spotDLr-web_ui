@@ -89,6 +89,17 @@ Opened from the cover in the player bar or the expand button next to the volume 
 
 **Checked (headless Chrome):** the highlighted line equals the expected line at set times; clicking line 3 seeks there; manual scroll holds position for 3 s, then auto-scroll resumes; next song loads its lyrics; plain-only (Martin Sheen Or JFK, 40 lines) and none (white noise) render; the setting survives a reload.
 
+## Organizing: likes, menus, your playlists, adding files, Send to device (Oct 17)
+
+- **♥ on every song row**, in the player bar and in Now Playing (`likeButton`, `toggleLike`: updates instantly, rolls back if the server refuses). **Liked Songs** (`#/liked`) is first in Your Library, newest like first.
+- **One menu component** (`showMenu`, in `#menuRoot`) for ⋯ on rows, right-click on rows, ⋯ on playlist/album pages and **+** next to Your Library. ↑/↓/Home/End, Enter, Esc returns focus to the opener; outside click, Tab, scroll or resize close it.
+- **Row menu:** like/unlike, Add to playlist, Remove from <playlist> (only inside a playlist you made, from the row's play context), Send to device, Go to artist. **Page menu:** add all to another playlist, Send to device, Delete playlist (yours only; a confirm dialog, never a native one).
+- **Dialogs** share `openModal`. *New playlist* goes to the new page. *Add to playlist* lists only your playlists (downloaded ones are read-only) plus "New playlist".
+- **Add music files:** a drop zone, a file picker, or drop files anywhere on the window (`bindFileDrop`, overlay). Add as library songs, **a new album** (name, artist, year, cover preview → `/api/import/album`), or songs in one of your playlists. Uploads go one by one through XHR, because `fetch` can't report upload progress.
+- **Send to device:** detected drives with free space (Refresh), or "Somewhere else" (a typed path); folder on the device (default `Music`); **Convert to MP3** (default unless everything is already MP3; 128–320 kbps, default 256) or keep the originals; a size estimate that warns when it won't fit; progress, then "Eject the device before unplugging it". The last device, folder, format and quality are remembered.
+- **Gotcha fixed along the way:** `html```  renders `false` as `''`, so `aria-pressed="${false}"` came out empty. Boolean ARIA attributes now use `String()`. And a global `[hidden] { display: none !important }`, because `.field { display: flex }` beat the browser's own `[hidden]` rule and showed hidden fields.
+- **Checked (headless Chrome, throwaway library):** like → Liked Songs and sidebar count; + menu keyboard and Esc focus; create playlist (empty state) → add via ⋯ and via right-click → remove → delete with confirm (songs kept); add files (a .jpg skipped), as an album with a cover → album page with name, artist, year, cover; Send to device → 2 MP3s with tags and cover on the "device"; no console errors. **Not checked:** a real USB stick (none plugged in) and Windows drive detection.
+
 ## Downloads in the UI
 
 - `startDownload()` → `POST /api/download` with the saved settings → toast → button becomes a spinner.

@@ -61,11 +61,19 @@ To start completely fresh: `rm -rf .venv`.
 
 | Piece | File |
 |---|---|
-| Entry point (`spotDLr.exe`) | `desktop.py`: probes ports 8000–8010 for a running spotDLr (its `search_source` field); else starts the server **in-process on a thread** on the first free port, opens Edge/Chrome `--app` with its **own profile** (so it's a separate browser process), and stops the server when that window closes. Output goes to `%LOCALAPPDATA%\spotDLr\spotDLr.log` (a windowed exe has no stdout, and uvicorn's logging would crash) |
+| Entry point (`spotDLr.exe`) | `desktop.py`: probes ports 8000–8010 for a running spotDLr (its `search_source` field); else starts the server **in-process on a thread** on the first free port, opens Edge/Chrome `--app` at `http://127.0.0.1:port` with its **own profile**, and stops the server **5 s after the last spotDLr window closes**: pages check in every 15 s (`/api/window/alive`) and say goodbye on close (`/api/window/bye`); a window silent for 180 s counts as gone. (v2.0.0 waited on the Edge process instead, which on some PCs hands the window to another process and exits at once; see [[Bug Log]].) Output goes to `%LOCALAPPDATA%\spotDLr\spotDLr.log` (a windowed exe has no stdout, and uvicorn's logging would crash) |
 | Data locations | `paths.py`: frozen → music `Music\spotDLr` (the real Music folder via `SHGetKnownFolderPath`, so OneDrive redirection works), settings/caches `%LOCALAPPDATA%\spotDLr`; from source → the project folder, unchanged |
 | Bundle | `installer/spotDLr.spec` (PyInstaller onedir): `index.html`, `static/`, `collect_all` for ytmusicapi / yt_dlp / yt_dlp_ejs, all uvicorn submodules, `installer/bin/ffmpeg.exe` + `node.exe` → `_internal/bin/`; spotDL excluded |
 | Installer | `installer/spotDLr.iss` (Inno Setup 6): per-user (`%LOCALAPPDATA%\Programs\spotDLr`, no admin), Start menu + optional desktop icon, "Open spotDLr" at the end; uninstall keeps music and settings |
-| Build + test | `.github/workflows/windows-installer.yml` on `windows-latest`: downloads FFmpeg (BtbN) and Node 22.12.0, PyInstaller, Inno Setup, then installs silently and smoke-tests (`/api/status/init`, page, `app.js`, library, bundled tools; search and a real download only *warn* because YouTube may block CI IPs). Every push → artifact; `v*` tag → public Release with `installer/RELEASE_NOTES.md` |
+| Build + test | `.github/workflows/windows-installer.yml` on `windows-latest`: downloads FFmpeg (BtbN) and Node 22.12.0, PyInstaller, Inno Setup, then installs silently and smoke-tests (`/api/status/init`, page, `app.js`, library, bundled tools; search and a real download only *warn* because YouTube may block CI IPs). Every push → artifact; `v*` tag → public Release whose text is `installer/release_notes.py`: that version's `CHANGELOG.md` section, then `installer/RELEASE_NOTES.md` |
+
+### Releasing a new version
+
+1. Set `VERSION = "2.1.0"` in `version.py` (patch for fixes only, minor for features). In `CHANGELOG.md`, rename `## [Unreleased]` to `## [2.1.0] - YYYY-MM-DD`, add a fresh empty `## [Unreleased]` above it, and update the compare links at the bottom.
+2. Commit and push; check **Actions → Windows installer** passes on `main`.
+3. `git tag v2.1.0 && git push origin v2.1.0`. About 3½ minutes later the Release appears, with "What's new in 2.1.0" above the install steps. If the changelog has no section for the tag, the Release still publishes, with only the install steps, and the build log warns. **If the tag doesn't match `version.py`, the build fails before building anything** ("Tag v2.1.0 but version.py says 2.0.1"): fix `version.py`, commit, delete and re-push the tag (`git tag -d v2.1.0 && git push origin :v2.1.0`, then tag again).
+
+The version shows in **Settings → About** (`/api/status/init` returns `version`, plus `build` = `git describe --tags --dirty` when running from source, which the page turns into "Running from source, 3 changes after 2.0.1, with unsaved edits").
 
 In the installed app **spotDL never runs**: `sys.executable -m spotdl` would launch spotDLr.exe itself, so every download goes through YouTube Music (Spotify links via the embed), even with Spotify keys.
 

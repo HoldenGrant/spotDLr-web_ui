@@ -12,6 +12,7 @@ Four Python modules, ~890 lines. Related: [[How It Works]] · [[API Reference]] 
 | `paths.py` | ~60 | Where code, music and settings live: the project folder from source, `Music\spotDLr` + `%LOCALAPPDATA%\spotDLr` in the installed app |
 | `desktop.py` | ~150 | Entry point of the Windows installer's `spotDLr.exe`: single instance, in-process server, app window, stop on close |
 | `stats.py` | ~160 | Listening history (`plays.jsonl`, one JSON line per listen with title/artist/genre copied in) and the library + listening stats for `/api/stats` |
+| `organize.py` | ~330 | Likes (`likes.json`), playlists you make (a folder holding only `playlist.m3u8`), adding files (raw-body upload streamed to disk), real-album tagging (album/album artist/year/cover for MP3, M4A, FLAC, Ogg, Opus), the device list (USB drives on Mac/Windows/Linux), and Send to device (copy or convert to MP3 with ID3v2.3 tags) |
 | `lyrics.py` | ~200 | Lyrics: the song's own `.lrc`, else LRCLIB (free, no key), cached one file per song in `.lyrics/`; LRC parser; writes `.lrc` after downloads when "Include lyrics" is on |
 | `genres.py` | ~230 | Genres from Deezer's public API, filled in by a background thread, cached in `.genres.json` |
 | `spotify_embed.py` | ~110 | Reads Spotify tracks/albums/playlists from the public embed player, no keys (≤100 songs) |

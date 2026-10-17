@@ -80,6 +80,22 @@ Tracks are newest first. Collections are ordered by their newest track.
 | `bytes=-500` | `206`, last 500 bytes |
 | start past the end | `416`, `Content-Range: bytes */2851626` |
 
+### Organizing (organize.py)
+
+| Route | Body / query | Does |
+|---|---|---|
+| `POST /api/likes/{track_id}` | `{liked}` | like or unlike; returns `{liked: [ids, newest first]}`. `GET /api/library` also returns `liked`. |
+| `POST /api/playlists` | `{name, track_ids}` | new playlist you own: `MUSIC/<name>/playlist.m3u8` only. 409 if the name exists. |
+| `POST /api/playlists/{key}/tracks` | `{track_ids, action: add\|remove}` | add (appended, no duplicates) or remove. **403** for downloaded playlists and albums. |
+| `DELETE /api/playlists/{key}` | | removes the list (and the folder if empty). Never deletes songs. 403 unless it's yours. |
+| `POST /api/import?name=&album=` | raw file body | streams one file to `MUSIC/` (or `MUSIC/<album>/`); `(2)` suffix instead of overwriting; 415 for non-audio, 413 over 2 GB. Returns `{path}`. |
+| `POST /api/import/album` | `{paths, album, artist, year?, cover?: data URL}` | writes album tags + cover into those files. Paths outside the library → 400. |
+| `GET /api/devices` | | `[{name, path, free, total}]`: Mac `/Volumes/*` (not the boot disk), Windows removable drives (`GetDriveTypeW == 2`), Linux `/media/$USER`. |
+| `POST /api/export` | `{track_ids, device, subfolder, collection?, format: original\|mp3, bitrate}` | copy job; checks the device exists and has room first (507 if not). Files go to `<device>/<subfolder>/<collection>/NN Name.ext`, numbered so players keep the order. |
+| `GET /api/export/{id}` | | `{status: copying\|done\|failed, done, total, skipped, current, error}` |
+
+Collections now carry `editable: true` for playlists you made (always `kind: playlist`, listed even while empty).
+
 ### `GET /api/lyrics/{track_id}`
 
 ```json

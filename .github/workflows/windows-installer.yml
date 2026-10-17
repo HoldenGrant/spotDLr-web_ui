@@ -1,6 +1,7 @@
 # Builds spotDLr-Setup.exe on a real Windows machine, installs it and smoke-tests it like a user would.
 # Every push: build + test + downloadable artifact (Actions tab).
-# Version tag (git tag v2.0.0 && git push origin v2.0.0): also publishes a public GitHub Release.
+# Version tag (git tag v2.0.0 && git push origin v2.0.0): also publishes a public GitHub Release,
+# whose text is that version's CHANGELOG.md section followed by installer/RELEASE_NOTES.md.
 name: Windows installer
 
 on:
@@ -39,6 +40,16 @@ jobs:
           Expand-Archive node.zip node-unzipped
           Copy-Item (Get-ChildItem node-unzipped -Recurse -Filter node.exe | Select-Object -First 1).FullName installer/bin/
           Get-ChildItem installer/bin | Format-Table Name, Length
+
+      - name: Check the tag matches version.py (version tags only)
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          $code = python -c "import version; print(version.VERSION)"
+          if ("v$code" -ne "${{ github.ref_name }}") {
+            Write-Output "::error::Tag ${{ github.ref_name }} but version.py says $code. Set VERSION in version.py (and CHANGELOG.md), commit, and tag again."
+            exit 1
+          }
 
       - name: Build the app (PyInstaller)
         run: pyinstaller installer/spotDLr.spec --noconfirm --distpath dist --workpath build
@@ -115,4 +126,6 @@ jobs:
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" dist-installer/spotDLr-Setup.exe --title "spotDLr ${{ github.ref_name }}" --notes-file installer/RELEASE_NOTES.md
+        run: |
+          python installer/release_notes.py "${{ github.ref_name }}" --out release-notes.md
+          gh release create "${{ github.ref_name }}" dist-installer/spotDLr-Setup.exe --title "spotDLr ${{ github.ref_name }}" --notes-file release-notes.md

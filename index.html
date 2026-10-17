@@ -44,6 +44,7 @@
         <aside class="sidebar panel" aria-label="Your Library">
             <div class="sidebar-head">
                 <a class="sidebar-title" href="#/songs" id="libraryTitle"></a>
+                <button class="icon-btn" id="createBtn" aria-label="Create playlist or add music files" aria-haspopup="menu" title="Create"></button>
             </div>
             <div class="chips" id="libraryChips" role="group" aria-label="Filter library"></div>
             <label class="lib-filter" id="libraryFilter">
@@ -64,6 +65,7 @@
                     <a class="np-title" id="npTitle" href="#/"></a>
                     <div class="np-artist" id="npArtist"></div>
                 </div>
+                <span id="npLike"></span>
             </div>
             <div class="controls">
                 <div class="control-buttons">
@@ -90,6 +92,8 @@
     <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
     <div id="nowRoot"></div>
     <div id="modalRoot"></div>
+    <div id="menuRoot"></div>
+    <div class="drop-overlay" id="dropOverlay" hidden><div>Drop music files to add them to spotDLr</div></div>
 
     <script src="/static/app.js"></script>
 </body>

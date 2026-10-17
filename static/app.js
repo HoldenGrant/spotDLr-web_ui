@@ -7,6 +7,7 @@
 class Safe { constructor(s) { this.s = s; } toString() { return this.s; } }
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ESCAPES[c]);
+// false renders as '' (handy for ${cond && html`…`}), so boolean attributes need String(): aria-pressed="${String(on)}"
 const toHtml = (v) => v instanceof Safe ? v.s : Array.isArray(v) ? v.map(toHtml).join('') : (v === null || v === undefined || v === false) ? '' : esc(v);
 function html(strings, ...values) {
     let out = strings[0];
@@ -58,6 +59,14 @@ const ICONS = {
     vinyl: '<circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="12" r="3.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/>',
     sun: '<path d="M7 13a5 5 0 0 1 10 0"/><path d="M3 17h18"/><path d="M6 21h12"/><path d="M12 3v3"/><path d="m5 7 1.5 1.5"/><path d="m19 7-1.5 1.5"/>',
     mic: '<rect x="9" y="2.5" width="6" height="11.5" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3.5"/>',
+    heart: '<path d="M12 20.3 4.6 13a4.8 4.8 0 0 1 6.8-6.8l.6.6.6-.6a4.8 4.8 0 0 1 6.8 6.8z"/>',
+    heartFilled: '<path fill="currentColor" stroke="none" d="M12 20.3 4.6 13a4.8 4.8 0 0 1 6.8-6.8l.6.6.6-.6a4.8 4.8 0 0 1 6.8 6.8z"/>',
+    more: '<circle fill="currentColor" stroke="none" cx="5" cy="12" r="1.8"/><circle fill="currentColor" stroke="none" cx="12" cy="12" r="1.8"/><circle fill="currentColor" stroke="none" cx="19" cy="12" r="1.8"/>',
+    plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
+    upload: '<path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M5 20.5h14"/>',
+    usb: '<rect x="7" y="9" width="10" height="12.5" rx="2"/><path d="M9.5 9V3h5v6"/><path d="M11 5.5h.01"/><path d="M13 5.5h.01"/>',
+    trash: '<path d="M4 7h16"/><path d="M9.5 7V4.5h5V7"/><path d="M6.5 7l1 13.5h9l1-13.5"/>',
+    listAdd: '<path d="M4 6h11"/><path d="M4 12h11"/><path d="M4 18h7"/><path d="M18 14v7"/><path d="M14.5 17.5h7"/>',
     checkPlain: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
     off: '<circle cx="12" cy="12" r="9.5"/><path d="m5.3 5.3 13.4 13.4"/>',
     expand: '<path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="M9 21H3v-6"/><path d="m3 21 7-7"/>',
@@ -109,6 +118,8 @@ const S = {
     byTitleArtist: new Map(),
     artists: [],            // derived from tags: [{ name, trackIds, coverId }]
     genres: [],             // derived from track.genre: [{ name, trackIds, coverIds }]
+    liked: new Set(),       // track ids you liked (♥)
+    likedOrder: [],         // the same, newest like first
     genrePending: 0,
     jobs: [],
     init: { initialized: true },
@@ -132,6 +143,8 @@ async function loadLibrary() {
     const data = await api('/library');
     S.tracks = data.tracks;
     S.collections = data.collections;
+    S.likedOrder = (data.liked || []).filter((id) => data.tracks.some((t) => t.id === id));
+    S.liked = new Set(S.likedOrder);
     S.byId = new Map(S.tracks.map((t) => [t.id, t]));
     S.bySpotifyId = new Map();
     S.byVideoId = new Map();
@@ -188,6 +201,7 @@ function collectionArt(c, cls = '') {
     }
     return ids.length ? trackArt(S.byId.get(ids[0]), cls) : html`<div class="art ${cls}">${icon('note', 24)}</div>`;
 }
+const likedArt = (cls = '') => html`<div class="art liked-songs ${cls}">${icon('heartFilled', 24)}</div>`;
 const allSongsArt = (cls = '') => html`<div class="art all-songs ${cls}">${icon('note', 24)}</div>`;
 function artistArt(a, cls = '') {
     return a.coverId ? html`<div class="art round ${cls}"><img src="${artUrl(a.coverId)}" alt="" loading="lazy"></div>` : html`<div class="art round ${cls}">${icon('user', 24)}</div>`;
@@ -313,7 +327,7 @@ function saveSession() {
     });
 }
 
-const RESUMABLE_PAGE = /^#\/(songs$|collection\/|artist\/|genre\/)/; // library pages only: a search page would re-run a YouTube search
+const RESUMABLE_PAGE = /^#\/(songs$|liked$|collection\/|artist\/|genre\/)/; // library pages only: a search page would re-run a YouTube search
 
 function restoreSession() {
     const saved = store.get('session', null);
@@ -398,6 +412,7 @@ function updateNowPlaying() {
     $('#npTitle').href = P.context ? P.context.href : '#/songs';
     $('#npArtist').innerHTML = html`${t.artists.map((a, i) => html`${i ? ', ' : ''}<a href="${artistHref(a)}">${a}</a>`)}`.toString();
     document.title = `${t.title} • ${t.artists.join(', ')}`;
+    $('#npLike').innerHTML = likeButton(t.id).s;
     renderNowView();
     if ('mediaSession' in navigator) {
         navigator.mediaSession.metadata = new MediaMetadata({
@@ -866,7 +881,7 @@ function setVizMode(mode) {
 const cycleVizMode = () => setVizMode(VIZ_MODES[(VIZ_MODES.findIndex(([k]) => k === V.mode) + 1) % VIZ_MODES.length][0]);
 const vizButtonInner = () => html`${icon(VIZ[V.mode].icon, 16)}<span>${VIZ[V.mode].label}</span>${icon('down', 14, 'chev')}`;
 const vizMenu = () => html`<div class="nv-viz-menu" role="menu" aria-label="Visualizer" hidden>
-    ${VIZ_MODES.map(([key, label, iconName]) => html`<button role="menuitemradio" aria-checked="${key === V.mode}" data-viz-option="${key}" tabindex="-1">${icon(iconName, 16)}<span>${label}</span>${icon('checkPlain', 16, 'tick')}</button>`)}
+    ${VIZ_MODES.map(([key, label, iconName]) => html`<button role="menuitemradio" aria-checked="${String(key === V.mode)}" data-viz-option="${key}" tabindex="-1">${icon(iconName, 16)}<span>${label}</span>${icon('checkPlain', 16, 'tick')}</button>`)}
 </div>`;
 
 // Dropdown: button toggles, ↑/↓ move, Enter/Space pick, Esc/Tab/click-outside close (Esc here doesn't close the view)
@@ -933,7 +948,7 @@ function renderNowView() {
                 <header class="nv-head">
                     <a class="nv-context" href="${context.href}">${context.label}</a>
                     <div class="nv-head-actions">
-                        <button class="nv-pill ${NV.lyrics ? 'on' : ''}" data-nv-lyrics data-nv-focus="lyrics" aria-pressed="${NV.lyrics}" title="Lyrics (L)">${icon('mic', 16)}<span>Lyrics</span></button>
+                        <button class="nv-pill ${NV.lyrics ? 'on' : ''}" data-nv-lyrics data-nv-focus="lyrics" aria-pressed="${String(NV.lyrics)}" title="Lyrics (L)">${icon('mic', 16)}<span>Lyrics</span></button>
                         <div class="nv-viz-wrap">
                             <button class="nv-viz ${V.mode !== 'off' ? 'on' : ''}" data-nv-viz data-nv-focus="viz" aria-haspopup="menu" aria-expanded="false" title="Visualizer (V)"><span class="sr-only">Visualizer: </span>${vizButtonInner()}</button>
                             ${vizMenu()}
@@ -946,6 +961,7 @@ function renderNowView() {
                         <h2 class="nv-title ${t.title.length > 40 ? 'long' : ''}">${t.title}</h2>
                         <p class="nv-artists">${t.artists.map((a, i) => html`${i ? ', ' : ''}<a href="${artistHref(a)}">${a}</a>`)}</p>
                         <p class="nv-album">${t.album}${year}</p>
+                        <div class="nv-like">${likeButton(t.id, { big: true })}</div>
                         <div class="nv-progress" aria-hidden="true"><i></i></div>
                         ${t.genre ? html`<div class="nv-tags"><a class="chip small" href="${genreHref(t.genre)}">#${t.genre.toLowerCase()}</a></div>` : ''}
                         ${nextT ? html`<p class="nv-upnext"><span>Up next</span>${nextT.title} • ${nextT.artists.join(', ')}</p>` : ''}
@@ -1224,6 +1240,18 @@ function connectionLine(c) {
     return html`<div class="conn-status bad">${icon('warn', 16)} <span>${c && c.configured ? 'Not working: ' : 'Not connected. '}${(c && c.message) || ''}</span></div>`;
 }
 
+// From source: how this copy relates to the release ("v2.0.1-3-gabc1234-dirty" = 3 commits after 2.0.1,
+// plus uncommitted changes). Nothing for the installed app or an exact release checkout.
+function buildLine(build, ver) {
+    if (!build || build === `v${ver}`) return '';
+    const m = /^v?([\d.]+)(?:-(\d+)-g([0-9a-f]+))?(-dirty)?$/.exec(build);
+    if (!m) return html`<p class="about-build">Running from source (${build})</p>`;
+    const parts = ['Running from source'];
+    if (m[2]) parts.push(`${plural(+m[2], 'change')} after ${m[1]}`);
+    if (m[4]) parts.push('with unsaved edits');
+    return html`<p class="about-build" title="${build}">${parts.join(', ')}</p>`;
+}
+
 function openSettings(focus = 'downloads') {
     const s = S.settings;
     const lossless = (f) => f === 'flac' || f === 'wav';
@@ -1286,6 +1314,12 @@ function openSettings(focus = 'downloads') {
                         </div>
                         <div class="modal-actions"><button type="submit" class="pill-btn primary">Save download settings</button></div>
                     </form>
+                </section>
+
+                <section class="modal-section about" aria-label="About spotDLr">
+                    <div class="about-name">${icon('spotDLr', 20)}<strong>spotDLr</strong><span class="about-version">${S.init.version ? `Version ${S.init.version}` : ''}</span></div>
+                    ${buildLine(S.init.build, S.init.version)}
+                    <a class="link about-link" href="https://github.com/HoldenGrant/spotDLr-web_ui/blob/main/CHANGELOG.md" target="_blank" rel="noopener">What's new</a>
                 </section>
             </div>
         </div>`.s;
@@ -1363,6 +1397,10 @@ function renderSidebar() {
     const q = S.libQuery.trim().toLowerCase();
     const match = (text) => !q || text.toLowerCase().includes(q);
     const items = [];
+    if ((S.libFilter === 'all' || S.libFilter === 'playlist') && match('Liked Songs')) {
+        items.push(html`<li class="lib-item" data-href="#/liked" data-key="liked">${likedArt()}
+            <div class="lib-item-text"><div class="lib-item-name">Liked Songs</div><div class="lib-item-sub">Playlist • ${plural(S.liked.size, 'song')}</div></div></li>`);
+    }
     if (S.libFilter === 'all' && match('All songs')) {
         items.push(html`<li class="lib-item" data-href="#/songs" data-key="songs">${allSongsArt()}
             <div class="lib-item-text"><div class="lib-item-name">All songs</div><div class="lib-item-sub">Playlist • ${plural(S.tracks.length, 'song')}</div></div></li>`);
@@ -1422,10 +1460,12 @@ function localTable(tracks, context, { showAlbum = true, numbered = true } = {})
             </div></div>
             ${showAlbum ? html`<span class="album-cell">${t.album}</span>` : ''}
             <span class="date-cell">${fmtAdded(t.added)}</span>
-            <span class="duration right">${fmtTime(t.duration)}</span>
+            <span class="duration right">${likeButton(t.id)}<span class="dur">${fmtTime(t.duration)}</span><button class="row-more" data-action="row-menu" aria-label="More options for ${t.title}" aria-haspopup="menu">${icon('more', 16)}</button></span>
         </div>`)}
     </div>`;
 }
+
+const likeButton = (id, { big = false } = {}) => html`<button class="like-btn ${big ? 'big' : ''} ${S.liked.has(id) ? 'on' : ''}" data-action="like" data-like-id="${id}" aria-pressed="${String(S.liked.has(id))}" aria-label="${S.liked.has(id) ? 'Remove from Liked Songs' : 'Save to Liked Songs'}">${icon(S.liked.has(id) ? 'heartFilled' : 'heart', big ? 22 : 16)}</button>`;
 
 // Status button for a Spotify track: play if owned, else download
 function trackStatus(t) {
@@ -1504,7 +1544,7 @@ function bigPlay(ctxKey, ids, context) {
     const ctx = registerContext(ids, context);
     return html`<button class="play-big" data-action="play-ctx" data-ctx="${ctx}" data-play-context="${ctxKey}" aria-label="Play">${icon('play', 24)}</button>`;
 }
-const shuffleToggle = () => html`<button class="toggle-btn ${P.shuffle ? 'on' : ''}" data-action="toggle-shuffle" aria-label="Shuffle" aria-pressed="${P.shuffle}">${icon('shuffle', 28)}</button>`;
+const shuffleToggle = () => html`<button class="toggle-btn ${P.shuffle ? 'on' : ''}" data-action="toggle-shuffle" aria-label="Shuffle" aria-pressed="${String(P.shuffle)}">${icon('shuffle', 28)}</button>`;
 
 const titleSize = (name) => name.length > 30 ? 'small' : name.length > 14 ? 'medium' : '';
 
@@ -1642,7 +1682,7 @@ function viewCollection(key) {
     const context = { key: `collection:${c.key}`, label: c.name, href: `#/collection/${encodeURIComponent(c.key)}` };
     const meta = c.kind === 'album'
         ? html`<a class="link" href="${artistHref(c.artist)}"><strong>${c.artist}</strong></a>${c.year ? html`<span class="dot">${c.year}</span>` : ''}<span class="dot">${plural(tracks.length, 'song')}, ${fmtLong(c.duration)}</span>`
-        : html`<strong>Downloaded</strong><span class="dot">${plural(tracks.length, 'song')}, ${fmtLong(c.duration)}</span>`;
+        : html`<strong>${c.editable ? 'Your playlist' : 'Downloaded'}</strong><span class="dot">${plural(tracks.length, 'song')}, ${fmtLong(c.duration)}</span>`;
     return html`
     <header class="hero">
         ${collectionArt(c)}
@@ -1653,8 +1693,31 @@ function viewCollection(key) {
         </div>
     </header>
     <div class="below-hero">
-        <div class="action-bar">${bigPlay(context.key, c.track_ids, context)}${shuffleToggle()}</div>
-        ${localTable(tracks, context, { showAlbum: c.kind !== 'album' })}
+        <div class="action-bar">${tracks.length ? html`${bigPlay(context.key, c.track_ids, context)}${shuffleToggle()}` : ''}${collectionMoreButton(c.name)}</div>
+        ${tracks.length ? localTable(tracks, context, { showAlbum: c.kind !== 'album' })
+            : html`<div class="empty"><h2>Let's find something for your playlist</h2><p>On any song, click ${icon('more', 14)} and choose <strong>Add to playlist</strong>.</p></div>`}
+    </div>`;
+}
+
+const collectionMoreButton = (label) => html`<button class="toggle-btn big-more" data-action="collection-menu" aria-label="More options for ${label}" aria-haspopup="menu">${icon('more', 28)}</button>`;
+
+function viewLiked() {
+    const context = { key: 'liked', label: 'Liked Songs', href: '#/liked' };
+    const tracks = S.likedOrder.map((id) => S.byId.get(id)).filter(Boolean);
+    const total = tracks.reduce((sum, t) => sum + t.duration, 0);
+    return html`
+    <header class="hero" style="--hero:#4f3b9c">
+        ${likedArt()}
+        <div class="hero-text">
+            <div class="hero-kind">Playlist</div>
+            <h1 class="hero-title">Liked Songs</h1>
+            <div class="hero-meta"><strong>Your likes</strong><span class="dot">${plural(tracks.length, 'song')}${tracks.length ? `, ${fmtLong(total)}` : ''}</span></div>
+        </div>
+    </header>
+    <div class="below-hero" style="--hero:#4f3b9c">
+        <div class="action-bar">${tracks.length ? html`${bigPlay('liked', tracks.map((t) => t.id), context)}${shuffleToggle()}${collectionMoreButton('Liked Songs')}` : ''}</div>
+        ${tracks.length ? localTable(tracks, context, { numbered: true })
+            : html`<div class="empty"><h2>Songs you like will appear here</h2><p>Save songs by tapping the ${icon('heart', 14)} next to them.</p></div>`}
     </div>`;
 }
 
@@ -2124,7 +2187,7 @@ async function viewStats() {
         <section class="stats-section">
             <h2 class="section-title">Listening</h2>
             <div class="filter-row" role="group" aria-label="Time range">${STATS_RANGES.map(([d, label]) =>
-                html`<button class="chip ${d === days ? 'active' : ''}" data-stats-days="${d}" aria-pressed="${d === days}">${label}</button>`)}</div>
+                html`<button class="chip ${d === days ? 'active' : ''}" data-stats-days="${d}" aria-pressed="${String(d === days)}">${label}</button>`)}</div>
             <div class="stats-listening">${listeningBody}</div>
         </section>
     </div>`;
@@ -2168,6 +2231,7 @@ function route() {
     switch (name) {
         case '': return { name: 'home' };
         case 'songs': return { name: 'songs' };
+        case 'liked': return { name: 'liked' };
         case 'collection': return { name: 'collection', key: parts.join('/') };
         case 'artist': return { name: 'artist', artist: parts.join('/') };
         case 'search': return { name: 'search', q: parts[0] || '', filter: parts[1] || 'all' };
@@ -2203,6 +2267,7 @@ async function render({ keepScroll = false } = {}) {
     if (isAsync && !keepScroll) view.innerHTML = loadingView().s;
     switch (r.name) {
         case 'songs': content = viewSongs(); break;
+        case 'liked': content = viewLiked(); break;
         case 'collection': content = viewCollection(r.key); break;
         case 'artist': content = viewLocalArtist(r.artist); break;
         case 'search': content = await viewSearch(r.q, r.filter); break;
@@ -2282,7 +2347,10 @@ function bindEvents() {
                 const on = card.classList.toggle('show-table');
                 actionEl.textContent = on ? 'Chart' : 'Table';
                 actionEl.setAttribute('aria-pressed', on);
-            } else if (action === 'settings') openSettings();
+            } else if (action === 'like') toggleLike(actionEl.dataset.likeId);
+            else if (action === 'row-menu') rowMenu(actionEl.closest('.track'), { anchor: actionEl });
+            else if (action === 'collection-menu') collectionMenu(actionEl);
+            else if (action === 'settings') openSettings();
             else if (action === 'connect-spotify') openSettings('spotify');
             return;
         }
@@ -2302,6 +2370,12 @@ function bindEvents() {
         }
         const chip = e.target.closest('[data-lib-filter]');
         if (chip) { S.libFilter = chip.dataset.libFilter; store.set('libFilter', S.libFilter); renderSidebar(); }
+    });
+    document.addEventListener('contextmenu', (e) => {
+        const row = e.target.closest('.track[data-id]');
+        if (!row || !S.byId.has(row.dataset.id) || e.target.closest('a')) return;
+        e.preventDefault();
+        rowMenu(row, { x: e.clientX, y: e.clientY });
     });
     document.addEventListener('dblclick', (e) => {
         const row = e.target.closest('.track[data-id]');
@@ -2362,8 +2436,527 @@ function paintChrome() {
     $('#downloadsBtn').insertAdjacentHTML('afterbegin', icon('downloadPlain', 20).s);
     $('#settingsBtn').innerHTML = icon('settings', 20).s;
     $('#statsBtn').innerHTML = icon('chart', 20).s;
+    $('#createBtn').innerHTML = icon('plus', 20).s;
+    $('#createBtn').addEventListener('click', (e) => createMenu(e.currentTarget));
     $('#libraryTitle').innerHTML = html`${icon('library', 22)}<span>Your Library</span>`.s;
     $('#libraryFilter').insertAdjacentHTML('afterbegin', icon('search', 14).s);
+}
+
+// ---------- menus (⋯ buttons and right-click) ----------
+// One menu at a time, in #menuRoot. Keyboard: ↑/↓/Home/End move, Enter/Space pick, Esc closes and returns
+// focus to the button that opened it; any click outside, Tab, scrolling or resizing closes it.
+
+const M = { opener: null, cleanup: null };
+
+function showMenu(items, { anchor = null, x = 0, y = 0, label = 'Options' } = {}) {
+    closeMenu(false);
+    const root = $('#menuRoot');
+    root.innerHTML = html`<div class="menu" role="menu" aria-label="${label}">${items.map((item, i) => item === '-'
+        ? html`<div class="menu-sep" role="separator"></div>`
+        : html`<button class="menu-item ${item.danger ? 'danger' : ''}" role="menuitem" data-menu-index="${i}" tabindex="-1" ${item.disabled ? 'disabled' : ''}>${icon(item.icon || 'note', 16)}<span>${item.label}</span></button>`)}</div>`.s;
+    const menu = $('.menu', root);
+    // Under the button (right-aligned), or at the cursor; then kept inside the window
+    const r = anchor ? anchor.getBoundingClientRect() : { left: x, right: x, bottom: y, top: y };
+    const w = menu.offsetWidth, h = menu.offsetHeight;
+    const left = anchor ? r.right - w : x;
+    let top = r.bottom + 4;
+    if (top + h > innerHeight - 8) top = Math.max(8, (anchor ? r.top - 4 : y) - h);
+    menu.style.left = `${Math.max(8, Math.min(left, innerWidth - w - 8))}px`;
+    menu.style.top = `${top}px`;
+    M.opener = anchor || document.activeElement;
+    if (anchor) anchor.setAttribute('aria-expanded', 'true');
+    const buttons = $$('.menu-item:not([disabled])', menu);
+    buttons[0]?.focus();
+
+    const pick = (e) => {
+        const btn = e.target.closest('.menu-item');
+        if (!btn || btn.disabled) return;
+        const item = items[+btn.dataset.menuIndex];
+        closeMenu(false);
+        item.run();
+    };
+    const onKey = (e) => {
+        const i = buttons.indexOf(document.activeElement);
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenu(); }
+        else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); buttons[(i + (e.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length].focus(); }
+        else if (e.key === 'Home' || e.key === 'End') { e.preventDefault(); buttons[e.key === 'Home' ? 0 : buttons.length - 1].focus(); }
+        else if (e.key === 'Tab') closeMenu(false);
+    };
+    const outside = (e) => { if (!menu.contains(e.target)) closeMenu(false); };
+    const away = () => closeMenu(false);
+    menu.addEventListener('click', pick);
+    menu.addEventListener('keydown', onKey);
+    setTimeout(() => document.addEventListener('pointerdown', outside, true)); // not the click that opened it
+    window.addEventListener('resize', away);
+    document.addEventListener('scroll', away, true);
+    M.cleanup = () => {
+        document.removeEventListener('pointerdown', outside, true);
+        window.removeEventListener('resize', away);
+        document.removeEventListener('scroll', away, true);
+    };
+}
+
+function closeMenu(returnFocus = true) {
+    if (!M.cleanup) return;
+    M.cleanup();
+    M.cleanup = null;
+    $('#menuRoot').innerHTML = '';
+    if (M.opener) {
+        M.opener.removeAttribute?.('aria-expanded');
+        if (returnFocus && M.opener.isConnected) M.opener.focus();
+    }
+}
+
+// The playlist you made that a row belongs to (for "Remove from …"), from the row's play context
+function rowPlaylist(row) {
+    const ctx = contexts.get(row.dataset.ctx);
+    const key = ctx && ctx.context.key.startsWith('collection:') ? ctx.context.key.slice(11) : null;
+    const c = key && S.collections.find((x) => x.key === key);
+    return c && c.editable ? c : null;
+}
+
+function rowMenu(row, position) {
+    const t = row && S.byId.get(row.dataset.id);
+    if (!t) return;
+    const playlist = rowPlaylist(row);
+    showMenu([
+        { label: S.liked.has(t.id) ? 'Remove from Liked Songs' : 'Save to Liked Songs', icon: S.liked.has(t.id) ? 'heartFilled' : 'heart', run: () => toggleLike(t.id) },
+        { label: 'Add to playlist', icon: 'listAdd', run: () => addToPlaylistDialog([t.id], t.title) },
+        ...(playlist ? [{ label: `Remove from ${playlist.name}`, icon: 'trash', run: () => removeFromPlaylist(playlist, [t.id], t.title) }] : []),
+        { label: 'Send to device', icon: 'usb', run: () => sendToDeviceDialog([t.id], t.title, null) },
+        '-',
+        { label: `Go to ${t.artists[0]}`, icon: 'user', run: () => { location.hash = artistHref(t.artists[0]); } },
+    ], { ...position, label: `Options for ${t.title}` });
+}
+
+function collectionMenu(anchor) {
+    const r = route();
+    const c = r.name === 'collection' && S.collections.find((x) => x.key === r.key);
+    const ids = c ? c.track_ids : r.name === 'liked' ? S.likedOrder : [];
+    const name = c ? c.name : 'Liked Songs';
+    showMenu([
+        { label: 'Add to another playlist', icon: 'listAdd', disabled: !ids.length, run: () => addToPlaylistDialog(ids, name) },
+        { label: 'Send to device', icon: 'usb', disabled: !ids.length, run: () => sendToDeviceDialog(ids, name, name) },
+        ...(c && c.editable ? ['-', { label: 'Delete playlist', icon: 'trash', danger: true, run: () => deletePlaylistDialog(c) }] : []),
+    ], { anchor, label: `Options for ${name}` });
+}
+
+function createMenu(anchor) {
+    showMenu([
+        { label: 'New playlist', icon: 'listAdd', run: () => newPlaylistDialog([]) },
+        { label: 'Add music files', icon: 'upload', run: () => addFilesDialog([]) },
+    ], { anchor, label: 'Create' });
+}
+
+// ---------- dialogs ----------
+
+function openModal({ title, body, wide = false, onOpen }) {
+    closeMenu(false);
+    const opener = document.activeElement;
+    $('#modalRoot').innerHTML = html`
+        <div class="modal-backdrop" data-close>
+            <div class="modal ${wide ? 'wide' : ''}" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+                <div class="modal-head"><h2 id="dialogTitle">${title}</h2>
+                    <button type="button" class="icon-btn" data-close aria-label="Close">${icon('close', 18)}</button></div>
+                ${body}
+            </div>
+        </div>`.s;
+    const backdrop = $('#modalRoot .modal-backdrop');
+    const modal = $('.modal', backdrop);
+    const close = () => { $('#modalRoot').innerHTML = ''; if (opener && opener.isConnected && opener.focus) opener.focus(); };
+    backdrop.addEventListener('click', (e) => { if (e.target === backdrop || e.target.closest('button[data-close]')) close(); });
+    backdrop.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } });
+    if (onOpen) onOpen(modal, close);
+    ($('[autofocus]', modal) || $('input:not(.sr-only), select, button:not([data-close])', modal) || modal).focus();
+    return close;
+}
+
+const editablePlaylists = () => S.collections.filter((c) => c.editable);
+
+async function refreshLibrary() {
+    await loadLibrary();
+    renderSidebar();
+    await rerender();
+}
+
+function newPlaylistDialog(trackIds) {
+    const n = editablePlaylists().length + 1;
+    openModal({
+        title: 'New playlist',
+        body: html`<form id="newPlaylistForm" class="dialog-form">
+            <label class="field"><span>Name</span><input class="field-input plain" id="playlistName" maxlength="120" value="My Playlist #${n}" autofocus></label>
+            ${trackIds.length ? html`<p class="dialog-note">${plural(trackIds.length, 'song')} will be added.</p>` : ''}
+            <p class="form-error" id="playlistError" hidden></p>
+            <div class="modal-actions"><button type="button" class="pill-btn" data-close>Cancel</button><button type="submit" class="pill-btn primary">Create</button></div>
+        </form>`,
+        onOpen: (modal, close) => {
+            setTimeout(() => $('#playlistName', modal).select());
+            $('#newPlaylistForm', modal).addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const err = $('#playlistError', modal);
+                try {
+                    const { key } = await api('/playlists', { method: 'POST', body: JSON.stringify({ name: $('#playlistName', modal).value, track_ids: trackIds }) });
+                    close();
+                    await refreshLibrary();
+                    toast(`Created ${key}`);
+                    location.hash = `#/collection/${encodeURIComponent(key)}`;
+                } catch (error) { err.textContent = error.message; err.hidden = false; }
+            });
+        },
+    });
+}
+
+function addToPlaylistDialog(trackIds, label) {
+    const lists = editablePlaylists();
+    openModal({
+        title: 'Add to playlist',
+        body: html`<p class="dialog-note">${trackIds.length === 1 ? label : plural(trackIds.length, 'song')}</p>
+            <div class="pick-list">
+                <button class="pick-row" data-new-playlist><div class="art pick-art">${icon('plus', 22)}</div><div><div class="pick-name">New playlist</div></div></button>
+                ${lists.map((c) => html`<button class="pick-row" data-playlist-key="${c.key}">${collectionArt(c, 'pick-art')}<div><div class="pick-name">${c.name}</div><div class="pick-sub">${plural(c.track_ids.length, 'song')}</div></div></button>`)}
+            </div>
+            ${lists.length ? '' : html`<p class="dialog-note">You haven't made a playlist yet. Downloaded playlists can't be changed, so songs go into playlists you make here.</p>`}`,
+        onOpen: (modal, close) => {
+            modal.addEventListener('click', async (e) => {
+                if (e.target.closest('[data-new-playlist]')) { close(); newPlaylistDialog(trackIds); return; }
+                const row = e.target.closest('[data-playlist-key]');
+                if (!row) return;
+                const key = row.dataset.playlistKey;
+                const before = S.collections.find((c) => c.key === key).track_ids.length;
+                try {
+                    const { count } = await api(`/playlists/${encodeURIComponent(key)}/tracks`, { method: 'POST', body: JSON.stringify({ track_ids: trackIds, action: 'add' }) });
+                    close();
+                    toast(count === before ? `Already in ${key}` : `Added to ${key}`);
+                    await refreshLibrary();
+                } catch (error) { toast(error.message, 'error'); }
+            });
+        },
+    });
+}
+
+async function removeFromPlaylist(playlist, trackIds, label) {
+    try {
+        await api(`/playlists/${encodeURIComponent(playlist.key)}/tracks`, { method: 'POST', body: JSON.stringify({ track_ids: trackIds, action: 'remove' }) });
+        toast(`Removed ${label} from ${playlist.name}`);
+        await refreshLibrary();
+    } catch (error) { toast(error.message, 'error'); }
+}
+
+function deletePlaylistDialog(c) {
+    openModal({
+        title: `Delete ${c.name}?`,
+        body: html`<p class="dialog-note">The playlist is removed. ${c.track_ids.length === 1 ? 'Its song stays' : `Its ${plural(c.track_ids.length, 'song')} stay`} in your library.</p>
+            <div class="modal-actions"><button type="button" class="pill-btn" data-close autofocus>Cancel</button><button type="button" class="pill-btn danger" id="confirmDelete">Delete</button></div>`,
+        onOpen: (modal, close) => {
+            $('#confirmDelete', modal).addEventListener('click', async () => {
+                try {
+                    await api(`/playlists/${encodeURIComponent(c.key)}`, { method: 'DELETE' });
+                    close();
+                    toast(`Deleted ${c.name}`);
+                    location.hash = '#/';
+                    await refreshLibrary();
+                } catch (error) { toast(error.message, 'error'); }
+            });
+        },
+    });
+}
+
+// ---------- likes ----------
+
+async function toggleLike(id) {
+    const liked = !S.liked.has(id);
+    const apply = (on) => {
+        if (on) { S.liked.add(id); S.likedOrder = [id, ...S.likedOrder.filter((x) => x !== id)]; }
+        else { S.liked.delete(id); S.likedOrder = S.likedOrder.filter((x) => x !== id); }
+        $$(`.like-btn[data-like-id="${id}"]`).forEach((btn) => { btn.outerHTML = likeButton(id, { big: btn.classList.contains('big') }).s; });
+        renderSidebar();
+        if (route().name === 'liked') rerender();
+    };
+    apply(liked); // instant; undone if the server says no
+    try { await api(`/likes/${encodeURIComponent(id)}`, { method: 'POST', body: JSON.stringify({ liked }) }); }
+    catch (error) { apply(!liked); toast(`Couldn't save that: ${error.message}`, 'error'); }
+}
+
+// ---------- adding files ----------
+
+const AUDIO_EXT = ['.mp3', '.m4a', '.flac', '.wav', '.ogg', '.opus', '.aac'];
+const isAudioFile = (f) => AUDIO_EXT.some((ext) => f.name.toLowerCase().endsWith(ext));
+const fmtSize = (b) => b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : b >= 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1e3))} KB`;
+
+// One file as the raw request body; XHR (not fetch) because fetch can't report upload progress
+function uploadFile(file, album, onProgress) {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        const query = new URLSearchParams({ name: file.name, ...(album ? { album } : {}) });
+        xhr.open('POST', `/api/import?${query}`);
+        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+        xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+        xhr.onload = () => {
+            let data = {};
+            try { data = JSON.parse(xhr.responseText); } catch { /* not JSON */ }
+            if (xhr.status < 300) resolve(data); else reject(new Error(data.detail || `Upload failed (${xhr.status})`));
+        };
+        xhr.onerror = () => reject(new Error('The upload stopped. Is spotDLr still running?'));
+        xhr.send(file);
+    });
+}
+
+const readAsDataUrl = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Couldn't read that image"));
+    reader.readAsDataURL(file);
+});
+
+function addFilesDialog(initialFiles) {
+    let files = initialFiles.filter(isAudioFile);
+    const skippedAtStart = initialFiles.length - files.length;
+    let cover = null;
+    const lists = editablePlaylists();
+    openModal({
+        title: 'Add music files',
+        wide: true,
+        body: html`<form id="addFilesForm" class="dialog-form">
+            <label class="drop-zone" id="dropZone">
+                <input type="file" id="fileInput" multiple accept="${AUDIO_EXT.join(',')},audio/*" class="sr-only">
+                ${icon('upload', 28)}<strong>Drop music files here, or click to choose</strong>
+                <span>MP3, M4A, FLAC, WAV, OGG or Opus. They're copied into your spotDLr music folder.</span>
+            </label>
+            <ul class="file-list" id="fileList"></ul>
+            <p class="dialog-note" id="skippedNote" ${skippedAtStart ? '' : 'hidden'}>${skippedAtStart ? `${plural(skippedAtStart, 'file')} skipped: not music.` : ''}</p>
+            <fieldset class="choice-group">
+                <legend>Add them as</legend>
+                <label class="choice"><input type="radio" name="addAs" value="library" checked><span><strong>Songs in your library</strong><small>Keeps each file's own title, artist and album.</small></span></label>
+                <label class="choice"><input type="radio" name="addAs" value="album"><span><strong>A new album</strong><small>Writes the album name, artist, year and cover into the files, so every music player groups them.</small></span></label>
+                <label class="choice ${lists.length ? '' : 'disabled'}"><input type="radio" name="addAs" value="playlist" ${lists.length ? '' : 'disabled'}><span><strong>Songs in a playlist</strong><small>${lists.length ? 'Adds them to your library and to a playlist you made.' : 'Make a playlist first: + next to Your Library.'}</small></span></label>
+            </fieldset>
+            <div class="album-fields" id="albumFields" hidden>
+                <div class="cover-pick">
+                    <label class="cover-box" id="coverBox" title="Choose a cover image">${icon('note', 32)}<input type="file" id="coverInput" accept="image/jpeg,image/png" class="sr-only"><span class="sr-only">Cover image</span></label>
+                    <small>Cover (JPEG or PNG)</small>
+                </div>
+                <div class="album-text">
+                    <label class="field"><span>Album name</span><input class="field-input plain" id="albumName" maxlength="200"></label>
+                    <label class="field"><span>Artist</span><input class="field-input plain" id="albumArtist" maxlength="200"></label>
+                    <label class="field short"><span>Year</span><input class="field-input plain" id="albumYear" inputmode="numeric" maxlength="4" placeholder="2026"></label>
+                </div>
+            </div>
+            <label class="field" id="playlistPick" hidden><span>Playlist</span>
+                <select id="playlistSelect">${lists.map((c) => html`<option value="${c.key}">${c.name}</option>`)}</select></label>
+            <div class="upload-progress" id="uploadProgress" hidden><div class="progress-bar"><i></i></div><p id="uploadStatus"></p></div>
+            <p class="form-error" id="addError" hidden></p>
+            <div class="modal-actions"><button type="button" class="pill-btn" data-close>Cancel</button><button type="submit" class="pill-btn primary" id="addSubmit">Add</button></div>
+        </form>`,
+        onOpen: (modal, close) => {
+            const list = $('#fileList', modal), submit = $('#addSubmit', modal), err = $('#addError', modal);
+            const showFiles = () => {
+                list.innerHTML = html`${files.map((f, i) => html`<li><span class="file-name">${f.name}</span><span class="file-size">${fmtSize(f.size)}</span><button type="button" class="icon-btn" data-remove-file="${i}" aria-label="Remove ${f.name}">${icon('close', 14)}</button></li>`)}`.s;
+                submit.textContent = files.length ? `Add ${plural(files.length, 'song')}` : 'Add';
+                submit.disabled = !files.length;
+            };
+            const addFiles = (picked) => {
+                const good = [...picked].filter(isAudioFile);
+                const skipped = picked.length - good.length;
+                const note = $('#skippedNote', modal);
+                note.hidden = !skipped;
+                note.textContent = skipped ? `${plural(skipped, 'file')} skipped: not music.` : '';
+                files = files.concat(good.filter((f) => !files.some((x) => x.name === f.name && x.size === f.size)));
+                showFiles();
+            };
+            showFiles();
+            $('#fileInput', modal).addEventListener('change', (e) => { addFiles(e.target.files); e.target.value = ''; });
+            const zone = $('#dropZone', modal);
+            zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('over'); });
+            zone.addEventListener('dragleave', () => zone.classList.remove('over'));
+            zone.addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); zone.classList.remove('over'); addFiles(e.dataTransfer.files); });
+            list.addEventListener('click', (e) => { const b = e.target.closest('[data-remove-file]'); if (b) { files.splice(+b.dataset.removeFile, 1); showFiles(); } });
+            const mode = () => $('input[name="addAs"]:checked', modal).value;
+            modal.addEventListener('change', (e) => {
+                if (e.target.name !== 'addAs') return;
+                $('#albumFields', modal).hidden = mode() !== 'album';
+                $('#playlistPick', modal).hidden = mode() !== 'playlist';
+            });
+            $('#coverInput', modal).addEventListener('change', async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                try {
+                    cover = await readAsDataUrl(file);
+                    const box = $('#coverBox', modal);
+                    box.querySelector('img')?.remove();
+                    box.querySelector('svg')?.remove();
+                    box.insertAdjacentHTML('afterbegin', html`<img src="${cover}" alt="">`.s);
+                } catch (error) { err.textContent = error.message; err.hidden = false; }
+            });
+
+            $('#addFilesForm', modal).addEventListener('submit', async (e) => {
+                e.preventDefault();
+                err.hidden = true;
+                const how = mode();
+                const album = $('#albumName', modal).value.trim(), artist = $('#albumArtist', modal).value.trim(), year = $('#albumYear', modal).value.trim();
+                const playlistKey = $('#playlistSelect', modal)?.value;
+                if (how === 'album' && (!album || !artist)) { err.textContent = 'An album needs a name and an artist.'; err.hidden = false; return; }
+                if (how === 'album' && year && !/^\d{4}$/.test(year)) { err.textContent = 'The year should be four digits, like 2026.'; err.hidden = false; return; }
+                $$('input, select, button:not([data-close])', modal).forEach((el) => { el.disabled = true; });
+                const progress = $('#uploadProgress', modal), bar = $('.progress-bar i', progress), status = $('#uploadStatus', modal);
+                progress.hidden = false;
+                const total = files.reduce((sum, f) => sum + f.size, 0) || 1;
+                let sent = 0;
+                const paths = [], failed = [];
+                for (const [i, file] of files.entries()) {
+                    status.textContent = `Adding ${i + 1} of ${files.length}: ${file.name}`;
+                    try {
+                        const { path } = await uploadFile(file, how === 'album' ? album : '', (fraction) => { bar.style.width = `${((sent + fraction * file.size) / total) * 100}%`; });
+                        paths.push(path);
+                    } catch (error) { failed.push(`${file.name}: ${error.message}`); }
+                    sent += file.size;
+                    bar.style.width = `${(sent / total) * 100}%`;
+                }
+                try {
+                    if (how === 'album' && paths.length) {
+                        status.textContent = 'Writing the album details into the files…';
+                        await api('/import/album', { method: 'POST', body: JSON.stringify({ paths, album, artist, year: year || null, cover }) });
+                    }
+                    await loadLibrary();
+                    if (how === 'playlist' && paths.length) {
+                        const ids = paths.map((p) => S.tracks.find((t) => t.path === p)?.id).filter(Boolean);
+                        await api(`/playlists/${encodeURIComponent(playlistKey)}/tracks`, { method: 'POST', body: JSON.stringify({ track_ids: ids, action: 'add' }) });
+                    }
+                } catch (error) { failed.push(error.message); }
+                if (failed.length) {
+                    status.textContent = paths.length ? `Added ${plural(paths.length, 'song')}. Some didn't work:` : 'Nothing was added:';
+                    err.textContent = failed.join(' • ');
+                    err.hidden = false;
+                    await refreshLibrary();
+                    return;
+                }
+                close();
+                await refreshLibrary();
+                toast(`Added ${plural(paths.length, 'song')}`);
+                const folder = paths[0] && paths[0].includes('/') ? paths[0].split('/')[0] : null;
+                location.hash = how === 'album' && folder ? `#/collection/${encodeURIComponent(folder)}`
+                    : how === 'playlist' ? `#/collection/${encodeURIComponent(playlistKey)}` : '#/songs';
+            });
+        },
+    });
+}
+
+// Drop music files anywhere in the window to add them
+function bindFileDrop() {
+    const overlay = $('#dropOverlay');
+    let depth = 0;
+    const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+    document.addEventListener('dragenter', (e) => { if (!hasFiles(e) || $('#modalRoot').children.length) return; depth++; overlay.hidden = false; });
+    document.addEventListener('dragleave', (e) => { if (!hasFiles(e)) return; depth = Math.max(0, depth - 1); if (!depth) overlay.hidden = true; });
+    document.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); }); // otherwise the browser opens the file
+    document.addEventListener('drop', (e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        depth = 0;
+        overlay.hidden = true;
+        if (!$('#modalRoot').children.length) addFilesDialog([...e.dataTransfer.files]);
+    });
+}
+
+// ---------- send to device ----------
+
+function sendToDeviceDialog(trackIds, label, collection) {
+    const tracks = trackIds.map((id) => S.byId.get(id)).filter(Boolean);
+    const allMp3 = tracks.every((t) => t.path.toLowerCase().endsWith('.mp3'));
+    const prefs = { folder: 'Music', format: allMp3 ? 'original' : 'mp3', bitrate: 256, ...store.get('sendPrefs', {}) };
+    const estimate = (format, bitrate) => tracks.reduce((sum, t) =>
+        sum + (format === 'mp3' && !t.path.toLowerCase().endsWith('.mp3') ? bitrate * 1000 / 8 * t.duration : t.size), 0);
+    const isWindows = /Win/.test(navigator.platform || navigator.userAgent);
+    openModal({
+        title: 'Send to device',
+        wide: true,
+        body: html`<form id="sendForm" class="dialog-form">
+            <p class="dialog-note">${trackIds.length === 1 ? label : html`<strong>${label}</strong>, ${plural(tracks.length, 'song')}`}. Plug in your MP3 player or USB drive, then pick it.</p>
+            <fieldset class="choice-group"><legend>Device <button type="button" class="link-btn" id="refreshDevices">Refresh</button></legend>
+                <div id="deviceList"><p class="dialog-note">Looking for devices…</p></div>
+                <label class="choice"><input type="radio" name="device" value="other"><span><strong>Somewhere else</strong><small>Type a folder, for a player that doesn't show up above</small></span></label>
+                <input class="field-input" id="otherPath" aria-label="Folder path" placeholder="${isWindows ? 'E:\\' : '/Volumes/MY PLAYER'}" hidden>
+            </fieldset>
+            <label class="field"><span>Folder on the device</span><input class="field-input plain" id="sendFolder" value="${prefs.folder}" maxlength="80"></label>
+            <fieldset class="choice-group"><legend>Format</legend>
+                <label class="choice"><input type="radio" name="format" value="mp3" ${prefs.format === 'mp3' ? 'checked' : ''}><span><strong>Convert to MP3</strong><small>Plays on any MP3 player. spotDLr downloads .m4a, which many players can't play.</small></span></label>
+                <label class="choice"><input type="radio" name="format" value="original" ${prefs.format === 'original' ? 'checked' : ''}><span><strong>Keep the original files</strong><small>Best quality, for players and phones that play .m4a (AAC).</small></span></label>
+                <label class="field short" id="bitrateField"><span>MP3 quality</span><select id="sendBitrate">${[128, 192, 256, 320].map((b) => html`<option value="${b}" ${b === prefs.bitrate ? 'selected' : ''}>${b} kbps${b === 256 ? ' (recommended)' : b === 128 ? ' (smallest)' : ''}</option>`)}</select></label>
+            </fieldset>
+            <p class="dialog-note" id="sendEstimate"></p>
+            <div class="upload-progress" id="sendProgress" hidden><div class="progress-bar"><i></i></div><p id="sendStatus"></p></div>
+            <p class="form-error" id="sendError" hidden></p>
+            <div class="modal-actions"><button type="button" class="pill-btn" data-close id="sendCancel">Cancel</button><button type="submit" class="pill-btn primary" id="sendSubmit">Send</button></div>
+        </form>`,
+        onOpen: (modal) => {
+            const err = $('#sendError', modal), submit = $('#sendSubmit', modal);
+            let devices = [];
+            const format = () => $('input[name="format"]:checked', modal).value;
+            const chosenDevice = () => $('input[name="device"]:checked', modal)?.value;
+            const showEstimate = () => {
+                $('#bitrateField', modal).hidden = format() !== 'mp3';
+                const need = estimate(format(), +$('#sendBitrate', modal).value);
+                const d = devices.find((x) => x.path === chosenDevice());
+                $('#sendEstimate', modal).textContent = `About ${fmtSize(need)} to copy${d ? `, with ${fmtSize(d.free)} free on ${d.name}` : ''}.${d && need > d.free ? ' That won\'t fit.' : ''}`;
+                $('#sendEstimate', modal).classList.toggle('warn', !!d && need > d.free);
+            };
+            const loadDevices = async () => {
+                $('#deviceList', modal).innerHTML = html`<p class="dialog-note">Looking for devices…</p>`.s;
+                try { devices = (await api('/devices')).devices; } catch { devices = []; }
+                const last = store.get('sendDevice', null);
+                const preferred = devices.some((d) => d.path === last) ? last : devices[0]?.path;
+                $('#deviceList', modal).innerHTML = devices.length
+                    ? html`${devices.map((d) => html`<label class="choice"><input type="radio" name="device" value="${d.path}" ${d.path === preferred ? 'checked' : ''}><span><strong>${icon('usb', 16)} ${d.name}</strong><small>${fmtSize(d.free)} free of ${fmtSize(d.total)} • ${d.path}</small></span></label>`)}`.s
+                    : html`<p class="dialog-note">No MP3 player or USB drive found. Plug one in and click Refresh. Players that connect like a phone (not as a drive) won't show up.</p>`.s;
+                if (!devices.length) $('input[name="device"][value="other"]', modal).checked = true;
+                $('#otherPath', modal).hidden = chosenDevice() !== 'other';
+                showEstimate();
+            };
+            loadDevices();
+            $('#refreshDevices', modal).addEventListener('click', loadDevices);
+            modal.addEventListener('change', (e) => {
+                if (e.target.name === 'device') $('#otherPath', modal).hidden = e.target.value !== 'other';
+                showEstimate();
+            });
+
+            $('#sendForm', modal).addEventListener('submit', async (e) => {
+                e.preventDefault();
+                err.hidden = true;
+                const picked = chosenDevice();
+                const device = picked === 'other' ? $('#otherPath', modal).value.trim() : picked;
+                if (!device) { err.textContent = 'Pick a device, or type a folder.'; err.hidden = false; return; }
+                const body = { track_ids: tracks.map((t) => t.id), device, subfolder: $('#sendFolder', modal).value.trim(), collection,
+                    format: format(), bitrate: +$('#sendBitrate', modal).value };
+                store.set('sendPrefs', { folder: body.subfolder, format: body.format, bitrate: body.bitrate });
+                if (picked !== 'other') store.set('sendDevice', device);
+                let job;
+                try { job = await api('/export', { method: 'POST', body: JSON.stringify(body) }); }
+                catch (error) { err.textContent = error.message; err.hidden = false; return; }
+                const name = devices.find((d) => d.path === device)?.name || device;
+                submit.disabled = true;
+                $$('fieldset, .field input, .field select', modal).forEach((el) => { el.disabled = true; });
+                $('#sendCancel', modal).textContent = 'Hide';
+                const progress = $('#sendProgress', modal), bar = $('.progress-bar i', progress), status = $('#sendStatus', modal);
+                progress.hidden = false;
+                while (job.status === 'copying') {
+                    bar.style.width = `${(job.done / job.total) * 100}%`;
+                    status.textContent = job.current ? `${body.format === 'mp3' ? 'Converting and copying' : 'Copying'} ${job.done + 1} of ${job.total}: ${job.current}` : `Copying ${job.done} of ${job.total}`;
+                    await new Promise((r) => setTimeout(r, 500));
+                    try { job = await api(`/export/${job.id}`); } catch { /* keep polling */ }
+                }
+                $('#sendCancel', modal).textContent = 'Close';
+                if (job.status === 'done') {
+                    bar.style.width = '100%';
+                    const copied = job.total - job.skipped;
+                    status.textContent = `Done: ${plural(copied, 'song')} copied to ${name}${job.skipped ? `, ${job.skipped} already there` : ''}. Eject the device before unplugging it.`;
+                    toast(`Sent ${plural(copied, 'song')} to ${name}`);
+                } else {
+                    err.textContent = `Stopped after ${job.done} of ${job.total}: ${job.error}`;
+                    err.hidden = false;
+                }
+            });
+            showEstimate();
+        },
+    });
 }
 
 // ---------- boot ----------
@@ -2396,6 +2989,7 @@ function bindWindowCheckIn() {
 (async function boot() {
     bindWindowCheckIn();
     paintChrome();
+    bindFileDrop();
     bindImageFallback();
     bindChartTooltip();
     bindPlayer();

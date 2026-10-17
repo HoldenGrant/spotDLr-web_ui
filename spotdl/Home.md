@@ -23,7 +23,7 @@
 - [[API Reference]]
 - [[Launchers & Setup]]: `run.command` (Mac), `run.sh`, `run.bat`, `run.ps1`, `.env`
 - [[Bug Log]]: verified open issues
-- [[History]]: what changed, when
+- [[History]]: what changed, when (day by day, with internal detail). The public, version-by-version list is `CHANGELOG.md` in the repo root.
 - [[Roadmap]]: planned work (next: a `spotDLr.app` launcher so it opens like an app)
 
 ---

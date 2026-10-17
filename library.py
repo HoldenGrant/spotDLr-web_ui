@@ -53,7 +53,7 @@ class Library:
             seen, playlists = {}, {}
             for path in self.root.rglob("*"):
                 if path.name == PLAYLIST_FILE and path.parent.parent == self.root:
-                    playlists[path.parent.name] = _read_playlist(path, self.root)
+                    playlists[path.parent.name] = (_read_playlist(path, self.root), path.stat().st_mtime)
                     continue
                 if not path.is_file() or path.suffix.lower() not in AUDIO_EXTENSIONS:
                     continue
@@ -260,6 +260,8 @@ def _collections(tracks, playlists=None):
     """One collection per top-level folder: an album if every track shares an album tag, else a playlist.
 
     A folder's playlist.m3u8 (when there is one) sets the order and can pull in songs from other folders.
+    A folder with an m3u8 and no audio of its own is a playlist you made: always a playlist, listed even
+    while empty, and "editable" (songs can be added and removed; deleting it never touches the songs).
     """
     playlists = playlists or {}
     folders, by_path = {}, {t["path"]: t for t in tracks}
@@ -270,15 +272,19 @@ def _collections(tracks, playlists=None):
     collections = []
     for folder in set(folders) | set(playlists):
         own = sorted(folders.get(folder, []), key=lambda t: t["path"])
-        listed = list({t["id"]: t for t in (by_path.get(r) for r in playlists.get(folder, [])) if t}.values())
+        entries, listed_at = playlists.get(folder, ([], 0))
+        editable = folder in playlists and not own
+        listed = list({t["id"]: t for t in (by_path.get(r) for r in entries) if t}.values())
         listed_ids = {t["id"] for t in listed}
         items = listed + [t for t in own if t["id"] not in listed_ids]  # files not in the m3u8 go last
-        if not items:
+        if not items and not editable:
             continue
         albums = Counter(t["album"] for t in items)
-        is_album = len(albums) == 1
+        is_album = len(albums) == 1 and not editable
         name = folder
-        if is_album and (JUNK_FOLDER_NAME.match(folder) or len(items) > 1):
+        if editable:
+            pass  # your name, even if every song happens to be from one album
+        elif is_album and (JUNK_FOLDER_NAME.match(folder) or len(items) > 1):
             name = items[0]["album"]
         elif JUNK_FOLDER_NAME.match(folder):
             name = albums.most_common(1)[0][0]
@@ -300,7 +306,8 @@ def _collections(tracks, playlists=None):
             "track_ids": [t["id"] for t in items],
             "cover_ids": covers[:1] if is_album else covers,
             "duration": round(sum(t["duration"] for t in items)),
-            "added": max(t["added"] for t in items),
+            "added": max([t["added"] for t in items] + [listed_at if editable else 0]),
+            "editable": editable,
         })
     collections.sort(key=lambda c: c["added"], reverse=True)
     return collections

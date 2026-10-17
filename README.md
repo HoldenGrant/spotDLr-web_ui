@@ -5,6 +5,9 @@ Your own music library and player, with a Spotify-style interface. Search Spotif
 
 ## ✨ Features
 
+What's new in each version: [CHANGELOG.md](CHANGELOG.md).
+
+
 - 🔎 **Search** songs, artists, albums and playlists from the top bar: **YouTube Music** (no account or keys needed), or Spotify when it's connected
 - 🔗 **Paste any Spotify or YouTube Music link** (song, album, playlist). Spotify links work without Spotify API access: the song list is read from Spotify's public player and each song is found on YouTube Music
 - ✅ **Knows what you already have**: every result shows a green check (play it) or a download button, matched by exact Spotify or YouTube ID, then title + artist
