@@ -7,21 +7,28 @@ The Windows build refuses a tag that doesn't match VERSION, so the installer nev
 
 import subprocess
 import sys
-from functools import lru_cache
+import time
 from pathlib import Path
 
 VERSION = "2.1.0"
 
 
-@lru_cache(maxsize=1)
+_build_cache = {"at": 0.0, "value": None}
+
+
 def source_build():
     """From source, where this copy stands against the tags: "v2.0.1" (exactly the release),
     "v2.0.1-3-gabc1234" (3 commits after it), "-dirty" (uncommitted changes). None in the installed app."""
     if getattr(sys, "frozen", False):
         return None
+    # Re-checked every 30 s, not once per run: committing while spotDLr runs must clear "unsaved edits"
+    if time.monotonic() - _build_cache["at"] < 30:
+        return _build_cache["value"]
     try:
         result = subprocess.run(["git", "describe", "--tags", "--dirty", "--always"], cwd=Path(__file__).parent,
                                 capture_output=True, text=True, timeout=3)
-        return result.stdout.strip() or None if result.returncode == 0 else None
+        value = (result.stdout.strip() or None) if result.returncode == 0 else None
     except (OSError, subprocess.SubprocessError):
-        return None  # no git, or not a git checkout (e.g. a downloaded zip)
+        value = None  # no git, or not a git checkout (e.g. a downloaded zip)
+    _build_cache.update(at=time.monotonic(), value=value)
+    return value
