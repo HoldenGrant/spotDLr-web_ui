@@ -10,7 +10,7 @@ import sys
 import time
 from pathlib import Path
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 
 
 _build_cache = {"at": 0.0, "value": None}

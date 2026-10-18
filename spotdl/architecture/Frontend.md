@@ -100,6 +100,31 @@ Opened from the cover in the player bar or the expand button next to the volume 
 - **Gotcha fixed along the way:** `html```  renders `false` as `''`, so `aria-pressed="${false}"` came out empty. Boolean ARIA attributes now use `String()`. And a global `[hidden] { display: none !important }`, because `.field { display: flex }` beat the browser's own `[hidden]` rule and showed hidden fields.
 - **Checked (headless Chrome, throwaway library):** like → Liked Songs and sidebar count; + menu keyboard and Esc focus; create playlist (empty state) → add via ⋯ and via right-click → remove → delete with confirm (songs kept); add files (a .jpg skipped), as an album with a cover → album page with name, artist, year, cover; Send to device → 2 MP3s with tags and cover on the "device"; no console errors. **Not checked:** a real USB stick (none plugged in) and Windows drive detection.
 
+## Now Playing full screen (Oct 18)
+
+A button in the Now Playing header between the visualizer menu and × (`data-nv-fullscreen`, icon `fullscreen`/`shrink`), or `F`. The **`.nv` section itself** goes full screen (Fullscreen API, `webkit` fallback for Safari); it's built once per opening (see the flash fix), so re-renders on song change keep it full screen. `fullscreenchange` updates the button and the `.fullscreen` class: 100vw × 100vh, `--card: min(66vh, 720px)`, bigger title and lyrics; the canvas fills it because it sizes itself to the panel. **Idle:** 2.5 s without pointer movement adds `.idle` (header, ↑/↓ and cursor fade); not while the visualizer menu is open or you're on the controls with the keyboard (`:focus-visible`), but a mouse click that leaves focus on the button doesn't keep them up. The browser takes the first Esc to leave full screen; `closeNowView()` also exits full screen. **Checked (headless Chrome, real mouse and key events):** the header order is Lyrics, visualizer, full screen, close; clicking enters (`aria-pressed` true, label "Exit full screen"); idle after 3 s → header opacity 0; a mouse move → 1; F exits and F re-enters; closing Now Playing leaves full screen; no console errors.
+
+## Add to Apple Music (Oct 18, Mac only)
+
+**⋯ → Add to Apple Music** on rows and on album/playlist/Liked pages, shown only when `S.init.apple_music`. The dialog states the plan from the file types (lossless → Apple Lossless "checked sample for sample"; AAC/MP3 as they are; Opus/Ogg → AAC 256), offers "Also make a playlist called …" for playlists (not albums), then polls the job and reports added / verified / already there.
+
+**Checked against the real Music app:** re-adding Reanimation (already imported) → 20 skipped, 0 converted, library 839 → 839. A 3 s test tone FLAC in a throwaway library → converted, verified, added, put in a new test playlist; sending it again → skipped (still 1 copy); the test track and playlist were then deleted, leaving the library at 839.
+
+## Blind listening test (`#/abx/<track id>`, Oct 18)
+
+Opened from a song's ⋯ menu. **Setup:** shows whether the source is lossless (`/api/abx/source`), with a warning for lossy sources (all YouTube downloads are AAC 128); codec, bitrate, clip start (m:ss, 30 s clip) and rounds; saved as `spotdlr.abxPrefs`. Pauses the main player.
+
+**Why it's built this way (each one is a giveaway a naive test would leak):**
+- *Encoder delay:* AAC's encoder adds priming samples. In an ADTS stream nothing records them, and the copy measured **1,024 samples (23.2 ms) late**, an audible jump when switching. In MP4 the delay is recorded and removed on decode; with a 1 s margin each side, A and B measured **0 samples apart** for AAC, MP3 and Opus. The file sizes are identical to the byte (3,528,044 for 20 s).
+- *Switching:* A, B and X are decoded into AudioBuffers (a separate AudioContext from the visualizer's) and switched by stopping one source and starting the next at the same position, with the same 5 ms fade every time (measured: 5 ms apart). Clips loop.
+- *Network/cache:* X comes from a fresh per-trial URL with `no-store`. The page never sees the answers until the end.
+- *Keys:* A/B/X listen, Space pauses, 1/2 answer, in the capture phase, so they don't reach the main player's shortcuts while the test is on screen.
+- *Statistics:* the result is the one-sided binomial tail P(≥k right | n, ½), e.g. 8/10 → 56/1024 ≈ 5.5%. A score counts as "heard" only under 5%.
+
+`render()` skips background re-renders (`keepScroll`) of the test page already on screen, so a finished download can't wipe a test. `mountAbx` checks `body.isConnected` after its await, because hashchange and popstate both render.
+
+**Checked (headless Chrome, FLAC test source):** a perfect "oracle" answerer (comparing X's samples with A's) → 10/10, "less than 1 in 1,000"; always answering A → 3–4/10, "no reliable difference"; answers absent from the page and the status route until the end; the lossy-source warning; leaving the page stops the audio and gives Space back to the player; no console errors.
+
 ## Downloads in the UI
 
 - `startDownload()` → `POST /api/download` with the saved settings → toast → button becomes a spinner.

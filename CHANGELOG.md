@@ -4,6 +4,18 @@ What changed in each version of spotDLr, newest first. Downloads are on the [Rel
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [2.2.0] - 2026-10-18
+
+### Added
+- **Full screen Now Playing.** The new button next to the visualizer menu (or the F key) fills the screen with the song, its cover or lyrics, and the visualizer. The controls and cursor fade after a few seconds without moving the mouse. Esc leaves full screen.
+- **Add to Apple Music** (Mac). **⋯** on a song, album or playlist → **Add to Apple Music**. Lossless songs (FLAC, WAV) become Apple Lossless, and spotDLr checks every sample matches the original before adding them; AAC and MP3 go in as they are. Songs already in Apple Music are skipped, and a playlist can get a matching playlist in Apple Music.
+- **Blind listening test.** **⋯** on any song → **Blind listening test**: can you hear the difference between the original and a compressed copy (AAC, MP3 or Opus, 64–320 kbps)? You hear A, B and a hidden X, say which X is, and after 10 rounds see how likely your score is from guessing alone. Works best with a lossless original (FLAC, WAV or Apple Lossless); spotDLr's own downloads are already compressed, and the test says so.
+
+### Fixed
+- The "running from source" line in Settings updates after a commit without restarting spotDLr.
+
 ## [2.1.0] - 2026-10-17
 
 ### Added
@@ -72,6 +84,8 @@ The original spotDLr: a web page for downloading with spotDL. These versions wer
 - Reading `.env` in `run.bat`.
 - Playlist and album folder names on macOS (Jan 6, 2026).
 
-[Unreleased]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.0.1...HEAD
+[Unreleased]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.1.0...v2.2.0
+[2.1.0]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/HoldenGrant/spotDLr-web_ui/releases/tag/v2.0.0

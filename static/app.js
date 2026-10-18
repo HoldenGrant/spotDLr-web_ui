@@ -67,8 +67,12 @@ const ICONS = {
     usb: '<rect x="7" y="9" width="10" height="12.5" rx="2"/><path d="M9.5 9V3h5v6"/><path d="M11 5.5h.01"/><path d="M13 5.5h.01"/>',
     trash: '<path d="M4 7h16"/><path d="M9.5 7V4.5h5V7"/><path d="M6.5 7l1 13.5h9l1-13.5"/>',
     listAdd: '<path d="M4 6h11"/><path d="M4 12h11"/><path d="M4 18h7"/><path d="M18 14v7"/><path d="M14.5 17.5h7"/>',
+    ear: '<path d="M6 8.5a6 6 0 1 1 12 0c0 3.5-3 4.5-3 7.5a3.5 3.5 0 0 1-6.5 1.8"/><path d="M9.5 9a2.5 2.5 0 1 1 5 0c0 1.5-1.5 2-1.5 3.5"/>',
+    apple: '<path d="M12 7.5c0-2 1.4-3.6 3.3-4"/><path d="M8 7.2c-2.8 0-4.5 2.3-4.5 5.4 0 4 2.6 8.4 4.8 8.4 1 0 1.6-.6 3.7-.6s2.7.6 3.7.6c2.2 0 4.8-4.4 4.8-8.4 0-3.1-1.7-5.4-4.5-5.4-1.6 0-2.6.8-4 .8s-2.4-.8-4-.8z"/>',
     checkPlain: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
     off: '<circle cx="12" cy="12" r="9.5"/><path d="m5.3 5.3 13.4 13.4"/>',
+    fullscreen: '<path d="M4 9V4h5"/><path d="M15 4h5v5"/><path d="M20 15v5h-5"/><path d="M9 20H4v-5"/>',
+    shrink: '<path d="M9 4v5H4"/><path d="M20 9h-5V4"/><path d="M15 20v-5h5"/><path d="M4 15h5v5"/>',
     expand: '<path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="M9 21H3v-6"/><path d="m3 21 7-7"/>',
     forward: '<path d="m9 18 6-6-6-6"/>',
     close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
@@ -953,6 +957,7 @@ function renderNowView() {
                             <button class="nv-viz ${V.mode !== 'off' ? 'on' : ''}" data-nv-viz data-nv-focus="viz" aria-haspopup="menu" aria-expanded="false" title="Visualizer (V)"><span class="sr-only">Visualizer: </span>${vizButtonInner()}</button>
                             ${vizMenu()}
                         </div>
+                        <button class="icon-btn" data-nv-fullscreen data-nv-focus="fullscreen" aria-pressed="${String(isFullscreen())}" aria-label="${isFullscreen() ? 'Exit full screen' : 'Full screen'}" title="${isFullscreen() ? 'Exit full screen' : 'Full screen'} (F)">${icon(isFullscreen() ? 'shrink' : 'fullscreen', 20)}</button>
                         <button class="icon-btn" data-nv-close data-nv-focus="close" aria-label="Close">${icon('close', 20)}</button>
                     </div>
                 </header>
@@ -1005,8 +1010,58 @@ function openNowView() {
     startViz();  // opening is a click, so the AudioContext may start here
 }
 
+// ---------- full screen ----------
+// The Now Playing panel itself goes full screen (Fullscreen API; webkit- for Safari). The browser handles Esc
+// (it leaves full screen, and the page never sees that key), so a second Esc closes Now Playing as usual.
+// While full screen, the controls and cursor fade after 2.5 s without the mouse moving.
+
+const fullscreenElement = () => document.fullscreenElement || document.webkitFullscreenElement || null;
+const isFullscreen = () => !!fullscreenElement() && fullscreenElement() === $('#nowRoot .nv');
+
+function toggleFullscreen() {
+    const section = $('#nowRoot .nv');
+    if (!section) return;
+    if (isFullscreen()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    else {
+        const request = section.requestFullscreen || section.webkitRequestFullscreen;
+        if (!request) { toast("Full screen isn't available in this browser", 'error'); return; }
+        Promise.resolve(request.call(section)).catch(() => toast("Couldn't go full screen", 'error'));
+    }
+}
+
+let idleTimer = 0;
+function wakeControls() {
+    const section = $('#nowRoot .nv');
+    if (!section) return;
+    section.classList.remove('idle');
+    clearTimeout(idleTimer);
+    if (!isFullscreen()) return;
+    idleTimer = setTimeout(() => {
+        // Stay visible while the menu is open or you're on the controls with the keyboard (:focus-visible);
+        // a mouse click leaves focus on the button too, but that shouldn't keep them up forever
+        const keyboardOnControls = document.activeElement?.closest?.('.nv-head, .nv-nav') && document.activeElement.matches(':focus-visible');
+        if (isFullscreen() && !keyboardOnControls && !vizMenuOpen()) section.classList.add('idle');
+    }, 2500);
+}
+
+function onFullscreenChange() {
+    const section = $('#nowRoot .nv');
+    const on = isFullscreen();
+    if (section) section.classList.toggle('fullscreen', on);
+    const btn = $('#nowRoot [data-nv-fullscreen]');
+    if (btn) {
+        btn.innerHTML = icon(on ? 'shrink' : 'fullscreen', 20).s;
+        btn.setAttribute('aria-pressed', String(on));
+        btn.setAttribute('aria-label', on ? 'Exit full screen' : 'Full screen');
+        btn.title = `${on ? 'Exit full screen' : 'Full screen'} (F)`;
+    }
+    wakeControls();
+    if (!on && section) section.classList.remove('idle');
+}
+
 function closeNowView() {
     if (!NV.open) return;
+    if (isFullscreen()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
     NV.open = false;
     stopViz();
     renderNowView();
@@ -1025,6 +1080,7 @@ function bindNowView() {
         const line = e.target.closest('.nv-line[data-t]');
         if (line) { P.audio.currentTime = +line.dataset.t; if (P.audio.paused) P.audio.play(); L.userScrollUntil = 0; return; }
         if (e.target.closest('[data-nv-lyrics]')) { toggleLyrics(); return; }
+        if (e.target.closest('[data-nv-fullscreen]')) { toggleFullscreen(); return; }
         if (e.target.closest('[data-lyrics-retry]')) { const t = currentTrack(); if (t) { L.data.delete(t.id); fillLyrics(); fetchLyrics(t.id); } return; }
         const option = e.target.closest('[data-viz-option]');
         if (option) { setVizMode(option.dataset.vizOption); closeVizMenu(); return; }
@@ -1050,6 +1106,7 @@ function bindNowView() {
         if (e.key === 'Escape') { e.preventDefault(); closeNowView(); }
         else if (e.key === 'ArrowDown' && el.closest('[data-nv-viz]')) { e.preventDefault(); openVizMenu(); }
         else if (e.key.toLowerCase() === 'l' && !e.metaKey && !e.ctrlKey && !el.closest('input, textarea, select')) toggleLyrics();
+        else if (e.key.toLowerCase() === 'f' && !e.metaKey && !e.ctrlKey && !el.closest('input, textarea, select')) toggleFullscreen();
         else if (e.key.toLowerCase() === 'v' && !e.metaKey && !e.ctrlKey && !el.closest('input, textarea, select')) cycleVizMode();
         else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && (root.contains(el) || el === document.body)) {
             e.preventDefault();
@@ -1072,6 +1129,10 @@ function bindNowView() {
         root.addEventListener(type, (e) => { if (e.target.closest('.nv-lyrics')) L.userScrollUntil = Date.now() + 3000; }, { passive: true });
     }
     window.addEventListener('hashchange', closeNowView);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+    root.addEventListener('pointermove', wakeControls);
+    root.addEventListener('keydown', wakeControls);
     // rAF stops in a hidden window anyway; restart drawing when it comes back
     document.addEventListener('visibilitychange', () => { if (!document.hidden) { startViz(); startLyrics(); } });
 }
@@ -2232,6 +2293,7 @@ function route() {
         case '': return { name: 'home' };
         case 'songs': return { name: 'songs' };
         case 'liked': return { name: 'liked' };
+        case 'abx': return { name: 'abx', id: parts[0] || '' };
         case 'collection': return { name: 'collection', key: parts.join('/') };
         case 'artist': return { name: 'artist', artist: parts.join('/') };
         case 'search': return { name: 'search', q: parts[0] || '', filter: parts[1] || 'all' };
@@ -2248,6 +2310,8 @@ let renderSeq = 0;
 async function render({ keepScroll = false } = {}) {
     const seq = ++renderSeq;
     const r = route();
+    // A background refresh (a download finishing, genres arriving) must not wipe a listening test in progress
+    if (keepScroll && r.name === 'abx' && $('#abxRoot')?.dataset.track === r.id) return;
     const main = $('#main');
     const view = $('#view');
     const scroll = main.scrollTop;
@@ -2268,6 +2332,7 @@ async function render({ keepScroll = false } = {}) {
     switch (r.name) {
         case 'songs': content = viewSongs(); break;
         case 'liked': content = viewLiked(); break;
+        case 'abx': content = viewAbx(r.id); break;
         case 'collection': content = viewCollection(r.key); break;
         case 'artist': content = viewLocalArtist(r.artist); break;
         case 'search': content = await viewSearch(r.q, r.filter); break;
@@ -2279,7 +2344,9 @@ async function render({ keepScroll = false } = {}) {
         default: content = viewHome();
     }
     if (seq !== renderSeq) return; // a newer navigation won
+    if (r.name !== 'abx' || (AB.session && $('#abxRoot')?.dataset.track !== r.id)) stopAbx(); // leaving the test stops its sound
     view.innerHTML = content.s;
+    if (r.name === 'abx') mountAbx(r.id);
     main.scrollTop = keepScroll ? scroll : 0;
 
     // Hero colour from the first cover in the header
@@ -2524,6 +2591,8 @@ function rowMenu(row, position) {
         { label: 'Add to playlist', icon: 'listAdd', run: () => addToPlaylistDialog([t.id], t.title) },
         ...(playlist ? [{ label: `Remove from ${playlist.name}`, icon: 'trash', run: () => removeFromPlaylist(playlist, [t.id], t.title) }] : []),
         { label: 'Send to device', icon: 'usb', run: () => sendToDeviceDialog([t.id], t.title, null) },
+        ...(S.init.apple_music ? [{ label: 'Add to Apple Music', icon: 'apple', run: () => appleMusicDialog([t.id], t.title, null, false) }] : []),
+        { label: 'Blind listening test', icon: 'ear', run: () => { location.hash = `#/abx/${encodeURIComponent(t.id)}`; } },
         '-',
         { label: `Go to ${t.artists[0]}`, icon: 'user', run: () => { location.hash = artistHref(t.artists[0]); } },
     ], { ...position, label: `Options for ${t.title}` });
@@ -2537,6 +2606,7 @@ function collectionMenu(anchor) {
     showMenu([
         { label: 'Add to another playlist', icon: 'listAdd', disabled: !ids.length, run: () => addToPlaylistDialog(ids, name) },
         { label: 'Send to device', icon: 'usb', disabled: !ids.length, run: () => sendToDeviceDialog(ids, name, name) },
+        ...(S.init.apple_music ? [{ label: 'Add to Apple Music', icon: 'apple', disabled: !ids.length, run: () => appleMusicDialog(ids, name, name, !(c && c.kind === 'album')) }] : []),
         ...(c && c.editable ? ['-', { label: 'Delete playlist', icon: 'trash', danger: true, run: () => deletePlaylistDialog(c) }] : []),
     ], { anchor, label: `Options for ${name}` });
 }
@@ -2957,6 +3027,331 @@ function sendToDeviceDialog(trackIds, label, collection) {
             showEstimate();
         },
     });
+}
+
+// ---------- add to Apple Music (Mac) ----------
+// Lossless songs become Apple Lossless (checked sample-identical), AAC/MP3 go in as they are, Opus/Ogg become
+// AAC 256. Songs already in Apple Music are skipped. Playlists can get a matching playlist in Apple Music.
+
+function appleMusicDialog(trackIds, label, collection, isPlaylist) {
+    const tracks = trackIds.map((id) => S.byId.get(id)).filter(Boolean);
+    const ext = (t) => t.path.slice(t.path.lastIndexOf('.')).toLowerCase();
+    const lossless = tracks.filter((t) => ['.flac', '.wav', '.aif', '.aiff'].includes(ext(t))).length;
+    const reencode = tracks.filter((t) => ['.opus', '.ogg'].includes(ext(t))).length;
+    const asIs = tracks.length - lossless - reencode;
+    const lines = [
+        lossless && html`<li><strong>${plural(lossless, 'lossless song')}</strong> → Apple Lossless, checked sample for sample against the original</li>`,
+        asIs && html`<li><strong>${plural(asIs, 'song')}</strong> already in a format Apple Music plays (AAC or MP3): added as they are</li>`,
+        reencode && html`<li><strong>${plural(reencode, 'Opus/Ogg song')}</strong> → AAC 256 kbps (Apple Music can't play Opus)</li>`,
+    ].filter(Boolean);
+    openModal({
+        title: 'Add to Apple Music',
+        body: html`<form id="appleForm" class="dialog-form">
+            <p class="dialog-note">${trackIds.length === 1 ? label : html`<strong>${label}</strong>, ${plural(tracks.length, 'song')}`}. Songs already in Apple Music are skipped.</p>
+            <ul class="apple-plan">${lines}</ul>
+            ${isPlaylist ? html`<label class="check"><input type="checkbox" id="applePlaylist" checked> Also make a playlist called “${collection}” in Apple Music</label>` : ''}
+            <p class="dialog-note small">The Music app keeps its own copy, so spotDLr's files stay as they are. With Sync Library on, Apple may match these songs to its catalog on your other devices.</p>
+            <div class="upload-progress" id="appleProgress" hidden><div class="progress-bar"><i></i></div><p id="appleStatus"></p></div>
+            <p class="form-error" id="appleError" hidden></p>
+            <div class="modal-actions"><button type="button" class="pill-btn" data-close id="appleCancel">Cancel</button><button type="submit" class="pill-btn primary" id="appleSubmit">Add</button></div>
+        </form>`,
+        onOpen: (modal) => {
+            const err = $('#appleError', modal);
+            $('#appleForm', modal).addEventListener('submit', async (e) => {
+                e.preventDefault();
+                err.hidden = true;
+                const makePlaylist = !!$('#applePlaylist', modal)?.checked;
+                let job;
+                try { job = await api('/apple-music', { method: 'POST', body: JSON.stringify({ track_ids: tracks.map((t) => t.id), collection, make_playlist: makePlaylist }) }); }
+                catch (error) { err.textContent = error.message; err.hidden = false; return; }
+                $('#appleSubmit', modal).disabled = true;
+                const check = $('#applePlaylist', modal);
+                if (check) check.disabled = true;
+                $('#appleCancel', modal).textContent = 'Hide';
+                const progress = $('#appleProgress', modal), bar = $('.progress-bar i', progress), status = $('#appleStatus', modal);
+                progress.hidden = false;
+                while (job.status === 'working') {
+                    bar.style.width = `${(job.done / job.total) * 100}%`;
+                    status.textContent = job.step || '';
+                    await new Promise((r) => setTimeout(r, 500));
+                    try { job = await api(`/apple-music/${job.id}`); } catch { /* keep polling */ }
+                }
+                $('#appleCancel', modal).textContent = 'Close';
+                if (job.status === 'done') {
+                    bar.style.width = '100%';
+                    const parts = [`Added ${plural(job.added, 'song')} to Apple Music`];
+                    if (job.verified) parts.push(`${job.verified} as Apple Lossless, every sample checked`);
+                    if (job.skipped) parts.push(`${job.skipped} already there`);
+                    status.textContent = `${parts.join('; ')}.${job.playlist ? ` Playlist: “${job.playlist}”.` : ''}`;
+                    toast(job.added ? `Added ${plural(job.added, 'song')} to Apple Music` : 'Already in Apple Music');
+                } else {
+                    err.textContent = job.error;
+                    err.hidden = false;
+                }
+            });
+        },
+    });
+}
+
+// ---------- blind listening test (ABX) ----------
+// A = the original clip, B = the same clip compressed, X = secretly one of them, a new pick every trial.
+// All three are decoded into memory and played with Web Audio, so switching is instant and sample-exact:
+// the new clip starts at the same position the old one stopped, with the same 5 ms fade every time.
+// Anything that differed between A and B except the sound (a gap, a click, a delay) would be a giveaway.
+
+const ABX_CODECS = [['aac', 'AAC'], ['mp3', 'MP3'], ['opus', 'Opus']];
+const ABX_BITRATES = [64, 96, 128, 160, 192, 256, 320];
+const AB = { ctx: null, buffers: {}, playing: null, source: null, gain: null, offset: 0, startedAt: 0, session: null, trial: 0, raf: 0, keys: null };
+
+function abxPosition() {
+    const len = AB.buffers.A ? AB.buffers.A.duration : 1;
+    if (!AB.playing) return AB.offset;
+    return (AB.offset + AB.ctx.currentTime - AB.startedAt) % len;
+}
+
+function abxStopSource(fade = true) {
+    if (!AB.source) return;
+    const { source, gain } = AB;
+    const t = AB.ctx.currentTime;
+    if (fade) { gain.gain.setValueAtTime(gain.gain.value, t); gain.gain.linearRampToValueAtTime(0, t + 0.005); source.stop(t + 0.006); }
+    else source.stop();
+    AB.source = null;
+}
+
+function abxPlay(which) {
+    const buffer = AB.buffers[which];
+    if (!buffer) return;
+    const position = abxPosition();
+    abxStopSource();
+    const source = AB.ctx.createBufferSource();
+    const gain = AB.ctx.createGain();
+    source.buffer = buffer;
+    source.loop = true; // the clip repeats until you answer
+    source.connect(gain).connect(AB.ctx.destination);
+    const t = AB.ctx.currentTime;
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(1, t + 0.005);
+    source.start(t, position);
+    Object.assign(AB, { source, gain, offset: position, startedAt: t, playing: which });
+    abxUpdatePlayer();
+}
+
+function abxPause() {
+    AB.offset = abxPosition();
+    abxStopSource();
+    AB.playing = null;
+    abxUpdatePlayer();
+}
+
+function abxSeek(fraction) {
+    const which = AB.playing;
+    AB.offset = Math.max(0, Math.min(0.999, fraction)) * AB.buffers.A.duration;
+    AB.startedAt = AB.ctx.currentTime;
+    if (which) { AB.playing = null; abxStopSource(); abxPlay(which); } else abxUpdatePlayer();
+}
+
+function abxUpdatePlayer() {
+    $$('#abxRoot [data-abx-listen]').forEach((btn) => {
+        const on = AB.playing === btn.dataset.abxListen;
+        btn.classList.toggle('on', on);
+        btn.setAttribute('aria-pressed', String(on));
+    });
+    const toggle = $('#abxToggle');
+    if (toggle) { toggle.innerHTML = icon(AB.playing ? 'pause' : 'play', 18).s; toggle.setAttribute('aria-label', AB.playing ? 'Pause' : 'Play'); }
+}
+
+function abxTick() {
+    const bar = $('#abxBar i');
+    if (!bar || !AB.buffers.A) { AB.raf = 0; return; }
+    bar.style.width = `${(abxPosition() / AB.buffers.A.duration) * 100}%`;
+    $('#abxTime').textContent = `${fmtTime(abxPosition())} / ${fmtTime(AB.buffers.A.duration)}`;
+    AB.raf = requestAnimationFrame(abxTick);
+}
+
+async function abxLoad(url) {
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`Couldn't load a clip (${response.status})`);
+    return AB.ctx.decodeAudioData(await response.arrayBuffer());
+}
+
+function stopAbx() {
+    abxStopSource(false);
+    cancelAnimationFrame(AB.raf);
+    if (AB.keys) document.removeEventListener('keydown', AB.keys, true);
+    Object.assign(AB, { buffers: {}, playing: null, offset: 0, session: null, trial: 0, raf: 0, keys: null });
+}
+
+function viewAbx(trackId) {
+    const t = S.byId.get(trackId);
+    if (!t) return html`<div class="empty"><h2>Song not found</h2><p>It isn't in your library anymore.</p></div>`;
+    return html`<div class="view-pad abx" id="abxRoot" data-track="${t.id}">
+        <header class="abx-head">${trackArt(t, 'abx-art')}<div>
+            <div class="hero-kind">Blind listening test</div>
+            <h1 class="abx-title">${t.title}</h1>
+            <p class="abx-sub">${t.artists.join(', ')}</p>
+        </div></header>
+        <div id="abxBody"></div>
+    </div>`;
+}
+
+async function mountAbx(trackId) {
+    stopAbx();
+    const t = S.byId.get(trackId);
+    const body = $('#abxBody');
+    if (!t || !body) return;
+    if (!P.audio.paused) P.audio.pause(); // the test needs your ears to itself
+    const source = await api(`/abx/source/${encodeURIComponent(trackId)}`).catch(() => null);
+    if (!body.isConnected) return; // a newer render replaced the page while we waited (hashchange + popstate both render)
+    const prefs = { codec: 'aac', bitrate: 256, trials: 10, ...store.get('abxPrefs', {}) };
+    const startDefault = Math.min(60, Math.max(0, Math.floor(t.duration * 0.3)));
+    body.innerHTML = html`
+        <section class="abx-card">
+            <p class="abx-lede">Can you hear what compression does to this song? You'll hear <strong>A</strong> (the original), <strong>B</strong> (a compressed copy) and <strong>X</strong>, which is secretly one of them. Say which. After ${prefs.trials} rounds you'll see how likely your score is from guessing alone.</p>
+            ${source ? (source.lossless
+                ? html`<p class="abx-source ok">${icon('check', 16)} The original is lossless (${source.codec}), so A is the real thing.</p>`
+                : html`<p class="abx-source warn">${icon('warn', 16)} This song is already compressed (${source.codec}${source.bitrate_kbps ? `, ${source.bitrate_kbps} kbps` : ''}), so A isn't a lossless original: you'd be comparing compressed with more compressed. For the real test, add a FLAC or WAV of a song with <strong>+ → Add music files</strong>.</p>`) : ''}
+            <form id="abxForm" class="abx-form">
+                <label class="field"><span>Compress B as</span><select id="abxCodec">${ABX_CODECS.map(([v, l]) => html`<option value="${v}" ${v === prefs.codec ? 'selected' : ''}>${l}</option>`)}</select></label>
+                <label class="field"><span>Bitrate</span><select id="abxBitrate">${ABX_BITRATES.map((b) => html`<option value="${b}" ${b === prefs.bitrate ? 'selected' : ''}>${b} kbps</option>`)}</select></label>
+                <label class="field"><span>Clip starts at</span><input class="field-input plain" id="abxStart" value="${fmtTime(startDefault)}" inputmode="numeric" aria-describedby="abxStartHelp"><small id="abxStartHelp">m:ss — 30 seconds from here. Pick a busy part: cymbals, vocals, applause.</small></label>
+                <label class="field"><span>Rounds</span><select id="abxTrials">${[10, 16, 20].map((n) => html`<option value="${n}" ${n === prefs.trials ? 'selected' : ''}>${n}</option>`)}</select></label>
+                <p class="form-error" id="abxError" hidden></p>
+                <div class="abx-actions"><button type="submit" class="pill-btn primary" id="abxStartBtn">Start the test</button><span class="field-note">Use headphones in a quiet room.</span></div>
+            </form>
+        </section>`.s;
+    $('#abxForm', body).addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const err = $('#abxError');
+        err.hidden = true;
+        const m = /^(\d+):(\d{1,2})$|^(\d+)$/.exec($('#abxStart').value.trim());
+        if (!m) { err.textContent = 'Write the start like 1:05.'; err.hidden = false; return; }
+        const start = m[3] !== undefined ? +m[3] : +m[1] * 60 + +m[2];
+        const settings = { codec: $('#abxCodec').value, bitrate: +$('#abxBitrate').value, trials: +$('#abxTrials').value };
+        store.set('abxPrefs', settings);
+        const btn = $('#abxStartBtn');
+        btn.disabled = true;
+        btn.textContent = 'Preparing the clips…';
+        try {
+            const session = await api('/abx', { method: 'POST', body: JSON.stringify({ track_id: trackId, start, length: 30, ...settings }) });
+            AB.ctx = AB.ctx || new (window.AudioContext || window.webkitAudioContext)();
+            if (AB.ctx.state === 'suspended') await AB.ctx.resume();
+            const [a, b] = await Promise.all([abxLoad(`/api/abx/${session.id}/clip/a`), abxLoad(`/api/abx/${session.id}/clip/b`)]);
+            AB.buffers = { A: a, B: b };
+            AB.session = session;
+            AB.trial = 0;
+            await abxTrial();
+        } catch (error) {
+            err.textContent = error.message;
+            err.hidden = false;
+            btn.disabled = false;
+            btn.textContent = 'Start the test';
+        }
+    });
+}
+
+async function abxTrial() {
+    const s = AB.session, body = $('#abxBody');
+    if (!body) return;
+    const wasPlaying = AB.playing ? (AB.playing === 'X' ? 'X' : AB.playing) : null;
+    abxStopSource();
+    AB.playing = null;
+    AB.buffers.X = await abxLoad(s.x_urls[AB.trial]);
+    body.innerHTML = html`
+        <section class="abx-card abx-test">
+            <div class="abx-progress"><span>Round ${AB.trial + 1} of ${s.trials}</span><span>${s.codec} ${s.bitrate} kbps • ${fmtTime(s.start)}–${fmtTime(s.start + s.length)}</span></div>
+            <div class="abx-dots" aria-hidden="true">${Array.from({ length: s.trials }, (_, i) => html`<i class="${i < AB.trial ? 'done' : i === AB.trial ? 'now' : ''}"></i>`)}</div>
+            <div class="abx-listen" role="group" aria-label="Listen">
+                <button type="button" class="abx-key" data-abx-listen="A" aria-pressed="false"><b>A</b><small>original</small></button>
+                <button type="button" class="abx-key" data-abx-listen="B" aria-pressed="false"><b>B</b><small>compressed</small></button>
+                <button type="button" class="abx-key x" data-abx-listen="X" aria-pressed="false"><b>X</b><small>which is it?</small></button>
+            </div>
+            <div class="abx-player">
+                <button type="button" class="play-btn" id="abxToggle" aria-label="Play">${icon('play', 18)}</button>
+                <div class="abx-bar" id="abxBar" role="slider" aria-label="Position in the clip" tabindex="0" aria-valuemin="0" aria-valuemax="100"><i></i></div>
+                <span class="abx-time" id="abxTime">0:00 / 0:30</span>
+            </div>
+            <div class="abx-answer">
+                <span>X is…</span>
+                <button type="button" class="pill-btn" data-abx-guess="A">A</button>
+                <button type="button" class="pill-btn" data-abx-guess="B">B</button>
+            </div>
+            <p class="abx-hint">Keys: <kbd>A</kbd> <kbd>B</kbd> <kbd>X</kbd> to listen, <kbd>Space</kbd> to pause, <kbd>1</kbd> or <kbd>2</kbd> to answer A or B. Switching keeps your place in the clip.</p>
+        </section>`.s;
+    const root = $('#abxRoot');
+    root.onclick = async (e) => {
+        const listen = e.target.closest('[data-abx-listen]');
+        if (listen) { AB.playing === listen.dataset.abxListen ? abxPause() : abxPlay(listen.dataset.abxListen); return; }
+        if (e.target.closest('#abxToggle')) { AB.playing ? abxPause() : abxPlay('A'); return; }
+        const guess = e.target.closest('[data-abx-guess]');
+        if (guess) await abxAnswer(guess.dataset.abxGuess);
+    };
+    const bar = $('#abxBar');
+    bar.onpointerdown = (e) => { const r = bar.getBoundingClientRect(); abxSeek((e.clientX - r.left) / r.width); };
+    bar.onkeydown = (e) => {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        e.preventDefault();
+        abxSeek((abxPosition() + (e.key === 'ArrowRight' ? 2 : -2)) / AB.buffers.A.duration);
+    };
+    if (!AB.keys) {
+        // Capture phase: these keys belong to the test, not to the main player's shortcuts
+        AB.keys = (e) => {
+            if (!$('#abxRoot') || !AB.session || e.metaKey || e.ctrlKey || e.target.closest?.('input, select, textarea')) return;
+            const k = e.key.toLowerCase();
+            const act = { a: () => abxPlay('A'), b: () => abxPlay('B'), x: () => abxPlay('X'), ' ': () => (AB.playing ? abxPause() : abxPlay('A')),
+                1: () => abxAnswer('A'), 2: () => abxAnswer('B') }[k];
+            if (!act || !$('.abx-test')) return;
+            e.preventDefault();
+            e.stopPropagation();
+            act();
+        };
+        document.addEventListener('keydown', AB.keys, true);
+    }
+    abxUpdatePlayer();
+    if (!AB.raf) AB.raf = requestAnimationFrame(abxTick);
+    if (wasPlaying) abxPlay(wasPlaying === 'X' ? 'X' : wasPlaying); // carry on listening into the next round
+}
+
+async function abxAnswer(guess) {
+    if (AB.busy) return;
+    AB.busy = true;
+    try {
+        const s = await api(`/abx/${AB.session.id}/answer`, { method: 'POST', body: JSON.stringify({ trial: AB.trial, guess }) });
+        AB.session = { ...AB.session, ...s };
+        AB.trial += 1;
+        if (s.result) abxResults(s); else await abxTrial();
+    } catch (error) { toast(error.message, 'error'); }
+    finally { AB.busy = false; }
+}
+
+function abxResults(s) {
+    abxStopSource();
+    AB.playing = null;
+    cancelAnimationFrame(AB.raf);
+    AB.raf = 0;
+    const { correct, p_value: p, answers, guesses } = s.result;
+    const pct = p * 100;
+    const odds = pct < 0.1 ? 'less than 1 in 1,000' : pct < 1 ? `about 1 in ${Math.round(1 / p).toLocaleString()}` : `${pct.toFixed(pct < 10 ? 1 : 0)}%`;
+    const heard = p < 0.05;
+    const lower = ABX_BITRATES[Math.max(0, ABX_BITRATES.indexOf(s.bitrate) - 1)];
+    $('#abxBody').innerHTML = html`
+        <section class="abx-card abx-result">
+            <div class="abx-score"><b>${correct}</b><span>of ${s.trials} right</span></div>
+            <h2>${heard ? `You can hear ${s.codec} at ${s.bitrate} kbps.` : `No reliable difference at ${s.codec} ${s.bitrate} kbps.`}</h2>
+            <p>Guessing alone gets ${correct} or more right ${pct < 1 ? html`<strong>${odds}</strong> times` : html`<strong>${odds}</strong> of the time`}. ${heard
+                ? 'That\'s rare enough (under 5%) to say you really heard it.'
+                : 'That\'s too common to rule out luck, so at this bitrate the compressed copy sounds the same to you.'}</p>
+            <ol class="abx-rounds">${answers.map((a, i) => html`<li class="${guesses[i] === a ? 'right' : 'wrong'}"><span>Round ${i + 1}</span><span>X was ${a}</span><span>You said ${guesses[i]} ${guesses[i] === a ? '✓' : '✗'}</span></li>`)}</ol>
+            <div class="abx-actions">
+                <button type="button" class="pill-btn primary" id="abxAgain">Test again</button>
+                ${heard ? '' : s.bitrate > ABX_BITRATES[0] ? html`<button type="button" class="pill-btn" id="abxLower">Try ${lower} kbps</button>` : ''}
+            </div>
+        </section>`.s;
+    const restart = (bitrate) => {
+        if (bitrate) store.set('abxPrefs', { ...store.get('abxPrefs', {}), bitrate });
+        mountAbx($('#abxRoot').dataset.track);
+    };
+    $('#abxAgain').addEventListener('click', () => restart());
+    $('#abxLower')?.addEventListener('click', () => restart(lower));
 }
 
 // ---------- boot ----------

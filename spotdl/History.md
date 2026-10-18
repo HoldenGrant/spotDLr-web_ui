@@ -25,6 +25,12 @@ Built from `git log`, plus uncommitted work. 22 commits, Dec 15, 2025 to Jan 6, 
 - Pinned dependency versions so they install without conflicts.
 - Added the **ETA countdown** and **folder accordions** in the downloads list.
 
+### Oct 18, 2026
+- **Full screen Now Playing:** a button next to the visualizer menu (or F). The controls fade when the mouse is still.
+- Fixed Reanimation's tags from MusicBrainz (artists had become "101", "102"…; year 2022 → 2002; track numbers, official titles, the cover), after confirming from the spectrogram that the FLACs are genuinely lossless. Old tags backed up in `.backups/`.
+- Imported Reanimation into Apple Music as Apple Lossless (all 20 verified sample-identical), then built it in: **Add to Apple Music** on any song, album or playlist (Mac).
+- **Blind listening test.** ⋯ on a song → Blind listening test: A (the original), B (compressed with AAC, MP3 or Opus at a bitrate you pick) and a hidden X. Say which X is, ten times, and see how likely your score is from guessing alone. It needs a lossless original to mean much; spotDLr's own downloads are already AAC 128, and the page says so.
+
 ### Oct 17, 2026
 - **Version number in Settings** (bottom of the dialog), from `version.py`, with a "What's new" link to the changelog. The Windows build now refuses a version tag that doesn't match `version.py`.
 - Added `CHANGELOG.md` (by version, Keep a Changelog format). Each GitHub Release now starts with that version's changelog section, above the install steps.

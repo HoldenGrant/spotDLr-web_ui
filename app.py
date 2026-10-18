@@ -42,6 +42,8 @@ from library import MEDIA_TYPES, Library  # noqa: E402
 from lyrics import Lyrics, LyricsError  # noqa: E402
 import organize  # noqa: E402
 import version  # noqa: E402
+import abx  # noqa: E402
+import apple_music  # noqa: E402
 from organize import Exporter, Likes, OrganizeError  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
@@ -81,6 +83,8 @@ plays = stats.Plays(DATA_DIR / "plays.jsonl")  # listening history for the Stats
 lyrics = Lyrics(DATA_DIR / ".lyrics")  # one cached lookup per song
 likes = Likes(DATA_DIR / "likes.json")
 exporter = Exporter(ytmusic.ffmpeg_path)  # "Send to device"
+abx_tests = abx.ABX(DATA_DIR / ".abx", ytmusic.ffmpeg_path)  # blind listening tests
+apple = apple_music.AppleMusic(ytmusic.ffmpeg_path)  # "Add to Apple Music" (Mac)
 downloader = Downloader(
     DOWNLOAD_DIR,
     on_finished=lambda job: logger.info(f"Job {job['id']} {job['status']}: {job['title']} ({job['message']})"),
@@ -126,6 +130,26 @@ class ExportRequest(BaseModel):
     bitrate: int = 256
 
 
+class AppleMusicRequest(BaseModel):
+    track_ids: list[str]
+    collection: Optional[str] = None
+    make_playlist: bool = False
+
+
+class ABXRequest(BaseModel):
+    track_id: str
+    codec: str = "aac"
+    bitrate: int = 256
+    start: float = 60
+    length: float = 30
+    trials: int = 10
+
+
+class ABXAnswer(BaseModel):
+    trial: int
+    guess: str  # A | B
+
+
 class WindowRequest(BaseModel):
     id: str
 
@@ -162,6 +186,7 @@ def check_initialization():
         "setup_url": "https://developer.spotify.com/dashboard/",
         "version": version.VERSION,
         "build": version.source_build(),  # git describe when running from source, else None
+        "apple_music": apple_music.available(),
     }
 
 
@@ -344,6 +369,71 @@ def export_status(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="No such copy job")
     return job
+
+
+# ---------- Add to Apple Music (apple_music.py) ----------
+
+@app.exception_handler(apple_music.AppleMusicError)
+def apple_music_error(request: Request, error: apple_music.AppleMusicError):
+    return JSONResponse({"detail": str(error)}, status_code=error.status)
+
+
+@app.post("/api/apple-music")
+def add_to_apple_music(request: AppleMusicRequest):
+    tracks = []
+    for track_id, path in zip(request.track_ids, _paths_for(request.track_ids)):
+        t = library._tracks_by_id[track_id]
+        tracks.append({"path": path, "title": t["title"], "album": t["album"], "artists": t["artists"]})
+    return apple.start(tracks, request.collection, request.make_playlist)
+
+
+@app.get("/api/apple-music/{job_id}")
+def apple_music_status(job_id: str):
+    job = apple.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="No such job")
+    return job
+
+
+# ---------- blind listening test (abx.py) ----------
+
+@app.exception_handler(abx.ABXError)
+def abx_error(request: Request, error: abx.ABXError):
+    return JSONResponse({"detail": str(error)}, status_code=error.status)
+
+
+@app.get("/api/abx/source/{track_id}")
+def abx_source(track_id: str):
+    path = library.path_for(track_id)
+    if not path:
+        raise HTTPException(status_code=404, detail="Track not found")
+    return abx.describe_source(path)
+
+
+@app.post("/api/abx")
+def abx_create(request: ABXRequest):
+    path = library.path_for(request.track_id)
+    track = library._tracks_by_id.get(request.track_id)
+    if not path or not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    return abx_tests.create(path, track["duration"], request.codec, request.bitrate, request.start, request.length, request.trials)
+
+
+@app.get("/api/abx/{session_id}")
+def abx_status(session_id: str):
+    return abx_tests.public(abx_tests.get(session_id))
+
+
+@app.get("/api/abx/{session_id}/{kind}/{token}")
+def abx_clip(session_id: str, kind: str, token: str):
+    """kind=clip: token a|b. kind=x: a per-trial random token. no-store, so nothing is learned from the cache."""
+    path = abx_tests.clip_path(session_id, token if kind in ("clip", "x") else "")
+    return FileResponse(path, media_type="audio/wav", headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/abx/{session_id}/answer")
+def abx_answer(session_id: str, request: ABXAnswer):
+    return abx_tests.answer(session_id, request.trial, request.guess)
 
 
 # ---------- open windows (the desktop app stops when the last one closes) ----------

@@ -96,6 +96,21 @@ Tracks are newest first. Collections are ordered by their newest track.
 
 Collections now carry `editable: true` for playlists you made (always `kind: playlist`, listed even while empty).
 
+### Add to Apple Music (apple_music.py, Mac only)
+
+`/api/status/init` returns `apple_music: true` when the Music app exists (macOS). `POST /api/apple-music {track_ids, collection?, make_playlist}` starts a job; `GET /api/apple-music/{id}` → `{status: working|done|failed, step, done, total, added, skipped, converted, verified, playlist, error}`. **403** with System Settings → Privacy & Security → Automation instructions if macOS refuses AppleScript control (error -1743); **501** off a Mac.
+
+### Blind listening test (abx.py)
+
+| Route | Does |
+|---|---|
+| `GET /api/abx/source/{track_id}` | `{lossless, codec, bitrate_kbps}`: lossless = .flac/.wav/.aiff or ALAC inside .m4a |
+| `POST /api/abx` `{track_id, codec: aac\|mp3\|opus, bitrate: 64–320, start, length ≤60, trials: 10\|16\|20}` | makes the clips (≈1 s) in `DATA_DIR/.abx/<id>/`; returns `{id, x_urls[], …}`, never the answers |
+| `GET /api/abx/{id}/clip/a`, `/clip/b`, `/x/{token}` | the WAVs, `Cache-Control: no-store`; each trial's X has its own random token |
+| `POST /api/abx/{id}/answer` `{trial, guess}` | records a guess (409 if already answered); once all are in, the response has `result: {correct, p_value, answers, guesses}` |
+
+Sessions and their WAVs are removed after an hour.
+
 ### `GET /api/lyrics/{track_id}`
 
 ```json
