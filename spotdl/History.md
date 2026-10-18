@@ -26,6 +26,7 @@ Built from `git log`, plus uncommitted work. 22 commits, Dec 15, 2025 to Jan 6, 
 - Added the **ETA countdown** and **folder accordions** in the downloads list.
 
 ### Oct 18, 2026
+- Fixed reopening the Mac app showing "Port 8000 is being used by another app" about spotDLr itself (a slow Spotify check missed the launcher's 2 s deadline); new `/api/ping` for both launchers, and the status route never waits on Spotify.
 - **Full screen Now Playing:** a button next to the visualizer menu (or F). The controls fade when the mouse is still.
 - Fixed Reanimation's tags from MusicBrainz (artists had become "101", "102"…; year 2022 → 2002; track numbers, official titles, the cover), after confirming from the spectrogram that the FLACs are genuinely lossless. Old tags backed up in `.backups/`.
 - Imported Reanimation into Apple Music as Apple Lossless (all 20 verified sample-identical), then built it in: **Add to Apple Music** on any song, album or playlist (Mac).

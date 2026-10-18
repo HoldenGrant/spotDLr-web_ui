@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+- **Mac:** reopening spotDLr could say "Port 8000 is being used by another app" about spotDLr itself, when its connection check was slow (for example just after the Mac wakes up). It now recognises its own server and waits for it.
+- **Windows:** the same slow check could start a second copy of spotDLr on another port. It now finds the running one.
+
 ## [2.2.0] - 2026-10-18
 
 ### Added

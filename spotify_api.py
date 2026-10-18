@@ -10,6 +10,7 @@ waits and retries bad credentials silently, which looks like a hang in the UI.
 
 import os
 import re
+import threading
 import time
 
 import spotipy
@@ -80,10 +81,34 @@ def _probe(auth):
     return "ok", None
 
 
-def check(max_age=300):
-    """Do the configured keys actually work (token + search)? Cached for max_age seconds."""
+def check(max_age=300, wait=True):
+    """Do the configured keys actually work (token + search)? Cached for max_age seconds.
+
+    wait=False never blocks: with a stale (or no) answer it returns what it has and refreshes in the
+    background. That's for /api/status/init, which must answer at once: the launchers ask it (or /ping)
+    "are you spotDLr?" with a short deadline, and two 10 s Spotify requests on a slow network used to
+    miss it, so the Mac launcher reported "port 8000 is used by another app" about spotDLr itself."""
     if time.time() - _check["time"] < max_age and _check["time"]:
         return _check["ok"], _check["error"]
+    if not wait:
+        if not _refreshing.locked():
+            threading.Thread(target=_refresh_in_background, daemon=True).start()
+        return _check["ok"], _check["error"]
+    return _refresh()
+
+
+_refreshing = threading.Lock()
+
+
+def _refresh_in_background():
+    if _refreshing.acquire(blocking=False):  # one refresh at a time
+        try:
+            _refresh()
+        finally:
+            _refreshing.release()
+
+
+def _refresh():
     try:
         status, message = _probe(_get_client().auth_manager)
         _check.update(time=time.time(), ok=status == "ok", error=message)

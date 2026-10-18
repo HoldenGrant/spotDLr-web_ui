@@ -53,11 +53,13 @@ def _message(text):
 
 
 def _spotdlr_port():
-    """The port a running spotDLr answers on (its /api/status/init has "search_source"), or None."""
+    """The port a running spotDLr answers on, or None. Asks /api/ping, which answers at once: the old
+    /api/status/init sometimes waited on Spotify for seconds, missed the deadline, and a second server
+    would start on the next port."""
     for port in PORTS:
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/status/init", timeout=1) as response:
-                if "search_source" in json.load(response):
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/ping", timeout=3) as response:
+                if json.load(response).get("app") == "spotDLr":
                     return port
         except Exception:
             continue

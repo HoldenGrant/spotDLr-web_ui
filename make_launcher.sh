@@ -88,13 +88,29 @@ fail() {
     osascript -e "display alert \"spotDLr couldn't start\" message \"$1\" as critical" >/dev/null 2>&1 || true
     exit 1
 }
-# "Is spotDLr answering?", not just "is the port open": another app could hold port 8000
-is_spotdlr() { curl -s --max-time 2 "$URL/api/status/init" 2>/dev/null | grep -q '"search_source"'; }
+# "Is spotDLr answering?", not just "is the port open": another app could hold port 8000.
+# /api/ping answers at once (no network); /api/status/init is the fallback for servers older than /ping.
+is_spotdlr() {
+    curl -s --max-time 3 "$URL/api/ping" 2>/dev/null | grep -q '"spotDLr"' && return 0
+    curl -s --max-time 3 "$URL/api/status/init" 2>/dev/null | grep -q '"search_source"'
+}
+# Is the process on the port spotDLr's own server (python … app.py from this project)? Then it's busy, not foreign.
+port_is_ours() {
+    local pid; pid=$(lsof -nP -t -iTCP:$PORT -sTCP:LISTEN 2>/dev/null | head -1)
+    [ -n "$pid" ] && ps -o command= -p "$pid" | grep -q "app.py" && [ "$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')" = "$REPO" ]
+}
 
 [ -x "$REPO/run.sh" ] || fail "The project folder isn't at $REPO anymore. Open Terminal in its new location and run ./make_launcher.sh again."
 
+if ! is_spotdlr && port_is_ours; then
+    # spotDLr is already running but slow to answer (busy, or just woke up): give it up to 30 s
+    for _ in $(seq 30); do is_spotdlr && break; sleep 1; done
+fi
 if ! is_spotdlr; then
     if lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; then
+        if port_is_ours; then
+            fail "spotDLr is already running but isn't answering. Restart your Mac, or quit it from Terminal with: pkill -f app.py"  # no double quotes: fail() puts this inside an AppleScript string
+        fi
         fail "Port $PORT is being used by another app, so spotDLr can't start. Quit that app and try again."
     fi
     # Keep the log from growing forever

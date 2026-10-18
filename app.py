@@ -175,10 +175,17 @@ def root():
     return FileResponse(BASE_DIR / "index.html")
 
 
+@app.get("/api/ping")
+def ping():
+    """"Are you spotDLr?" for the launchers: instant, no network, disk or git."""
+    return {"app": "spotDLr", "version": version.VERSION}
+
+
 @app.get("/api/status/init")
 def check_initialization():
-    """Is Spotify usable? Search and downloads fall back to YouTube Music when it isn't."""
-    ok, error = spotify_api.check()
+    """Is Spotify usable? Search and downloads fall back to YouTube Music when it isn't.
+    Never waits on Spotify (see spotify_api.check): it must answer at once."""
+    ok, error = spotify_api.check(wait=False)
     return {
         "initialized": ok,
         "message": "Spotify connected" if ok else error,
