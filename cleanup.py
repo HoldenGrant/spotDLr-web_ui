@@ -193,6 +193,33 @@ def trash_to(path: Path, folder: Path):
     return target
 
 
+def delete_track(root: Path, tracks, track_id, likes, fallback_dir: Path):
+    """Trash one library song and its lyrics, removing playlist and like references."""
+    track = next((t for t in tracks if t["id"] == track_id), None)
+    if not track:
+        raise CleanupError("This song is no longer in your library. Refresh and try again.", 404)
+    path = root / track["path"]
+    if not path.resolve().is_relative_to(root.resolve()):
+        raise CleanupError("This song is outside your music folder", 403)
+    if not path.is_file():
+        raise CleanupError("This song is no longer in your library. Refresh and try again.", 404)
+    try:
+        went_to = trash(path, fallback_dir)
+        # Another format of the same song can share this sidecar.
+        shared_lyrics = any(t["id"] != track_id and Path(t["path"]).with_suffix(".lrc") == Path(track["path"]).with_suffix(".lrc") for t in tracks)
+        lrc = path.with_suffix(".lrc")
+        if lrc.exists() and not shared_lyrics:
+            trash(lrc, fallback_dir)
+        for m3u in root.glob(f"*/{PLAYLIST_FILE}"):
+            entries = _read_playlist(m3u, root)
+            if track["path"] in entries:
+                write_playlist(m3u.parent, [root / rel for rel in entries if rel != track["path"]])
+        likes.set(track_id, False)
+    except OSError as error:
+        raise CleanupError(f"Couldn't finish removing the song: {error}. Refresh your library before retrying.", 500) from error
+    return {"deleted": track_id, "trash": went_to}
+
+
 def merge(root: Path, tracks, keep_id, remove_ids, likes, plays, fallback_dir: Path):
     """Keep one copy, point everything at it, and move the others to the Trash."""
     by_id = {t["id"]: t for t in tracks}

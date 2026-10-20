@@ -32,6 +32,7 @@ const store = {
 // ---------- icons (24×24) ----------
 
 const ICONS = {
+    folder: '<path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>',
     play: '<path fill="currentColor" stroke="none" d="M7.05 3.6A1 1 0 0 0 5.5 4.44v15.12a1 1 0 0 0 1.55.84l11.68-7.56a1 1 0 0 0 0-1.68z"/>',
     pause: '<rect fill="currentColor" stroke="none" x="5.5" y="3.5" width="4.5" height="17" rx="1.2"/><rect fill="currentColor" stroke="none" x="14" y="3.5" width="4.5" height="17" rx="1.2"/>',
     next: '<path fill="currentColor" stroke="none" d="M4.5 4.9v14.2a.9.9 0 0 0 1.4.75l10.2-7.1a.9.9 0 0 0 0-1.5L5.9 4.15a.9.9 0 0 0-1.4.75z"/><rect fill="currentColor" stroke="none" x="17.3" y="4" width="2.4" height="16" rx="1"/>',
@@ -539,6 +540,7 @@ function updateControls() {
     repeat.setAttribute('aria-pressed', P.repeat !== 'off');
     repeat.setAttribute('aria-label', { off: 'Repeat', all: 'Repeat all', one: 'Repeat one' }[P.repeat]);
     document.body.classList.toggle('is-playing', playing);
+    updateNowControls();
     // Big play buttons in the view reflect whether their context is the one playing
     $$('[data-play-context]').forEach((btn) => {
         const on = isContextPlaying(btn.dataset.playContext);
@@ -1570,7 +1572,7 @@ function renderNowView() {
                         <p class="nv-artists">${t.artists.map((a, i) => html`${i ? ', ' : ''}<a href="${artistHref(a)}">${a}</a>`)}</p>
                         <p class="nv-album">${t.album}${year}</p>
                         <div class="nv-like">${likeButton(t.id, { big: true })}</div>
-                        <div class="nv-progress" aria-hidden="true"><i></i></div>
+                        ${nowControls()}
                         ${t.genre ? html`<div class="nv-tags"><a class="chip small" href="${genreHref(t.genre)}">#${t.genre.toLowerCase()}</a></div>` : ''}
                         ${nextT ? html`<button type="button" class="nv-upnext" data-action="queue-open" aria-label="Up next: ${nextT.title}. Open the queue"><span>Up next${P.upNext.length ? ' · from your queue' : ''}</span>${nextT.title} • ${nextT.artists.join(', ')}</button>` : ''}
                     </div>
@@ -1597,9 +1599,60 @@ function renderNowView() {
     else coverColor(coverUrl).then((color) => { NV.colors.set(coverUrl, color); if (currentTrack() === t) applyColor(color); });
 }
 
+// Now Playing covers the whole window, player bar included, so it carries its own controls: a seek bar and
+// shuffle · previous · play · next · repeat (plus volume where pages can set it). Drawn with the current state;
+// updateNowControls() keeps them in step, like updateControls() does for the player bar.
+function nowControls() {
+    const playing = !P.audio.paused, d = P.audio.duration || 0;
+    return html`<div class="nv-controls">
+        <div class="nv-seek"><span data-nv-time>${fmtTime(P.audio.currentTime || 0)}</span>
+            <input type="range" class="bar" data-nv-seek min="0" max="1000" step="1" value="${d ? Math.round((P.audio.currentTime / d) * 1000) : 0}" aria-label="Seek">
+            <span data-nv-dur>${fmtTime(d)}</span></div>
+        <div class="nv-buttons">
+            <button type="button" class="toggle-btn ${P.shuffle ? 'on' : ''}" data-nv-ctl="shuffle" aria-label="Shuffle" aria-pressed="${String(P.shuffle)}">${icon('shuffle', 20)}</button>
+            <button type="button" class="icon-btn" data-nv-ctl="prev" aria-label="Previous">${icon('prev', 22)}</button>
+            <button type="button" class="nv-play" data-nv-ctl="play" aria-label="${playing ? 'Pause' : 'Play'}">${icon(playing ? 'pause' : 'play', 24)}</button>
+            <button type="button" class="icon-btn" data-nv-ctl="next" aria-label="Next">${icon('next', 22)}</button>
+            <button type="button" class="toggle-btn ${P.repeat !== 'off' ? 'on' : ''}" data-nv-ctl="repeat" aria-pressed="${String(P.repeat !== 'off')}" aria-label="${{ off: 'Repeat', all: 'Repeat all', one: 'Repeat one' }[P.repeat]}">${icon(P.repeat === 'one' ? 'repeatOne' : 'repeat', 20)}</button>
+            ${VOLUME_WORKS && !matchMedia('(hover: none)').matches ? html`<span class="nv-volume">${icon(P.audio.muted || !P.userVolume ? 'mute' : P.userVolume < 0.5 ? 'volumeLow' : 'volume', 18)}
+                <input type="range" class="bar" data-nv-volume min="0" max="100" value="${P.audio.muted ? 0 : Math.round(P.userVolume * 100)}" aria-label="Volume"></span>` : ''}
+        </div>
+    </div>`;
+}
+
+function updateNowControls() {
+    const root = NV.open && $('#nowRoot .nv-controls');
+    if (!root) return;
+    const playing = !P.audio.paused && !!currentTrack();
+    const play = $('[data-nv-ctl="play"]', root);
+    if (play.dataset.state !== String(playing)) {
+        play.dataset.state = String(playing);
+        play.innerHTML = icon(playing ? 'pause' : 'play', 24).s;
+        play.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    }
+    const shuffle = $('[data-nv-ctl="shuffle"]', root);
+    shuffle.classList.toggle('on', P.shuffle);
+    shuffle.setAttribute('aria-pressed', String(P.shuffle));
+    const repeat = $('[data-nv-ctl="repeat"]', root);
+    repeat.classList.toggle('on', P.repeat !== 'off');
+    repeat.setAttribute('aria-pressed', String(P.repeat !== 'off'));
+    repeat.setAttribute('aria-label', { off: 'Repeat', all: 'Repeat all', one: 'Repeat one' }[P.repeat]);
+    repeat.innerHTML = icon(P.repeat === 'one' ? 'repeatOne' : 'repeat', 20).s;
+    updateNowProgress();
+}
+
 function updateNowProgress() {
-    const bar = NV.open && $('#nowRoot .nv-progress i');
-    if (bar) bar.style.width = `${P.audio.duration ? (P.audio.currentTime / P.audio.duration) * 100 : 0}%`;
+    const root = NV.open && $('#nowRoot .nv-controls');
+    if (!root) return;
+    const seek = $('[data-nv-seek]', root), d = P.audio.duration || 0;
+    if (!NV.seeking) {
+        seek.value = d ? Math.round((P.audio.currentTime / d) * 1000) : 0;
+        $('[data-nv-time]', root).textContent = fmtTime(P.audio.currentTime || 0);
+    }
+    setRangeFill(seek);
+    $('[data-nv-dur]', root).textContent = fmtTime(d);
+    const vol = $('[data-nv-volume]', root);
+    if (vol) setRangeFill(vol);
 }
 
 function openNowView() {
@@ -1690,6 +1743,12 @@ function bindNowView() {
     const root = $('#nowRoot');
     root.addEventListener('click', (e) => {
         if (NV.swiped) { NV.swiped = false; e.preventDefault(); return; } // the end of a swipe, not a tap on a card
+        const ctl = e.target.closest('[data-nv-ctl]');
+        if (ctl) {
+            ({ play: togglePlay, prev, next: () => next(), shuffle: toggleShuffle, repeat: cycleRepeat })[ctl.dataset.nvCtl]();
+            updateNowControls();
+            return;
+        }
         const step = e.target.closest('[data-nv-step]');
         if (step) { stepSong(+step.dataset.nvStep); return; }
         const line = e.target.closest('.nv-line[data-t]');
@@ -1727,6 +1786,27 @@ function bindNowView() {
             e.preventDefault();
             stepSong(e.key === 'ArrowDown' ? 1 : -1);
         }
+    });
+    // Seek and volume inside Now Playing (the player bar is underneath it)
+    root.addEventListener('input', (e) => {
+        if (e.target.matches('[data-nv-seek]')) {
+            NV.seeking = true;
+            setRangeFill(e.target);
+            $('#nowRoot [data-nv-time]').textContent = fmtTime((e.target.value / 1000) * (P.audio.duration || 0));
+        } else if (e.target.matches('[data-nv-volume]')) {
+            P.audio.muted = false;
+            P.userVolume = e.target.value / 100;
+            store.set('volume', P.userVolume);
+            applyVolume();
+            setRangeFill(e.target);
+            $('#volumeBar').value = e.target.value; // the player bar's slider too
+            setRangeFill($('#volumeBar'));
+        }
+    });
+    root.addEventListener('change', (e) => {
+        if (!e.target.matches('[data-nv-seek]')) return;
+        if (P.audio.duration) P.audio.currentTime = (e.target.value / 1000) * P.audio.duration;
+        NV.seeking = false;
     });
     // One song per scroll gesture: a trackpad fires dozens of small wheel events, so add them up and then pause
     root.addEventListener('wheel', (e) => {
@@ -1986,16 +2066,42 @@ const loadQr = () => qrLoading || (qrLoading = new Promise((resolve, reject) => 
     document.head.append(script);
 }));
 
-function openSettings(focus = 'downloads') {
+function openSettings(focus = 'appearance') {
     const s = S.settings;
     const lossless = (f) => f === 'flac' || f === 'wav';
+    const tabs = [['appearance', 'Appearance'], ['playback', 'Playback'], ['downloads', 'Downloads'],
+        ['spotify', 'Spotify'], ...(!S.init.on_phone ? [['phone', 'Phone access']] : []), ['about', 'About']];
+    const initialTab = tabs.some(([key]) => key === focus) ? focus : 'appearance';
     $('#modalRoot').innerHTML = html`
         <div class="modal-backdrop" data-close>
-            <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+            <div class="modal wide settings-modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
                 <div class="modal-head"><h2 id="settingsTitle">Settings</h2>
                     <button type="button" class="icon-btn" data-close aria-label="Close settings">${icon('close', 18)}</button></div>
+                <div class="settings-tabs" role="tablist" aria-label="Settings sections">
+                    ${tabs.map(([key, label]) => html`<button type="button" role="tab" id="settings-tab-${key}" aria-controls="settings-panel-${key}" aria-selected="${String(key === initialTab)}" tabindex="${key === initialTab ? 0 : -1}" data-settings-tab="${key}">${label}</button>`)}
+                </div>
+                <div class="settings-panels">
 
-                <section class="modal-section" aria-labelledby="credsTitle">
+                <section class="modal-section" role="tabpanel" id="settings-panel-appearance" aria-labelledby="settings-tab-appearance" ${initialTab === 'appearance' ? '' : new Safe('hidden')}>
+                    <h3 id="appearanceTitle">Appearance</h3>
+                    <div class="field">
+                        <label for="setThemeMode">Theme</label>
+                        <select id="setThemeMode">
+                            ${[['dark', 'Dark'], ['light', 'Light'], ['system', 'System — follow device settings']].map(([value, label]) => html`<option value="${value}" ${value === Theme.mode ? new Safe('selected') : ''}>${label}</option>`)}
+                        </select>
+                    </div>
+                    <fieldset class="theme-picker" aria-describedby="themeNote">
+                        <legend class="sr-only">Theme color</legend>
+                        ${Theme.colors.map((theme) => html`<label class="theme-choice">
+                            <input class="sr-only" type="radio" name="themeColor" value="${theme.id}" ${theme.id === Theme.current ? new Safe('checked') : ''}>
+                            <span class="theme-dot" style="--swatch:${theme.color}" aria-hidden="true">${icon('checkPlain', 16)}</span>
+                            <span>${theme.name}</span>
+                        </label>`)}
+                    </fieldset>
+                    <p class="field-note" id="themeNote">Changes buttons, highlights and charts. Saved automatically on this device.</p>
+                </section>
+
+                <section class="modal-section" role="tabpanel" id="settings-panel-spotify" aria-labelledby="settings-tab-spotify" ${initialTab === 'spotify' ? '' : new Safe('hidden')}>
                     <h3 id="credsTitle">Spotify connection</h3>
                     <div id="connStatus">${connectionLine(S.init)}</div>
                     <form id="credsForm" autocomplete="off">
@@ -2025,7 +2131,7 @@ function openSettings(focus = 'downloads') {
                     </form>
                 </section>
 
-                ${S.init.on_phone ? '' : html`<section class="modal-section" aria-labelledby="phoneTitle">
+                ${S.init.on_phone ? '' : html`<section class="modal-section" role="tabpanel" id="settings-panel-phone" aria-labelledby="settings-tab-phone" ${initialTab === 'phone' ? '' : new Safe('hidden')}>
                     <h3 id="phoneTitle">Phone access</h3>
                     <div class="field">
                         <label class="check"><input type="checkbox" id="setPhone"> Open spotDLr on your phone</label>
@@ -2034,7 +2140,7 @@ function openSettings(focus = 'downloads') {
                     <div id="phonePanel" class="phone-panel" hidden></div>
                 </section>`}
 
-                <section class="modal-section" aria-labelledby="pbTitle">
+                <section class="modal-section" role="tabpanel" id="settings-panel-playback" aria-labelledby="settings-tab-playback" ${initialTab === 'playback' ? '' : new Safe('hidden')}>
                     <h3 id="pbTitle">Playback</h3>
                     <div class="field">
                         ${VOLUME_WORKS ? '' : html`<p class="field-note">On iPhone and iPad, Safari doesn't let web pages change the volume, so these two only work on a computer or Android.</p>`}
@@ -2049,7 +2155,7 @@ function openSettings(focus = 'downloads') {
                     </div>
                 </section>
 
-                <section class="modal-section" aria-labelledby="dlTitle">
+                <section class="modal-section" role="tabpanel" id="settings-panel-downloads" aria-labelledby="settings-tab-downloads" ${initialTab === 'downloads' ? '' : new Safe('hidden')}>
                     <h3 id="dlTitle">Downloads</h3>
                     <form id="dlForm">
                         <div class="field">
@@ -2081,13 +2187,14 @@ function openSettings(focus = 'downloads') {
                     </div>
                 </section>
 
-                <section class="modal-section about" aria-label="About spotDLr">
+                <section class="modal-section about" role="tabpanel" id="settings-panel-about" aria-labelledby="settings-tab-about" ${initialTab === 'about' ? '' : new Safe('hidden')} tabindex="0">
                     <div class="about-name">${icon('spotDLr', 20)}<strong>spotDLr</strong><span class="about-version">${S.init.version ? `Version ${S.init.version}` : ''}</span></div>
                     ${buildLine(S.init.build, S.init.version)}
                     <a class="link about-link" href="https://github.com/HoldenGrant/spotDLr-web_ui/blob/main/CHANGELOG.md" target="_blank" rel="noopener">What's new</a>
                     <a class="link about-link" href="#/tidy" data-close>Tidy up your library</a>
                     <a class="link about-link" href="#/schedules" data-close>Scheduled plays</a>
                 </section>
+                </div>
             </div>
         </div>`.s;
 
@@ -2097,6 +2204,33 @@ function openSettings(focus = 'downloads') {
     const close = () => { $('#modalRoot').innerHTML = ''; if (opener && opener.focus) opener.focus(); };
     backdrop.addEventListener('click', (e) => { if (e.target.closest('[data-close]') && (e.target === backdrop || e.target.closest('button[data-close], a[data-close]'))) close(); });
     backdrop.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+
+    const tabButtons = $$('[data-settings-tab]', backdrop);
+    const selectTab = (key, focusTab = false) => {
+        for (const button of tabButtons) {
+            const selected = button.dataset.settingsTab === key;
+            button.setAttribute('aria-selected', String(selected));
+            button.tabIndex = selected ? 0 : -1;
+            if (selected && focusTab) button.focus();
+        }
+        $$('[role="tabpanel"]', backdrop).forEach((panel) => { panel.hidden = panel.id !== `settings-panel-${key}`; });
+        $('.settings-panels', backdrop).scrollTop = 0;
+    };
+    tabButtons.forEach((button, index) => {
+        button.addEventListener('click', () => selectTab(button.dataset.settingsTab));
+        button.addEventListener('keydown', (event) => {
+            const next = { ArrowRight: (index + 1) % tabButtons.length, ArrowLeft: (index + tabButtons.length - 1) % tabButtons.length,
+                Home: 0, End: tabButtons.length - 1 }[event.key];
+            if (next === undefined) return;
+            event.preventDefault();
+            selectTab(tabButtons[next].dataset.settingsTab, true);
+        });
+    });
+
+    $$('input[name="themeColor"]', backdrop).forEach((input) => {
+        input.addEventListener('change', () => { if (input.checked) Theme.set(input.value); });
+    });
+    $('#setThemeMode', backdrop).addEventListener('change', (event) => Theme.setMode(event.target.value));
 
     const lyricsButton = $('#saveLibraryLyrics');
     const lyricsStatus = $('#lyricsSaveStatus');
@@ -2301,7 +2435,7 @@ function openSettings(focus = 'downloads') {
         toast('Download settings saved');
         if (route().name === 'downloads') rerender();
     });
-    (focus === 'spotify' ? $('#credId') : $('#setFormat')).focus();
+    (initialTab === 'spotify' && !S.init.on_phone ? $('#credId') : initialTab === 'downloads' ? $('#setFormat') : $(`#settings-tab-${initialTab}`)).focus();
 }
 
 // ---------- sidebar ----------
@@ -2836,6 +2970,31 @@ function localMatches(q) {
     });
 }
 
+function parseYouTubeLink(text) {
+    text = (text || '').trim();
+    let url;
+    try { url = new URL(text.includes('://') ? text : `https://${text}`); }
+    catch { return null; }
+    if (!['http:', 'https:'].includes(url.protocol) || ![
+        'youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com',
+        'youtu.be', 'www.youtu.be', 'youtube-nocookie.com', 'www.youtube-nocookie.com',
+    ].includes(url.hostname)) return null;
+    const parts = url.pathname.replace(/^\/+|\/+$/g, '').split('/');
+    let videoId = null;
+    if (['youtu.be', 'www.youtu.be'].includes(url.hostname)) videoId = parts.length === 1 ? parts[0] : '';
+    else if (parts.length === 1 && parts[0] === 'watch') videoId = url.searchParams.get('v') || '';
+    else if (parts.length === 2 && ['shorts', 'embed', 'live'].includes(parts[0])) videoId = parts[1];
+    if (videoId !== null) {
+        if (/^[A-Za-z0-9_-]{11}$/.test(videoId)) return { source: 'ytm', kind: 'track', id: videoId };
+        throw new Error('Invalid YouTube video link. Paste the full video URL.');
+    }
+    if (parts.length === 2 && parts[0] === 'browse' && /^MPRE[\w-]+$/.test(parts[1])) return { source: 'ytm', kind: 'album', id: parts[1] };
+    if (parts.length === 2 && parts[0] === 'channel' && /^UC[\w-]+$/.test(parts[1])) return { source: 'ytm', kind: 'artist', id: parts[1] };
+    const listId = url.searchParams.get('list') || '';
+    if (parts.length === 1 && parts[0] === 'playlist' && /^[A-Za-z0-9_-]+$/.test(listId)) return { source: 'ytm', kind: 'playlist', id: listId };
+    throw new Error('Unsupported YouTube link. Paste a video or playlist URL.');
+}
+
 async function viewSearch(q, filter) {
     if (!q) {
         const recent = store.get('recentSearches', []);
@@ -2843,7 +3002,7 @@ async function viewSearch(q, filter) {
             ${recent.length ? html`<section class="section"><div class="section-head"><h2 class="section-title">Recent searches</h2></div>
                 <div class="recent-searches">${recent.map((r) => html`<a class="chip" href="#/search/${encodeURIComponent(r)}">${r}</a>`)}</div></section>` : ''}
             <section class="section"><div class="section-head"><h2 class="section-title">Search Spotify</h2></div>
-                <p style="color:var(--sub)">Find songs, artists, albums and playlists. Anything you don't have yet can be downloaded straight into your library. You can also paste a Spotify link.</p></section>
+                <p style="color:var(--sub)">Find songs, artists, albums and playlists. Anything you don't have yet can be downloaded straight into your library. You can also paste a Spotify or YouTube link.</p></section>
             ${S.collections.length ? html`<section class="section"><div class="section-head"><h2 class="section-title">Your library</h2></div>
                 <div class="grid">${S.collections.map(collectionCard)}</div></section>` : ''}
         </div>`;
@@ -2851,15 +3010,15 @@ async function viewSearch(q, filter) {
 
     // Pasted link: album/playlist/artist open their page; a track gets a download card
     const spotifyLink = q.match(/(?:open\.spotify\.com\/(?:intl-[a-z]+\/)?|spotify:)(track|album|playlist|artist)[/:]([A-Za-z0-9]{22})/);
-    const ytm = q.match(/music\.youtube\.com\/(?:watch\?(?:.*&)?v=([\w-]{11})|browse\/(MPRE[\w-]+)|playlist\?(?:.*&)?list=([\w-]+)|channel\/(UC[\w-]+))/);
-    const link = spotifyLink ? { source: 'spotify', kind: spotifyLink[1], id: spotifyLink[2] }
-        : ytm ? { source: 'ytm', kind: ytm[1] ? 'track' : ytm[2] ? 'album' : ytm[3] ? 'playlist' : 'artist', id: ytm[1] || ytm[2] || ytm[3] || ytm[4] } : null;
+    let link;
+    try { link = spotifyLink ? { source: 'spotify', kind: spotifyLink[1], id: spotifyLink[2] } : parseYouTubeLink(q); }
+    catch (err) { return errorView(err.message); }
     if (link && link.source === 'ytm' && link.kind === 'playlist' && link.id.startsWith('OLAK5uy_')) link.kind = 'download-only'; // album audio playlist: just download
     if (link) {
         if (link.kind !== 'track' && link.kind !== 'download-only') { location.replace(remoteHref(link, link.kind)); return html``; }
         const url = link.source === 'spotify' ? `https://open.spotify.com/track/${link.id}` : q.trim();
         const localId = link.kind === 'track' ? (link.source === 'ytm' ? S.byVideoId.get(link.id) : S.bySpotifyId.get(link.id)) : null;
-        return html`<div class="view-pad"><div class="link-card">${icon('link', 24)}<div style="flex:1">${link.source === 'ytm' ? 'YouTube Music' : 'Spotify'} ${link.kind === 'track' ? 'song' : 'album'} link</div>
+        return html`<div class="view-pad"><div class="link-card">${icon('link', 24)}<div style="flex:1">${link.source === 'ytm' ? 'YouTube' : 'Spotify'} ${link.kind === 'track' ? 'song' : 'album'} link</div>
             ${localId ? html`<button class="pill-btn primary" data-action="play-local" data-local-id="${localId}">${icon('play', 14)} In your library — play</button>`
                       : html`<button class="pill-btn primary" data-action="download" data-download-url="${url}" data-type="${link.kind === 'track' ? 'track' : 'album'}">${icon('downloadPlain', 14)} Download</button>`}</div></div>`;
     }
@@ -3052,10 +3211,10 @@ function viewDownloads() {
     <div class="view-pad">
         <h1 class="greeting" style="margin-top:8px">Downloads</h1>
         <form class="paste-row" id="pasteForm">
-            <input class="text-input" id="pasteInput" placeholder="Paste a Spotify link: track, album, playlist or artist" autocomplete="off" aria-label="Spotify link">
+            <input class="text-input" id="pasteInput" placeholder="Paste a Spotify or YouTube link" autocomplete="off" aria-label="Spotify or YouTube link">
             <button class="pill-btn primary" type="submit" style="height:48px;padding:0 24px">${icon('downloadPlain', 16)} Download</button>
         </form>
-        <p class="settings-line">Saving as ${label}${quality}${s.lyrics ? ', with lyrics' : ''}. <button type="button" data-action="settings">Change</button></p>
+        <p class="settings-line">Saving as ${label}${quality}${s.lyrics ? ', with lyrics' : ''}. <button type="button" data-action="settings">Change</button>${S.init.on_phone ? '' : html` · <button type="button" data-action="open-music-folder">Open music folder</button>`}</p>
         <ul class="jobs" id="jobsList"></ul>
     </div>`;
 }
@@ -3692,7 +3851,8 @@ function bindEvents() {
                 S.songsView.genre = null; S.songsView.q = '';
                 refreshSongs();
             }
-            else if (action === 'settings') openSettings();
+            else if (action === 'settings') openSettings('downloads');
+            else if (action === 'open-music-folder') openLibraryLocation();
             else if (action === 'connect-spotify') openSettings('spotify');
             return;
         }
@@ -3791,7 +3951,7 @@ function bindEvents() {
     $('#libraryFilterInput').addEventListener('input', (e) => { S.libQuery = e.target.value; renderSidebar(); });
     $('#navBack').addEventListener('click', () => history.back());
     $('#navForward').addEventListener('click', () => history.forward());
-    $('#settingsBtn').addEventListener('click', openSettings);
+    $('#settingsBtn').addEventListener('click', () => openSettings());
     window.addEventListener('hashchange', () => render());
     window.addEventListener('popstate', () => render());
 
@@ -3909,6 +4069,12 @@ function rowPlaylist(row) {
     return c && c.editable ? c : null;
 }
 
+async function openLibraryLocation(target = {}) {
+    try {
+        await api('/reveal', { method: 'POST', body: JSON.stringify(target) });
+    } catch (error) { toast(error.message, 'error'); }
+}
+
 function rowMenu(row, position) {
     const t = row && S.byId.get(row.dataset.id);
     if (!t) return;
@@ -3927,6 +4093,9 @@ function rowMenu(row, position) {
         { label: 'Blind listening test', icon: 'ear', run: () => { location.hash = `#/abx/${encodeURIComponent(t.id)}`; } },
         '-',
         { label: `Go to ${t.artists[0]}`, icon: 'user', run: () => { location.hash = artistHref(t.artists[0]); } },
+        ...(S.init.on_phone ? [] : [{ label: /Mac/.test(navigator.platform) ? 'Show in Finder' : 'Open containing folder', icon: 'folder', run: () => openLibraryLocation({ track_id: t.id }) }]),
+        '-',
+        { label: 'Delete song', icon: 'trash', danger: true, run: () => deleteTrackDialog(t) },
     ], { ...position, label: `Options for ${t.title}` });
 }
 
@@ -3940,6 +4109,7 @@ function collectionMenu(anchor) {
         { label: 'Schedule play', icon: 'clock', disabled: !ids.length, run: () => scheduleDialog(c ? whatForCollection(c) : whatForLiked()) },
         { label: 'Add to another playlist', icon: 'listAdd', disabled: !ids.length, run: () => addToPlaylistDialog(ids, name) },
         { label: 'Send to device', icon: 'usb', disabled: !ids.length, run: () => sendToDeviceDialog(ids, name, name) },
+        ...(c && !S.init.on_phone ? [{ label: 'Open folder', icon: 'folder', run: () => openLibraryLocation({ collection_key: c.key }) }] : []),
         ...(S.init.apple_music ? [{ label: 'Add to Apple Music', icon: 'apple', disabled: !ids.length, run: () => appleMusicDialog(ids, name, name, !(c && c.kind === 'album')) }] : []),
         ...(c && c.editable ? ['-', { label: 'Rename', icon: 'listAdd', run: () => renamePlaylistDialog(c) },
             { label: 'Delete playlist', icon: 'trash', danger: true, run: () => deletePlaylistDialog(c) }] : []),
@@ -4012,7 +4182,7 @@ function newPlaylistDialog(trackIds) {
 }
 
 function addToPlaylistDialog(trackIds, label) {
-    const lists = editablePlaylists();
+    const lists = S.collections.filter((collection) => collection.kind === 'playlist');
     openModal({
         title: 'Add to playlist',
         body: html`<p class="dialog-note">${trackIds.length === 1 ? label : plural(trackIds.length, 'song')}</p>
@@ -4020,7 +4190,7 @@ function addToPlaylistDialog(trackIds, label) {
                 <button class="pick-row" data-new-playlist><div class="art pick-art">${icon('plus', 22)}</div><div><div class="pick-name">New playlist</div></div></button>
                 ${lists.map((c) => html`<button class="pick-row" data-playlist-key="${c.key}">${collectionArt(c, 'pick-art')}<div><div class="pick-name">${c.name}</div><div class="pick-sub">${plural(c.track_ids.length, 'song')}</div></div></button>`)}
             </div>
-            ${lists.length ? '' : html`<p class="dialog-note">You haven't made a playlist yet. Downloaded playlists can't be changed, so songs go into playlists you make here.</p>`}`,
+            ${lists.length ? '' : html`<p class="dialog-note">No playlists yet. Create one to start organizing your songs.</p>`}`,
         onOpen: (modal, close) => {
             modal.addEventListener('click', async (e) => {
                 if (e.target.closest('[data-new-playlist]')) { close(); newPlaylistDialog(trackIds); return; }
@@ -4088,6 +4258,86 @@ function renamePlaylistDialog(c) {
                     await refreshLibrary();
                     toast(`Renamed to ${key}`);
                 } catch (error) { const err = $('#renameError', modal); err.textContent = error.message; err.hidden = false; }
+            });
+        },
+    });
+}
+
+function removeTrackFromQueue(id) {
+    const before = P.order.slice(0, P.pos).filter((i) => P.queue[i] !== id).length;
+    const indices = new Map();
+    const queue = P.queue.filter((trackId, i) => {
+        if (trackId === id) return false;
+        indices.set(i, indices.size);
+        return true;
+    });
+    P.queue = queue;
+    P.order = P.order.filter((i) => indices.has(i)).map((i) => indices.get(i));
+    P.pos = Math.min(before, Math.max(0, P.order.length - 1));
+    P.upNext = P.upNext.filter((trackId) => trackId !== id);
+    if (P.queued === id) P.queued = null;
+}
+
+function deleteTrackDialog(t) {
+    openModal({
+        title: `Delete “${t.title}”?`,
+        body: html`<p class="dialog-note">This removes the song from your library, playlists and Liked Songs. Its audio file and saved lyrics move to the ${navigator.platform.startsWith('Win') ? 'Recycle Bin' : 'Trash'}. If that isn't available, they're kept in spotDLr's Removed songs folder.</p>
+            <p class="form-error" id="deleteTrackError" role="alert" hidden></p>
+            <div class="modal-actions"><button type="button" class="pill-btn" data-close autofocus>Cancel</button><button type="button" class="pill-btn danger" id="confirmDeleteTrack">Delete song</button></div>`,
+        onOpen: (modal, close) => {
+            $('#confirmDeleteTrack', modal).addEventListener('click', async (e) => {
+                const button = e.currentTarget;
+                button.disabled = true;
+                button.textContent = 'Deleting…';
+                $('#deleteTrackError', modal).hidden = true;
+                const playing = currentTrack()?.id === t.id;
+                // Release the file before moving it, including on Windows.
+                endFade();
+                if (playing) {
+                    flushListen();
+                    P.audio.pause();
+                    P.audio.removeAttribute('src');
+                    P.audio.load();
+                }
+                let result;
+                try { result = await api(`/tracks/${encodeURIComponent(t.id)}`, { method: 'DELETE' }); }
+                catch (error) {
+                    if (playing) {
+                        P.audio.src = `/api/stream/${encodeURIComponent(t.id)}`;
+                        startListen(t.id);
+                    }
+                    const message = $('#deleteTrackError', modal);
+                    message.textContent = error.message;
+                    message.hidden = false;
+                    button.disabled = false;
+                    button.textContent = 'Delete song';
+                    return;
+                }
+                removeTrackFromQueue(t.id);
+                S.byId.delete(t.id);
+                close();
+                if (route().name === 'abx' && route().id === t.id) location.hash = '#/songs';
+                if (playing && currentTrack()) {
+                    P.audio.src = `/api/stream/${encodeURIComponent(currentTrack().id)}`;
+                    startListen(currentTrack().id);
+                    setTrackGain(currentTrack().id);
+                }
+                if (!currentTrack()) {
+                    store.set('session', null);
+                    document.title = 'spotDLr';
+                    $('#timeCurrent').textContent = '0:00';
+                    $('#timeTotal').textContent = '0:00';
+                    $('#seekBar').value = 0;
+                    setRangeFill($('#seekBar'));
+                    closeNowView();
+                    if ('mediaSession' in navigator) navigator.mediaSession.metadata = null;
+                } else saveSession();
+                updateNowPlaying();
+                updateControls();
+                renderQueue();
+                try { await refreshLibrary(); }
+                catch (error) { toast(`Song deleted. Couldn't refresh the library: ${error.message}`, 'error'); return; }
+                toast(`Deleted ${t.title}. Moved to ${result.trash}.`);
             });
         },
     });

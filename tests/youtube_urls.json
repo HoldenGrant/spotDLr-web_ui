@@ -1,0 +1,17 @@
+[
+  {"url":"https://www.youtube.com/watch?v=8PTDv_szmL0","kind":"track","id":"8PTDv_szmL0"},
+  {"url":"https://youtube.com/watch?si=test&v=8PTDv_szmL0&t=10","kind":"track","id":"8PTDv_szmL0"},
+  {"url":"https://www.youtube.com/watch?v=8PTDv_szmL0&list=PLexample","kind":"track","id":"8PTDv_szmL0"},
+  {"url":"https://youtu.be/8PTDv_szmL0?si=test","kind":"track","id":"8PTDv_szmL0"},
+  {"url":"https://m.youtube.com/watch?v=8PTDv_szmL0","kind":"track","id":"8PTDv_szmL0"},
+  {"url":"https://music.youtube.com/watch?v=8PTDv_szmL0","kind":"track","id":"8PTDv_szmL0"},
+  {"url":"https://www.youtube.com/shorts/8PTDv_szmL0","kind":"track","id":"8PTDv_szmL0"},
+  {"url":"https://www.youtube.com/embed/8PTDv_szmL0","kind":"track","id":"8PTDv_szmL0"},
+  {"url":"https://www.youtube.com/live/8PTDv_szmL0","kind":"track","id":"8PTDv_szmL0"},
+  {"url":"https://www.youtube-nocookie.com/embed/8PTDv_szmL0","kind":"track","id":"8PTDv_szmL0"},
+  {"url":"youtube.com/watch?v=8PTDv_szmL0","kind":"track","id":"8PTDv_szmL0"},
+  {"url":"https://www.youtube.com/playlist?list=PLexample","kind":"playlist","id":"PLexample"},
+  {"url":"https://music.youtube.com/playlist?list=OLAK5uy_example","kind":"playlist","id":"OLAK5uy_example","resolvedKind":"album","resolvedId":"MPREb_example"},
+  {"url":"https://music.youtube.com/browse/MPREb_example","kind":"album","id":"MPREb_example"},
+  {"url":"https://music.youtube.com/channel/UCexample","kind":"artist","id":"UCexample"}
+]

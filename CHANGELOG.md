@@ -6,7 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-10-21
+
+### Added
+- **Open folder** from album and playlist menus, **Show in Finder** (or **Open containing folder**) from song menus, and **Open music folder** on Downloads. These actions are available on the computer running spotDLr.
+- **Light, Dark and System appearance** in **Settings → Appearance**, with readable accent colors in both modes. System follows device changes automatically; preferences are saved on each device.
+- **Theme colors** in **Settings → Appearance**: Green, Blue, Purple, Rose, Amber and Teal. Buttons, highlights and charts update immediately, and the choice is remembered on each device.
+- **Delete song** in a library song's ⋯ menu. After confirmation, its audio and saved lyrics move to the Trash or Recycle Bin (or the recoverable Removed songs folder). Playlist entries, likes and the playback queue are updated.
+
+### Fixed
+- **Add to playlist** now lists downloaded playlists alongside playlists created in spotDLr. Songs are added as playlist references without moving or copying audio; albums remain separate.
+- Regular YouTube and youtu.be links now download the exact video instead of searching for the URL as text and selecting an unrelated song. The search bar also recognizes these links, and track tags must match the requested video ID.
+
 ### Changed
+- **Now Playing fills the whole window**, player bar included, and has its own controls under the ♥: a seek bar, shuffle, previous, play/pause, next, repeat, and volume on computers.
+- Settings now shows one tab at a time: Appearance, Playback, Downloads, Spotify, Phone access and About. Tabs and Close stay visible while a section scrolls; arrow keys, Home and End navigate tabs.
 - The website's Mac buttons now download the v2.3.1 Apple Silicon DMG directly from GitHub Releases, with macOS requirements and installation help. The verified DMG and checksum are attached to the existing release.
 
 ## [2.3.1] - 2026-10-20
@@ -133,7 +147,10 @@ The original spotDLr: a web page for downloading with spotDL. These versions wer
 - Reading `.env` in `run.bat`.
 - Playlist and album folder names on macOS (Jan 6, 2026).
 
-[Unreleased]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.3.1...v2.4.0
+[2.3.1]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.3.0...v2.3.1
+[2.3.0]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.0.0...v2.0.1

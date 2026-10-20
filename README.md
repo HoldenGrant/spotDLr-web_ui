@@ -92,6 +92,9 @@ Music and settings live outside the installed app, so replacing the app preserve
 | Open fullscreen Now Playing | Open Now Playing, then press **F** or use its fullscreen button; **Esc** exits fullscreen. |
 | Pair your phone | **Settings → Phone access**. Scan the QR code. |
 | Change formats, lyrics, or playback | Open **Settings**, using the sliders icon at the top right. |
+| Change appearance | **Settings → Appearance**. Light, Dark or System, plus six accent colors. Saved automatically on each device. |
+| Find a setting | Use the **Appearance, Playback, Downloads, Spotify, Phone access, and About** tabs. |
+| Open a music folder | A song's **⋯ → Show in Finder** (Mac) or **Open containing folder**. Albums and playlists have **Open folder**; Downloads has **Open music folder**. |
 
 Use **Space** to play or pause. On Mac, supported media keys also control playback.
 

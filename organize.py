@@ -3,7 +3,7 @@ Organizing the library: likes, your own playlists, adding files, real albums, an
 
 - Likes: {track id: when} in likes.json (data folder).
 - Your playlists are folders that hold only a playlist.m3u8 pointing at songs elsewhere, so nothing is
-  copied. (Downloaded playlists hold their own files and stay read-only.)
+  copied. Downloaded playlists can also receive songs through their playlist.m3u8, without copying audio.
 - Adding files streams each upload straight to disk. "As an album" writes album / album artist / year /
   cover into the files themselves, so any player groups them.
 - Sending to a device copies files onto a USB drive or MP3 player, optionally converting to MP3, since
@@ -85,6 +85,25 @@ class Likes:
 
 
 # ---------- your playlists ----------
+
+def open_location(music_dir: Path, path: Path):
+    """Reveal a library file on Mac, or open its containing folder on other desktops."""
+    if not path.exists():
+        raise OrganizeError("This file or folder is no longer in your library. Refresh and try again.", 404)
+    if not path.resolve().is_relative_to(music_dir.resolve()):
+        raise OrganizeError("Only locations inside your music folder can be opened", 403)
+    try:
+        if sys.platform == "win32":
+            os.startfile(str(path if path.is_dir() else path.parent))
+        else:
+            if sys.platform == "darwin":
+                command = ["/usr/bin/open", str(path)] if path.is_dir() else ["/usr/bin/open", "-R", str(path)]
+            else:
+                command = ["xdg-open", str(path if path.is_dir() else path.parent)]
+            subprocess.run(command, check=True, capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise OrganizeError("Couldn't open the folder. Try opening it in your computer's file manager.", 500) from error
+
 
 def is_user_playlist(folder: Path):
     """Made in spotDLr: a playlist.m3u8 and no audio files of its own."""

@@ -18,6 +18,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import requests
 from ytmusicapi import YTMusic
@@ -26,13 +27,6 @@ _yt = None
 _yt_lock = threading.Lock()
 
 WATCH_URL = "https://music.youtube.com/watch?v={}"
-YTM_URL = re.compile(
-    r"music\.youtube\.com/(?:"
-    r"watch\?(?:.*&)?v=(?P<video>[\w-]{11})"
-    r"|browse/(?P<album>MPRE[\w-]+)"
-    r"|playlist\?(?:.*&)?list=(?P<list>[\w-]+)"
-    r"|channel/(?P<artist>UC[\w-]+))"
-)
 
 
 class YTMusicError(Exception):
@@ -59,17 +53,38 @@ def _call(fn, *args, **kwargs):
 # ---------- URLs ----------
 
 def parse_url(text):
-    """('track'|'album'|'playlist'|'artist', id) for a YouTube Music link, else None."""
-    match = YTM_URL.search(text or "")
-    if not match:
+    """Parse YouTube links without replacing an explicit video with a search result."""
+    text = (text or "").strip()
+    try:
+        url = urlsplit(text if "://" in text else "https://" + text)
+        host = url.hostname
+    except ValueError:
         return None
-    if match["video"]:
-        return "track", match["video"]
-    if match["album"]:
-        return "album", match["album"]
-    if match["artist"]:
-        return "artist", match["artist"]
-    list_id = match["list"]
+    if url.scheme not in ("http", "https") or host not in {
+        "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com",
+        "youtu.be", "www.youtu.be", "youtube-nocookie.com", "www.youtube-nocookie.com",
+    }:
+        return None
+    parts = url.path.strip("/").split("/")
+    query = parse_qs(url.query)
+    video_id = None
+    if host in {"youtu.be", "www.youtu.be"}:
+        video_id = parts[0] if len(parts) == 1 else ""
+    elif parts == ["watch"]:
+        video_id = query.get("v", [""])[0]
+    elif len(parts) == 2 and parts[0] in {"shorts", "embed", "live"}:
+        video_id = parts[1]
+    if video_id is not None:
+        if re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+            return "track", video_id
+        raise YTMusicError("Invalid YouTube video link. Paste the full video URL.", 400)
+    if len(parts) == 2 and parts[0] == "browse" and re.fullmatch(r"MPRE[\w-]+", parts[1]):
+        return "album", parts[1]
+    if len(parts) == 2 and parts[0] == "channel" and re.fullmatch(r"UC[\w-]+", parts[1]):
+        return "artist", parts[1]
+    list_id = query.get("list", [""])[0]
+    if parts != ["playlist"] or not re.fullmatch(r"[A-Za-z0-9_-]+", list_id):
+        raise YTMusicError("Unsupported YouTube link. Paste a video or playlist URL.", 400)
     # OLAK5uy_ lists are an album's audio playlist; resolve to the album's browse id
     if list_id.startswith("OLAK5uy_"):
         browse_id = _call(_client().get_album_browse_id, list_id)
@@ -254,7 +269,10 @@ def describe(kind, item_id):
 
 def track_meta(video_id):
     """Tag data for one song: title/artists/album from the watch queue, year and track number from its album."""
-    t = _call(_client().get_watch_playlist, video_id, limit=1)["tracks"][0]
+    tracks = _call(_client().get_watch_playlist, video_id, limit=1).get("tracks") or []
+    t = next((track for track in tracks if track.get("videoId") == video_id and track.get("title")), None)
+    if t is None:
+        raise YTMusicError("YouTube Music did not return the requested video. No replacement song was selected.")
     meta = {
         "video_id": video_id, "title": t.get("title"),
         "artists": [a["name"] for a in t.get("artists") or [] if a.get("name")] or ["Unknown artist"],

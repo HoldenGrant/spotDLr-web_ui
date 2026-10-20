@@ -67,7 +67,7 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 EXTRA_HOSTS = {h.strip() for h in os.getenv("SPOTDLR_HOSTS", "").split(",") if h.strip()}
 ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]"} | EXTRA_HOSTS
 phones = phone.PhoneAccess(DATA_DIR / "phone.json", app)
-LOCAL_ONLY_PATHS = ("/api/phone", "/api/credentials")  # managing access and Spotify keys: on the computer only
+LOCAL_ONLY_PATHS = ("/api/phone", "/api/credentials", "/api/reveal")  # computer-only actions
 # What a phone's browser fetches without cookies (home-screen icon, manifest, service worker): nothing private
 PUBLIC_PATHS = {"/static/manifest.webmanifest", "/sw.js", "/static/icons/icon-192.png", "/static/icons/icon-512.png",
                 "/static/icons/apple-touch-icon.png", "/static/icons/icon.svg"}
@@ -142,6 +142,11 @@ class CredentialsRequest(BaseModel):
 
 class LikeRequest(BaseModel):
     liked: bool
+
+
+class RevealRequest(BaseModel):
+    track_id: Optional[str] = None
+    collection_key: Optional[str] = None
 
 
 class PlaylistRequest(BaseModel):
@@ -354,6 +359,24 @@ def _paths_for(track_ids):
     return paths
 
 
+@app.post("/api/reveal")
+def reveal_location(request: RevealRequest):
+    if request.track_id is not None and request.collection_key is not None:
+        raise OrganizeError("Choose a song or a collection to open", 400)
+    if request.track_id is not None:
+        path = library.path_for(request.track_id)
+        if path is None:
+            raise OrganizeError("This song is no longer in your library. Refresh and try again.", 404)
+    elif request.collection_key is not None:
+        if not any(c["key"] == request.collection_key for c in library.snapshot()["collections"]):
+            raise OrganizeError("This collection is no longer in your library. Refresh and try again.", 404)
+        path = DOWNLOAD_DIR / request.collection_key
+    else:
+        path = DOWNLOAD_DIR
+    organize.open_location(DOWNLOAD_DIR, path)
+    return {"opened": True}
+
+
 @app.post("/api/likes/{track_id}")
 def set_like(track_id: str, request: LikeRequest):
     if not library.path_for(track_id):
@@ -369,10 +392,20 @@ def create_playlist(request: PlaylistRequest):
 
 @app.post("/api/playlists/{key}/tracks")
 def change_playlist(key: str, request: PlaylistTracksRequest):
-    folder = organize.user_playlist(DOWNLOAD_DIR, key)
-    current = next((c["track_ids"] for c in library.snapshot()["collections"] if c["key"] == key), [])
+    collection = next((c for c in library.snapshot()["collections"] if c["key"] == key), None)
     if request.action == "add":
-        ids = current + [i for i in request.track_ids if i not in current]  # no duplicates, appended at the end
+        if not collection:
+            raise OrganizeError("This playlist is no longer in your library. Refresh and try again.", 404)
+        if collection["kind"] != "playlist":
+            raise OrganizeError("Songs can only be added to playlists, not albums", 403)
+        folder = DOWNLOAD_DIR / key
+        if folder.parent != DOWNLOAD_DIR or folder.resolve().parent != DOWNLOAD_DIR.resolve() or not folder.is_dir():
+            raise OrganizeError("This playlist is outside your music folder", 403)
+    else:
+        folder = organize.user_playlist(DOWNLOAD_DIR, key)
+    current = collection["track_ids"] if collection else []
+    if request.action == "add":
+        ids = list(dict.fromkeys(current + request.track_ids))  # no duplicates, appended at the end
     elif request.action == "remove":
         ids = [i for i in current if i not in set(request.track_ids)]
     elif request.action == "order":
@@ -446,6 +479,11 @@ def duplicates():
 @app.post("/api/duplicates/merge")
 def merge_duplicates(request: MergeRequest):
     return cleanup.merge(DOWNLOAD_DIR, library.scan(), request.keep, request.remove, likes, plays, REMOVED_DIR)
+
+
+@app.delete("/api/tracks/{track_id}")
+def delete_track(track_id: str):
+    return cleanup.delete_track(DOWNLOAD_DIR, library.scan(), track_id, likes, REMOVED_DIR)
 
 
 @app.post("/api/album-fix/scan")
