@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360" fill="none">
+  <title>spotDLr — Keep every good beat.</title>
+  <desc>A teal record sleeve, a yellow vinyl label, and an audio waveform beside the spotDLr wordmark.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1280" y2="360" gradientUnits="userSpaceOnUse"><stop stop-color="#194c4b"/><stop offset="1" stop-color="#111c1b"/></linearGradient>
+    <pattern id="grooves" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M0 10 10 0" stroke="#ffffff" stroke-opacity=".025"/></pattern>
+    <clipPath id="frame"><rect width="1280" height="360" rx="24"/></clipPath>
+  </defs>
+  <g clip-path="url(#frame)">
+    <rect width="1280" height="360" fill="url(#background)"/>
+    <rect width="1280" height="360" fill="url(#grooves)"/>
+    <circle cx="1064" cy="181" r="246" fill="#121c19" stroke="#527369"/>
+    <g stroke="#3f5c51" stroke-opacity=".5"><circle cx="1064" cy="181" r="228"/><circle cx="1064" cy="181" r="216"/><circle cx="1064" cy="181" r="204"/><circle cx="1064" cy="181" r="192"/><circle cx="1064" cy="181" r="180"/><circle cx="1064" cy="181" r="168"/><circle cx="1064" cy="181" r="156"/><circle cx="1064" cy="181" r="144"/><circle cx="1064" cy="181" r="132"/></g>
+    <circle cx="1064" cy="181" r="104" fill="#ffe678"/>
+    <circle cx="1064" cy="181" r="9" fill="#194c4b"/>
+    <path d="M1004 137h120M1004 225h120" stroke="#194c4b" stroke-opacity=".35"/>
+    <text x="1064" y="123" text-anchor="middle" fill="#194c4b" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" letter-spacing="3">YOUR SIDE A</text>
+    <text x="1064" y="251" text-anchor="middle" fill="#194c4b" font-family="Arial, Helvetica, sans-serif" font-size="14" letter-spacing="2">PLAY IT AGAIN</text>
+    <g stroke="#a5ef75" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="67" cy="57" r="18"/><path d="M67 47v20m-8-8 8 8 8-8"/></g>
+    <text x="99" y="67" fill="#f5f5ed" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700" letter-spacing="-1">spotDLr</text>
+    <text x="48" y="166" fill="#f5f5ed" font-family="Arial, Helvetica, sans-serif" font-size="66" letter-spacing="-3">Keep every</text>
+    <text x="48" y="242" fill="#ffe678" font-family="Arial, Helvetica, sans-serif" font-size="66" letter-spacing="-3">good beat.</text>
+    <text x="50" y="303" fill="#c0d0c4" font-family="Arial, Helvetica, sans-serif" font-size="17" letter-spacing=".3">Your collection. Right at home.</text>
+    <g stroke="#a5c7b1" stroke-width="5" stroke-linecap="round" opacity=".55"><path d="M660 170v20m14-37v54m14-70v86m14-99v112m14-84v56m14-35v14m14-49v84m14-105v126m14-94v62m14-43v24m14-37v50m14-30v10"/></g>
+  </g>
+</svg>
