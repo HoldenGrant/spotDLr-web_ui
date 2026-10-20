@@ -11,6 +11,10 @@ Jump to: [[#2026]] · [[#2025]]
 
 ## 2026
 
+### Oct 21, 2026
+- **v2.4.0 released** (tag pushed by Holden; Windows installer built by CI). Mac DMG built locally with `installer/build_mac.sh` (its relocation test passed), checked (version 2.4.0, signature, checksum, new code inside), uploaded to the release, and the website/README/SETUP/MAC.md links moved from 2.3.1 to 2.4.0. **The Mac DMG is never built by CI**: every release needs this by hand.
+- Fixed `.venv` scripts still pointing at `~/Downloads/spotDLr-web_ui` (29 files: `activate`, `pip`, …), which made VS Code report "Unable to handle .venv/bin/python".
+
 ### Oct 20, 2026
 
 - **Native Mac app:** `launcher/macOS.swift` hosts the existing UI in Cocoa + Apple WebKit. `make_launcher.sh` compiles and ad-hoc signs `/Applications/spotDLr.app`, replacing the Chrome app-mode launcher. The window has a Dock presence, standard menus, import file picker and fullscreen support. It reuses the local Python server or starts `run.sh`; the server remains running after ⌘Q. The build remains tied to this Mac's project folder and runtime tools. See [[Launchers & Setup#spotDLr.app (native Mac app)]].

@@ -34,10 +34,10 @@ Both installers include **Python, FFmpeg, and Node.js**. No Terminal or source c
 
 | Windows | Mac |
 | :--- | :--- |
-| **[Download for Windows ↓](https://github.com/HoldenGrant/spotDLr-web_ui/releases/latest/download/spotDLr-Setup.exe)** | **[Download for Mac ↓](https://github.com/HoldenGrant/spotDLr-web_ui/releases/download/v2.3.1/spotDLr-2.3.1-mac-arm64.dmg)** |
+| **[Download for Windows ↓](https://github.com/HoldenGrant/spotDLr-web_ui/releases/latest/download/spotDLr-Setup.exe)** | **[Download for Mac ↓](https://github.com/HoldenGrant/spotDLr-web_ui/releases/download/v2.4.0/spotDLr-2.4.0-mac-arm64.dmg)** |
 | Run `spotDLr-Setup.exe`, then open spotDLr from the Start menu. | Open the DMG and drag spotDLr into **Applications**. |
 | Uses an Edge or Chrome app window. | Native **Swift + Apple WebKit** window. |
-| [Windows setup](SETUP.md#windows-the-installer-easiest) | **Apple Silicon · macOS 15+ · v2.3.1** · [Mac setup](SETUP.md#mac-personal-standalone-installer) |
+| [Windows setup](SETUP.md#windows-the-installer-easiest) | **Apple Silicon · macOS 15+ · v2.4.0** · [Mac setup](SETUP.md#mac-personal-standalone-installer) |
 
 The Mac download is a personal build without Apple notarization. First-launch help and instructions for moving an existing collection are in the [Mac setup guide](SETUP.md#mac-personal-standalone-installer).
 
