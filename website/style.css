@@ -99,6 +99,8 @@ figcaption { padding-top: 14px; color: var(--muted); font-size: 10px; line-heigh
 .platform-label > span { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
 .platforms p { margin-bottom: 28px; min-height: 69px; }
 .platforms article:first-child p { color: #4a5138; }
+.platforms .platform-note { min-height: 0; margin: 16px 0 0; font-size: 11px; line-height: 1.6; }
+.platform-note a { text-decoration: underline; text-underline-offset: 3px; }
 .dark { background: #202b20; color: var(--accent); }
 .dark:hover { background: #374832; }
 .platforms article:first-child a:focus-visible { outline-color: #202b20; }

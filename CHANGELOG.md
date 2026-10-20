@@ -4,10 +4,15 @@ What changed in each version of spotDLr, newest first. Downloads are on the [Rel
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- The website's Mac buttons now download the v2.3.1 Apple Silicon DMG directly from GitHub Releases, with macOS requirements and installation help. The verified DMG and checksum are attached to the existing release.
+
 ## [2.3.1] - 2026-10-20
 
 ### Added
-- **Personal standalone Mac installer.** `installer/build_mac.sh` builds an ad hoc signed Apple Silicon app and drag-to-Applications DMG with Python, FFmpeg, ffprobe and Node.js included. Its native window owns a backend on a free local port; settings live in Mac Application Support and music in `~/Music/spotDLr`. Includes relocation/isolation smoke tests. Requires macOS 15+; no notarization or public release is performed.
+- **Personal standalone Mac installer.** `installer/build_mac.sh` builds an ad hoc signed Apple Silicon app and drag-to-Applications DMG with Python, FFmpeg, ffprobe and Node.js included. Its native window owns a backend on a free local port; settings live in Mac Application Support and music in `~/Music/spotDLr`. Includes relocation/isolation smoke tests. Requires macOS 15+; the build script does not notarize or upload automatically.
 - **Native Mac app.** `make_launcher.sh` now builds a Swift/Cocoa app using Apple's WebKit, with a Dock icon, standard menus, file picker, fullscreen support and automatic local-server startup. It uses the existing project and Python environment; no browser or App Store account is needed to run it. Mac interface preferences are separate from the former Chrome window.
 - **Lyrics for existing music.** Choose **Download lyrics** from a song's ⋯ menu, or **Settings → Downloads → Download library lyrics** for a background library pass. Saves available synced `.lrc` files beside the audio, preserves existing sidecars, and reports saved/existing/unavailable/failed counts.
 - **Sort Your Library.** The button next to "Search in Your Library" sorts it by **Recents** (what you played last comes first), **Recently added**, **Alphabetical** or **Creator** (by artist). Liked Songs stays on top, and spotDLr remembers your choice.

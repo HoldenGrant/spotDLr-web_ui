@@ -15,8 +15,12 @@ The `Publish website` GitHub Actions workflow deploys **only `website/`** when
 these files change on `main`. GitHub Pages must use **GitHub Actions** as its
 publishing source. The workflow can also be run manually.
 
-This page links to the latest Windows installer and the published Mac setup
-guide. Update the copy if packaging changes. `assets/library.webp` is a screenshot
+This page links to the latest Windows installer and the v2.3.1 Mac DMG on GitHub
+Releases. The Mac links pin the versioned asset, so a future Windows-only release
+cannot break them. Upload and verify a new Mac DMG before updating those links.
+The Mac build supports Apple Silicon and macOS 15+, and its installation FAQ
+explains that the personal build is not notarized. Update the copy if packaging
+changes. `assets/library.webp` is a screenshot
 of the current development app; its caption distinguishes it from a release.
 
 The teal/yellow art direction combines a botanical hero, a decorative listening

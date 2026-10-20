@@ -28,10 +28,11 @@ From then on, open **spotDLr** from the Start menu or the desktop icon. It opens
 
 ## Mac: personal standalone installer
 
-The local build produces `dist-mac/spotDLr-2.2.0-mac-arm64.dmg`. Open the disk image,
+Download **spotDLr-2.3.1-mac-arm64.dmg** from the [v2.3.1 release](https://github.com/HoldenGrant/spotDLr-web_ui/releases/tag/v2.3.1) or the [spotDLr website](https://holdengrant.github.io/spotDLr-web_ui/). The local build produces `dist-mac/spotDLr-2.3.1-mac-arm64.dmg`. Open the disk image,
 drag **spotDLr** onto **Applications**, then open the installed app. This personal
 build targets **Apple Silicon and macOS 15+** (the bundled FFmpeg requires macOS 15).
 It is locally ad hoc signed, without Developer ID signing or notarization.
+If macOS blocks the downloaded app, see [Apple’s guide to opening apps safely](https://support.apple.com/en-us/102445).
 
 Python, dependencies, FFmpeg, ffprobe and Node.js are included. Running the app
 does not require Homebrew, a source checkout or `.venv`. The bundle contains no

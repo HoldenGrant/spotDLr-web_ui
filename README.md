@@ -66,7 +66,7 @@ The script will automatically:
 
 ### Mac: personal standalone installer
 
-The self-contained Apple Silicon build is in `dist-mac/spotDLr-2.2.0-mac-arm64.dmg`.
+Download the [self-contained Apple Silicon DMG](https://github.com/HoldenGrant/spotDLr-web_ui/releases/download/v2.3.1/spotDLr-2.3.1-mac-arm64.dmg), also available locally at `dist-mac/spotDLr-2.3.1-mac-arm64.dmg`.
 Open it and drag **spotDLr** into **Applications**. It includes Python, FFmpeg,
 ffprobe and Node.js; no source folder or Homebrew is needed to run it. This personal,
 ad hoc signed build requires macOS 15+. It uses `~/Music/spotDLr/` and
