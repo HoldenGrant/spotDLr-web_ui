@@ -11,6 +11,8 @@ plays.jsonl
 .genres.json
 .genres.json.tmp
 .lyrics/
+# App browser profile
+browser-profile/
 *.spotdl-config
 
 # Python
@@ -53,8 +55,17 @@ Thumbs.db
 # Windows installer build (see installer/ and .github/workflows/windows-installer.yml)
 installer/bin/
 dist-installer/
+dist-mac/
 *.spec.bak
 likes.json
 likes.tmp
 .abx/
 .backups/
+loudness.json
+loudness.tmp
+tag-backups/
+Removed songs/
+phone.json
+phone.tmp
+schedules.json
+schedules.tmp

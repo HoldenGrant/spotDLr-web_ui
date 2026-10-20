@@ -127,7 +127,7 @@ def _read_track(path: Path, rel: str, stat):
         fallback_artist, fallback_title = "", stem
 
     title, artists, album, album_artist, date, duration, genre_tag = fallback_title, [], None, None, None, 0, None
-    spotify_id, youtube_id, has_cover = None, None, False
+    spotify_id, youtube_id, has_cover, bitrate, lossless = None, None, False, 0, path.suffix.lower() in (".flac", ".wav")
     try:
         easy = mutagen.File(path, easy=True)
         if easy is not None:
@@ -139,6 +139,8 @@ def _read_track(path: Path, rel: str, stat):
             date = _first(tags, "date")
             genre_tag = _first(tags, "genre")
             duration = round(getattr(easy.info, "length", 0) or 0, 2)
+            bitrate = round((getattr(easy.info, "bitrate", 0) or 0) / 1000)
+            lossless = lossless or getattr(easy.info, "codec", None) == "alac"
         full = mutagen.File(path)
         if full is not None:
             spotify_id = _find_spotify_id(full)
@@ -165,6 +167,8 @@ def _read_track(path: Path, rel: str, stat):
         "spotify_id": spotify_id,
         "youtube_id": youtube_id,
         "has_cover": has_cover,
+        "bitrate": bitrate,     # kbps; 0 when unknown
+        "lossless": lossless,   # FLAC, WAV or Apple Lossless
         "genre_tag": genre_tag,  # spotDL's Spotify genre, when present; see genres.py
     }
 

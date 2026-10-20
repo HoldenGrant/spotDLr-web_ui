@@ -1,12 +1,12 @@
 # Launchers & Setup
 
-Three scripts, one job each: make sure Python, the dependencies, FFmpeg and the Spotify credentials are ready, then run `app.py`. Related: [[Backend]] · [[Bug Log]]
+Source launchers prepare Python, dependencies, and FFmpeg, then run the server. Spotify credentials are optional. The Windows installer bundles its runtime and uses `desktop.py`. Mac app section updated **2026-10-20**; other platform sections retain their earlier review/test dates. Related: [[Backend]] · [[Data and Storage]] · [[Phone Access]] · [[Bug Log]]
 
 ---
 
 ## Credentials
 
-You need a Spotify **Client ID** and **Client Secret** from <https://developer.spotify.com/dashboard/> → Create app (Web API; redirect URI `http://127.0.0.1:8000/callback`, required but unused).
+To connect Spotify, optionally provide a **Client ID** and **Client Secret** from <https://developer.spotify.com/dashboard/> → Create app (Web API; redirect URI `http://127.0.0.1:8000/callback`, required but unused).
 
 **Easiest:** start the app and paste them into **Settings → Spotify connection**. It tests them and writes `.env` for you. Or edit `.env` by hand:
 
@@ -24,29 +24,38 @@ They get loaded twice, and both paths matter:
 > [!note] Never committed
 > `.env` and `.cache` (spotipy's token cache) are in `.gitignore`. They were tracked until Oct 15. See [[Bug Log#Spotify secret: rotate once working]].
 
-## spotDLr.app (the launcher)
+## spotDLr.app (native Mac app)
 
-**The everyday way to open spotDLr on the Mac:** `/Applications/spotDLr.app` (Launchpad, Spotlight, or drag it to the Dock). Built by `./make_launcher.sh`; re-run that if the project folder moves.
+**Current implementation, Oct 20, 2026:** `/Applications/spotDLr.app`, built by `./make_launcher.sh`. It is a Swift/Cocoa executable hosting the existing UI in Apple's `WKWebView`, with its own Dock icon and standard Mac menus. Chrome/Edge app mode was the previous Mac implementation; `desktop.py` still handles the Windows desktop executable.
 
-What it does on double-click:
-1. If on Apple Silicon and running under Rosetta, restart itself natively (`arch -arm64`). See [[Bug Log#Launcher: server crashed with "incompatible architecture" (Oct 15)]].
-2. Asks `GET /api/status/init` and looks for spotDLr's own `search_source` field, so another app on port 8000 isn't mistaken for spotDLr.
-3. Not running → `SPOTDLR_NO_BROWSER=1 nohup run.sh` in the background (log: `~/Library/Logs/spotDLr.log`, rotated at 5 MB), waits until it answers (notification after 4 s, gives up after 5 min).
-4. Opens `http://localhost:8000` with Chrome's app mode (`--app=`, no tabs or address bar). It tries Chrome, Edge, Brave, then Chromium, then falls back to a normal tab. It runs the browser binary directly, because `open -a … --args` drops the arguments when the browser is already open.
+### Build and install
 
-Measured: cold start **3 s** to a working window, warm start **1.07 s** (same server, no second copy). The server keeps running after the window closes. Failures show a macOS alert saying what to do (port taken by another app, project folder moved, server stopped while starting).
+- Requires macOS **12.3+**, Xcode Command Line Tools or Xcode, and the source runtime tools: Python **3.10–3.13**, FFmpeg, and Node.js for YouTube downloads.
+- `make_launcher.sh` compiles `launcher/macOS.swift` using `xcrun swiftc`, targeting the build Mac's architecture and macOS 12.3. It assembles the bundle, ad-hoc signs it with `codesign --sign -`, verifies the signature, then installs it. A custom destination can be passed as the first argument; the default is `/Applications`, with `~/Applications` used if that existing destination is not writable.
+- No App Store account, paid signing identity, or notarization is used for this local build. It is not a self-contained distribution: Python, FFmpeg, Node.js, source code and music remain outside the bundle.
+- The bundle records `SpotDLrProjectPath` and `SpotDLrExecutablePath` in `Info.plist`. Rebuild if the project moves or those tool paths change.
+- The icon is reused from an existing app when available. Otherwise the builder renders `launcher/icon.svg` with headless Chrome or Quick Look, then uses `sips` and `iconutil`. Chrome is not a runtime dependency of the native app.
 
-Built into the bundle at build time: the project path, and this Terminal's `PATH` (Finder-launched apps get a bare PATH that hides Python 3.13, ffmpeg and Node). Icon: `launcher/icon.svg`, rendered with headless Chrome → `sips` → `iconutil`.
+### Startup and window behavior
 
-> [!warning] Don't keep the project in Downloads, Documents or Desktop
-> macOS privacy protection blocks a new app from reading those folders (`Operation not permitted`), and an unsigned script app doesn't even get the "allow?" prompt. That's why the project moved to `~/Projects/` on Oct 15.
+1. Opens a native window with a loading indicator. Probes `http://127.0.0.1:8000/api/ping` asynchronously and requires `{"app":"spotDLr"}`.
+2. If no server responds, starts `/bin/bash <project>/run.sh` with the saved executable PATH and `SPOTDLR_NO_BROWSER=1`. The shell launcher prepares/reuses `.venv` and executes `app.py`. Output appends to `~/Library/Logs/spotDLr.log`.
+3. Retries startup checks until the server responds, with a five-minute deadline. A responding foreign service, missing project, startup-process failure, or page-load failure produces a native alert.
+4. Loads the UI at `http://127.0.0.1:8000/`. Navigation stays on that origin; external HTTP(S) links open in the default browser. `WKUIDelegate` provides the import file picker; user-gesture restrictions for media are disabled in the WebKit configuration and element fullscreen is enabled.
+5. Closing the window keeps the native app/web view alive. Clicking its Dock icon reopens the same window. **⌘Q** quits the native app; it deliberately leaves the Python server running for downloads and phone access. Scheduled playback is client-driven and requires its designated app/browser to remain running.
+
+The native app uses WebKit's persistent website storage, separate from Chrome's `browser-profile/` or normal browser profile. Preferences, saved playback sessions and schedule device IDs are not migrated automatically. Server-side music, playlists, likes, listening records and saved schedules stay in their existing locations. See [[Data and Storage]].
+
+**Verified Oct 20 on this Mac:** arm64 build and signature, installed app opening the existing server, cold launch starting the server through `run.sh`, library access, local-track playback/pause, synced lyrics, entry/exit from fullscreen, and opening/cancelling the native import file picker. The cold-launch check saw 883 library tracks; that is a dated observation, not a fixed library size. File-picker verification did not import a new file. Earlier Chromium timings and RAM measurements do not benchmark the native app.
+
+Keep the project in a normal location such as `~/Projects/spotDLr-web_ui`; macOS may restrict app access to Downloads, Documents and Desktop. The project moved out of Downloads during the earlier launcher work.
 
 ## macOS / Linux: `run.command` → `run.sh`
 
 **Mac:** double-click `run.command` in Finder. It opens Terminal and runs `run.sh`. (First time: if Gatekeeper blocks it, right-click → Open.) Or run `./run.sh` from any folder.
 
 1. `cd`s to its own folder, so it works from Finder or `~`.
-2. Picks the first of `python3.13`, `python3.12`, `python3.11`, `python3.10`, `python3` whose version is **3.10–3.13**. spotDL 4.4.3 refuses 3.14+, which is what `brew install python3` gives today. If there's none: `brew install python@3.13`.
+2. Picks the first of `python3.13`, `python3.12`, `python3.11`, `python3.10`, `python3` whose version is **3.10–3.13**. the launcher rejects versions outside that range for spotDL 4.4.3. If there's none: `brew install python@3.13`.
 3. Creates `.venv/` and installs `requirements.txt` there. It reinstalls only when `requirements.txt` is newer than `.venv/.installed`. Your system Python is never touched.
 4. FFmpeg: OK if `ffmpeg` is on PATH (e.g. Homebrew) or `~/.spotdl/ffmpeg` exists. Otherwise it runs `.venv/bin/python -m spotdl --download-ffmpeg`.
 5. Loads `.env` if present. Spotify keys are **optional** now (YouTube Music works without them): without `.env` it offers to save keys only when someone is at the Terminal, and otherwise carries on.
@@ -61,7 +70,7 @@ To start completely fresh: `rm -rf .venv`.
 
 | Piece | File |
 |---|---|
-| Entry point (`spotDLr.exe`) | `desktop.py`: probes ports 8000–8010 for a running spotDLr (its `search_source` field); else starts the server **in-process on a thread** on the first free port, opens Edge/Chrome `--app` at `http://127.0.0.1:port` with its **own profile**, and stops the server **5 s after the last spotDLr window closes**: pages check in every 15 s (`/api/window/alive`) and say goodbye on close (`/api/window/bye`); a window silent for 180 s counts as gone. (v2.0.0 waited on the Edge process instead, which on some PCs hands the window to another process and exits at once; see [[Bug Log]].) Output goes to `%LOCALAPPDATA%\spotDLr\spotDLr.log` (a windowed exe has no stdout, and uvicorn's logging would crash) |
+| Entry point (`spotDLr.exe`) | `desktop.py`: probes ports 8000–8010 by default for a running spotDLr (`/api/ping`); `SPOTDLR_PORT` changes the base port; else starts the server **in-process on a thread** on the first free port, opens Edge/Chrome `--app` at `http://127.0.0.1:port` with its **own profile**, and stops the server **5 s after the last spotDLr window closes**: pages check in every 15 s (`/api/window/alive`) and say goodbye on close (`/api/window/bye`); a window silent for 180 s counts as gone. (v2.0.0 waited on the Edge process instead, which on some PCs hands the window to another process and exits at once; see [[Bug Log]].) Output goes to `%LOCALAPPDATA%\spotDLr\spotDLr.log` (a windowed exe has no stdout, and uvicorn's logging would crash) |
 | Data locations | `paths.py`: frozen → music `Music\spotDLr` (the real Music folder via `SHGetKnownFolderPath`, so OneDrive redirection works), settings/caches `%LOCALAPPDATA%\spotDLr`; from source → the project folder, unchanged |
 | Bundle | `installer/spotDLr.spec` (PyInstaller onedir): `index.html`, `static/`, `collect_all` for ytmusicapi / yt_dlp / yt_dlp_ejs, all uvicorn submodules, `installer/bin/ffmpeg.exe` + `node.exe` → `_internal/bin/`; spotDL excluded |
 | Installer | `installer/spotDLr.iss` (Inno Setup 6): per-user (`%LOCALAPPDATA%\Programs\spotDLr`, no admin), Start menu + optional desktop icon, "Open spotDLr" at the end; uninstall keeps music and settings |
@@ -116,3 +125,21 @@ python3.13 -m venv .venv
 ```
 
 Then open <http://localhost:8000>.
+
+
+## Phone access (Wi-Fi and Tailscale)
+
+Settings → **Phone access** on the computer. See [[Phone Access]] for pairing, pause/sign-out behavior, Tailscale/Funnel, and the home-screen app; [[Backend]] covers the implementation.
+
+- **Home Wi-Fi only:** tick "Open spotDLr on your phone", choose "Home Wi-Fi only", scan with the phone. The link is `http://<Mac name>.local:8000` (stays valid when the router changes the Mac's address). The phone must be on the same Wi-Fi, not a guest network or mobile data.
+- **Anywhere:** install Tailscale on the computer and the phone, same account; tick "Also away from home, with Tailscale"; scan the "Anywhere" code; Add to Home Screen. Keep Tailscale connected on the phone, at home too (Tailscale app → VPN On Demand), since this link always goes through it. HTTPS certificates must be on for the tailnet (they are for Holden's).
+- **Funnel** ("Also devices without Tailscale"): same address, reachable from the internet; the QR key still gates everything. Off unless turned on.
+- **Port:** spotDLr uses Tailscale's 443 unless another app holds 443 on the Mac. **Local (Flywheel, the WordPress tool) runs nginx on `*:443`**, so on this Mac it's **8443**.
+- Turning phone access off pauses it; **New QR code** signs every phone out.
+- A home-screen web app on iOS keeps its own sign-in, separate from Safari: after a new key, scan in Safari and re-add it to the Home Screen.
+
+## Source review notes (2026-10-19)
+
+For source setup, use Python 3.10–3.13 as checked by `run.sh`, plus FFmpeg and a JavaScript runtime such as Node for YouTube downloads. The root setup guides were aligned with this range on Oct 20. `run.sh` prepares FFmpeg but does not install Node.
+
+Dated timings and platform test reports above are historical records, not tests repeated during this documentation pass. The workflow is configured to run on pushes to `main`, version tags, and manual dispatch; merely reading it does not establish the current CI or release status.

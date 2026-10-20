@@ -1,10 +1,14 @@
 # Roadmap
 
-Planned work, not started. Related: [[Home]] · [[Launchers & Setup]] · [[Bug Log]]
+Completed work and remaining ideas; dated older proposals are retained as history. Related: [[Home]] · [[Launchers & Setup]] · [[Bug Log]]
 
 ---
 
-## Idea: companion player on a phone (noted Oct 16, not started)
+## Done: phone access on the same Wi-Fi (option 1 below, Oct 19)
+
+Built as **full** access for the owner's phone rather than play-only: downloads, likes, playlists and Tidy up work from the phone; only Spotify keys and phone access itself are computer-only. Option 2 (Tailscale) followed the same day: HTTPS through `tailscale serve`, so the QR code works away from home and "Add to Home Screen" installs it as an app. Still open: the Windows app keeping the server up with no window open on the PC, and testing Tailscale on Windows.
+
+## Idea: companion player on a phone (noted Oct 16)
 
 Play the computer's library from a phone or another device; the music stays on the Mac/Windows machine. Most of it exists already: the UI is a web page streaming from the server (`/api/stream` with Range support). Three things block it on purpose: the server listens only on `127.0.0.1`, the local-only guard accepts only `localhost`/`127.0.0.1`, and there is no login.
 
@@ -24,33 +28,16 @@ v2.0.0 built, installed and smoke-tested on GitHub's Windows machine, then publi
 
 Built Oct 15 but never run on Windows (no Windows machine here). First run: double-click `make_launcher.bat`, open spotDLr from the Start menu, and report any message box or the contents of `%LOCALAPPDATA%\spotDLr\spotDLr.log`. See [[Launchers & Setup#Windows: the spotDLr shortcut (launcher, from source)]].
 
-## Done: open spotDLr like an app (no typing `localhost:8000`)
+## Done: native Mac app (Oct 20, 2026)
 
-**Built Oct 15, 2026:** `/Applications/spotDLr.app`, made by `make_launcher.sh`. See [[Launchers & Setup#spotDLr.app (the launcher)]].
+`make_launcher.sh` now builds `/Applications/spotDLr.app` from `launcher/macOS.swift`: Swift/Cocoa + Apple's WebKit, with a Dock icon, native menus, import file picker and fullscreen support. No Chrome or App Store account is needed to run it. It probes the local server and starts `run.sh` when necessary.
 
-**The problem:** today you double-click `run.command` (Terminal opens) and use a browser tab at `localhost:8000`. Holden wants to open the app directly.
+This replaces the **Oct 15 browser launcher** and the intermediate dedicated-Chrome-profile version. Those implementations and their memory measurements are historical. No native-app RAM benchmark has been recorded.
 
-**What the launcher does when double-clicked (Applications/Dock):**
-1. Starts the server in the background if it isn't already running (no Terminal window).
-2. Opens spotDLr in its own window with Chrome's app mode (`--app=http://localhost:8000`): no address bar, no tabs.
-3. Shows its own icon in the Dock.
+The current app remains tied to the project folder, Python environment and tools on this Mac; rebuild after moving the folder. Quitting the native app leaves the server running for downloads and phone access. Scheduled playback needs the designated client to remain running. See [[Launchers & Setup#spotDLr.app (native Mac app)]].
 
-**Why this option:**
+Verified on Oct 20: native build/signature, warm and cold startup, local-track playback/pause, synced lyrics, fullscreen entry/exit and opening/cancelling the import file picker. A self-contained distributable for other Macs is outside this local build.
 
-| Option | Verdict |
-|---|---|
-| Web-app install (Chrome *Install* / Safari *Add to Dock*) | Own window, but you still have to start the server first |
-| **Launcher `.app` + Chrome app mode** | **Chosen.** ~15 min of work, a few KB, nothing moves |
-| Packaged `spotDLr.app` (pywebview + PyInstaller/py2app) | Closest to a real app, but 150–250 MB, unsigned (right-click → Open the first time), needs Node.js anyway, and the library must move out of the bundle (e.g. `~/Music/spotDLr/`) |
-| Electron / Tauri | Rebuilds the shell for no gain |
+## Done: lyrics for existing music (Oct 20, 2026)
 
-**Trade-offs we accepted:**
-- Needs Google Chrome (or Edge/Brave). Safari has no "app window" mode.
-- The server keeps running after the window closes, so relaunching is instant. A "Quit server" option can be added if wanted.
-- The launcher points at the project folder (`~/Projects/spotDLr-web_ui`), so moving that folder means rebuilding the launcher.
-
-**Build notes for later:**
-- Check the server by request (`curl localhost:8000/api/library`), not by port alone; ports can be held by other apps (see `lsof` + process cwd).
-- Start it with `run.sh` (handles the venv/deps) in the background, logging to a file. Wait until it answers, then open the window.
-- An icon in `.icns` format (the green download mark from the favicon).
-- Test: cold start, already running, Chrome missing (show a clear message), port 8000 busy.
+Song menu → **Download lyrics**, or **Settings → Downloads → Download library lyrics** for the whole library. Available synced `.lrc` files are saved beside audio without replacing existing sidecars. The background pass exposes progress and failure counts. See [[Playback and Schedules#Saving lyrics for existing music]].

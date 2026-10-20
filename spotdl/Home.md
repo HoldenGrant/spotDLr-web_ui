@@ -1,11 +1,13 @@
 # spotDLr Web UI — Project Hub
 
-> A Spotify-style music library and player for your own files. Search Spotify, download with [spotDL](https://github.com/spotDL/spotify-downloader), and play in the browser.
+> A local music library and player. Search YouTube Music or Spotify, download songs, organize your files, and play on your computer or a paired phone.
+
+**Documentation reviewed:** 2026-10-19; native Mac app and existing-music lyrics updated 2026-10-20 against the working tree. `version.py` declares **2.2.0**; `CHANGELOG.md` also contains **Unreleased** features. These notes describe the working tree, including those features.
 
 **Repo:** `/Users/holden/Projects/spotDLr-web_ui`
 **GitHub:** [HoldenGrant/spotDLr-web_ui](https://github.com/HoldenGrant/spotDLr-web_ui) (**public**)
 **Runs at:** http://localhost:8000
-**Stack:** Python · FastAPI · spotDL 4.4.3 · spotipy · mutagen · vanilla JS (`static/app.js`, no build step)
+**Stack:** Swift/Cocoa + WebKit (Mac app) · Python · FastAPI · spotDL 4.4.3 · spotipy · mutagen · vanilla JS (`static/app.js`, no build step)
 **Start it (Mac):** open **spotDLr** from Applications/Launchpad/Dock (or double-click `run.command`)
 
 ---
@@ -21,10 +23,15 @@
 - [[Backend]]: `app.py`
 - [[Frontend]]: `index.html`
 - [[API Reference]]
-- [[Launchers & Setup]]: `run.command` (Mac), `run.sh`, `run.bat`, `run.ps1`, `.env`
+- [[Launchers & Setup]]: native Mac app (`launcher/macOS.swift`, `make_launcher.sh`), source launchers, Windows installer, `.env`
+- [[Data and Storage]]: music, settings, caches, playlists, and what survives a restart
+- [[Search and Downloads]]: source selection, Spotify fallback, queue states, and cancellation
+- [[Playback and Schedules]]: player state, volume, lyrics, listening history, and scheduled plays
+- [[Phone Access]]: pairing, Wi-Fi, Tailscale, Funnel, and phone limitations
+- [[Documentation Log]]: this documentation pass, source references, and remaining gaps
 - [[Bug Log]]: verified open issues
 - [[History]]: what changed, when (day by day, with internal detail). The public, version-by-version list is `CHANGELOG.md` in the repo root.
-- [[Roadmap]]: planned work (next: a `spotDLr.app` launcher so it opens like an app)
+- [[Roadmap]]: done and planned work (phone access over Wi-Fi/Tailscale is done; the phone companion idea is mostly covered by it)
 
 ---
 
@@ -32,7 +39,7 @@
 
 | Folder | Purpose |
 |---|---|
-| `architecture/` | How the system is built: backend, frontend, API, launchers |
+| `architecture/` | Backend, frontend, API, launchers, storage, and feature workflows |
 | `bugs/` | Bug Log: open issues and fixes |
 | (root) | Hub, history |
 
@@ -41,20 +48,22 @@
 ## The whole system in one picture
 
 ```
- Browser (static/app.js)                    Server (FastAPI :8000)                     outside world
+ WebKit / browser (static/app.js)                    Server (FastAPI :8000)                     outside world
  ──────────────────────                     ─────────────────────                      ─────────────
  Home / Library / player ──GET /api/library──▶ library.py: tags + covers of downloads/ (cached by mtime)
  ▶ play ────────────────GET /api/stream/id──▶ Range → 206 (seeking)
- search box ────────────GET /api/search─────▶ spotify_api.py ───────────────────────▶ Spotify Web API
+ search box ────────────GET /api/search─────▶ ytmusic.py / spotify_api.py ───────────▶ YouTube Music / Spotify
  ⬇ download ────────────POST /api/download──▶ downloader.py queue → worker thread
-                                              └─ python -m spotdl download …  ─────▶ YouTube Music + FFmpeg
+                                              └─ yt-dlp or spotDL ────────────────▶ YouTube Music + FFmpeg
  every 1 s while busy ──GET /api/jobs───────▶ job status (success = new files on disk)
 ```
 
-The two ideas everything rests on: **the `downloads/` folder is the library** (no database), and **every file carries its Spotify track ID** in a tag, so "do I already have this?" is an exact lookup. See [[How It Works]].
+The music folder is the library; there is no database. Source tags provide exact Spotify/YouTube ID matches when present, with title + main artist as a frontend fallback. Imported files need not have source IDs. See [[How It Works]] and [[Data and Storage]].
 
 ---
 
 ## Existing repo docs
 
-`README.md`, `SETUP.md` and `DEPLOYMENT.md` sit in the repo root. They're partly out of date: README.md was rewritten for the media-library version on Oct 15; SETUP.md and DEPLOYMENT.md are still the old Windows-era guides. When this vault and those files disagree, trust the vault: it was written from the code.
+`README.md`, `SETUP.md`, `DEPLOYMENT.md`, and `CHANGELOG.md` sit in the repo root. Some setup instructions and older vault paragraphs describe earlier behavior. Use the current source to resolve disagreements; dated test reports are historical observations, not checks repeated during this documentation pass. See [[Documentation Log#Remaining documentation work]].
+
+This is the existing **`spotdl/`** vault. The separate **`spotDLr/`** folder contains a new Obsidian vault and is not the documentation destination for this pass.

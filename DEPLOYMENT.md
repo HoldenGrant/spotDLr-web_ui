@@ -1,180 +1,80 @@
-# SpotDL Web App - Deployment Guide
+# spotDLr: Local Deployment
 
-## Quick Start
+This guide describes the current working tree, including unreleased native Mac and lyrics-save features. For first-time setup, use [SETUP.md](SETUP.md); for daily use, see [README.md](README.md). The display version remains `2.2.0`; this documentation update does not publish a release.
 
-### Windows (Recommended)
-```powershell
-cd "c:\Users\holde\Desktop\gitlab\spodl"
-powershell -ExecutionPolicy Bypass -File ".\run.ps1"
-```
+## Personal standalone Mac installer
 
-The app will start at: **http://localhost:8000**
+`installer/build_mac.sh` builds an Apple Silicon `.app` and `.dmg` into `dist-mac/`.
+It bundles Python, the interface, FFmpeg/ffprobe and Node.js, using the native
+WebKit window and local ad hoc signing. No Developer ID or notarization is used.
+It requires macOS 15+ at runtime, reflecting its bundled FFmpeg. See
+[installer/MAC.md](installer/MAC.md) for build requirements and isolation testing.
 
-### Linux/Mac
+The packaged app starts its own backend on a free local port, normally 8001, and
+remembers that port. Its ready-file handshake avoids attaching to the source
+server. Closing the window leaves the app running; ⌘Q terminates the owned backend.
+Data is separate from the source build: music in `~/Music/spotDLr/`, settings and
+caches in `~/Library/Application Support/spotDLr/`. Logs remain in
+`~/Library/Logs/spotDLr.log`. Updating the app does not overwrite those folders.
+No personal files are included in the DMG. This build is local and is not uploaded
+to GitHub Releases automatically.
+
+## Native Mac app from source
+
+Requirements: macOS 12.3+, Xcode Command Line Tools or Xcode to build, Python 3.10–3.13 for the source runtime, FFmpeg, and Node.js for YouTube downloads.
+
+Keep the project in a location such as `~/Projects/spotDLr-web_ui`, then run:
+
 ```bash
-cd /path/to/spodl
-export SPOTIPY_CLIENT_ID="your_client_id"
-export SPOTIPY_CLIENT_SECRET="your_client_secret"
-python app.py
+./make_launcher.sh
 ```
 
-## Features
+This builds and ad-hoc signs `spotDLr.app` in `/Applications` (or `~/Applications` if the existing destination is not writable). Pass a destination folder as the first argument to install elsewhere. Open it from Applications, Launchpad, Spotlight or the Dock.
 
-✅ Download Spotify tracks, playlists, albums, and artists
-✅ Real-time progress tracking (song count)
-✅ Automatic playlist/album folder organization
-✅ Download manager with file browser
-✅ Modern, responsive web UI
-✅ No external dependencies beyond spotdl
+The native executable is compiled from `launcher/macOS.swift` and hosts the existing web interface using Cocoa + Apple WebKit. No Chromium browser or App Store account is needed at runtime. The bundle records the project folder and executable PATH. Rebuild after moving the project or changing those tool paths.
 
-## System Requirements
+This is a local build for the architecture of the build Mac, not a self-contained app for distribution to other computers. It uses the source folder, `.venv`, external FFmpeg/Node.js and existing music. Those files are not copied into the bundle.
 
-- **Python 3.8+**
-- **spotdl 4.4.3+** (includes FastAPI, uvicorn)
-- **Windows/Linux/Mac**
-- **Internet connection** (for Spotify API)
+### Startup and quitting
 
-## Installation
+- Probes `http://127.0.0.1:8000/api/ping` and reuses a responding spotDLr server.
+- If none responds, starts `run.sh` with `SPOTDLR_NO_BROWSER=1`; the script prepares/reuses `.venv` and executes `app.py`.
+- Shows a loading view during startup and a native alert on failure. Server output appends to `~/Library/Logs/spotDLr.log`.
+- Closing the window leaves the native app running; its Dock icon reopens the window. ⌘Q quits the native client and leaves Python running for downloads and phone access.
+- Scheduled playback requires the designated client to remain running; a background server alone cannot play music.
+- WebKit preferences, playback sessions and schedule device IDs are separate from Chrome and are not migrated automatically. Music, playlists, likes and saved schedules remain server-side.
 
-### 1. Install Python Dependencies
+## Terminal/browser mode on Mac or Linux
+
 ```bash
-pip install -r requirements.txt
+./run.sh
 ```
 
-### 2. Get Spotify Credentials
-1. Visit https://developer.spotify.com/dashboard
-2. Log in or create an account (free)
-3. Create an app
-4. Copy your **Client ID** and **Client Secret**
+The launcher selects Python 3.10–3.13, manages `.venv`, checks FFmpeg, loads optional `.env` settings, and opens a browser unless `SPOTDLR_NO_BROWSER` is set. The Mac `run.command` opens this path in Terminal. The server listens on `127.0.0.1:8000`; an unrelated process on that port must be resolved before starting.
 
-### 3. Configure Credentials
+## Windows
 
-**Windows (PowerShell):**
-Edit `run.ps1` and replace:
-```powershell
-$env:SPOTIPY_CLIENT_ID = "your_client_id_here"
-$env:SPOTIPY_CLIENT_SECRET = "your_client_secret_here"
-```
+The [Windows installer](https://github.com/HoldenGrant/spotDLr-web_ui/releases) bundles its runtime and uses `desktop.py`, with an Edge/Chrome app-mode window and its own browser profile. It can select ports 8000–8010 and stops its server after the last client window expires. This differs from the native Mac app's background-server behavior.
 
-**Linux/Mac:**
-```bash
-export SPOTIPY_CLIENT_ID="your_client_id"
-export SPOTIPY_CLIENT_SECRET="your_client_secret"
-python app.py
-```
+From-source shortcuts are created by `make_launcher.bat`; `run.bat` remains the console alternative. See [SETUP.md](SETUP.md). The native Mac conversion does not change Windows packaging.
 
-## Usage
+## Files and settings
 
-1. **Open browser**: http://localhost:8000
-2. **Enter Spotify URL or song name**:
-   - Track: `https://open.spotify.com/track/...` or `"Song Name - Artist"`
-   - Playlist: `https://open.spotify.com/playlist/...`
-   - Album: `https://open.spotify.com/album/...`
-   - Artist: `https://open.spotify.com/artist/...`
-3. **Select download options**:
-   - Format: MP3, WAV, FLAC, Opus
-   - Bitrate: 128-320 kbps
-4. **Click "Start Download"**
-5. **Monitor progress** with real-time song count
-6. **Access files** from Downloaded Files section
+Source builds, including the source-dependent native Mac launcher, use `<project>/downloads/` for music and the project folder for settings/caches. The standalone Mac app uses `~/Music/spotDLr` and `~/Library/Application Support/spotDLr`. The frozen Windows installer uses the user's `Music/spotDLr` and `%LOCALAPPDATA%/spotDLr`.
 
-## File Structure
+`paths.py` supports `SPOTDLR_MUSIC_DIR` and `SPOTDLR_DATA_DIR` in the process environment. Set them before Python starts; `run.sh` also loads `.env` before executing Python. Spotify credentials are optional and can be entered in Settings → Spotify connection. Search and downloads fall back to YouTube Music when Spotify is unavailable.
 
-```
-spodl/
-├── app.py                 # FastAPI backend
-├── index.html            # Web UI (embedded CSS/JS)
-├── requirements.txt      # Python dependencies
-├── run.ps1              # Windows launcher
-├── README.md            # User guide
-├── SETUP.md             # Setup instructions
-├── DEPLOYMENT.md        # This file
-├── .gitignore           # Git ignore rules
-└── downloads/           # Downloaded files (auto-created)
-```
+## Updating a running installation
 
-## Downloads Location
+1. Finish active music downloads and lyrics-save passes before stopping Python; their job/progress records are in memory and do not resume automatically after a restart.
+2. Update project files. Rebuild `spotDLr.app` with `make_launcher.sh` when its native wrapper, project path or recorded executable PATH changes.
+3. Quit the native client with ⌘Q, then identify the running server with `lsof -nP -iTCP:8000 -sTCP:LISTEN` on the Mac. Stop only the confirmed spotDLr process, then reopen the app to start the updated server. ⌘Q alone does not stop it.
+4. Refresh ordinary browser clients. A new frontend talking to an old backend can return **Method Not Allowed** for new operations such as lyrics saving.
 
-Files are saved to: `spodl/downloads/`
+Completed audio and `.lrc` files persist. Rerunning a library lyrics-save pass skips existing sidecars. Lyrics actions use `POST /api/lyrics/{track_id}`, `POST /api/lyrics/save-library`, and `GET /api/lyrics/save-status`; they are separate from the music download queue.
 
-- **Single tracks**: Direct in `downloads/`
-- **Playlists/Albums**: In a folder with the playlist/album name
+## Local and phone access
 
-Example:
-```
-downloads/
-├── Song Name.mp3
-├── My Playlist/
-│   ├── Song 1.mp3
-│   ├── Song 2.mp3
-│   └── Song 3.mp3
-└── My Album/
-    ├── Track 1.mp3
-    ├── Track 2.mp3
-    └── Track 3.mp3
-```
+The main server uses a host/origin guard. Phone access is enabled through Settings and QR pairing, optionally with Tailscale; it is not an unrestricted LAN listener. Keep this configuration when using the local app. See [Phone Access](spotdl/architecture/Phone%20Access.md).
 
-## Troubleshooting
-
-### "Port 8000 already in use"
-```powershell
-# Kill existing process
-Get-Process python | Stop-Process -Force
-# Then restart
-```
-
-### "Spotify credentials not set"
-Make sure `run.ps1` has your credentials or environment variables are set.
-
-### "No songs downloaded"
-- Verify Spotify URL is correct
-- Check internet connection
-- Ensure Spotify credentials are valid
-- Try a single track first
-
-### Slow downloads
-- Check internet speed
-- Spotify API rate limits (wait a minute)
-- Try smaller playlists first
-
-## Performance Notes
-
-- **Single tracks**: ~30-60 seconds
-- **Playlists (50 songs)**: ~5-10 minutes
-- **Large playlists (200+ songs)**: 20-30 minutes
-- Actual time depends on internet speed and Spotify server load
-
-## API Endpoints
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET | `/` | Serve web UI |
-| POST | `/api/download` | Start download |
-| GET | `/api/status` | Get download status |
-| GET | `/api/status/init` | Check Spotdl initialization |
-| GET | `/api/downloads` | List all downloaded files |
-| GET | `/api/download/{filename}` | Download a file |
-
-## Security Notes
-
-⚠️ **Important**: This app is designed for local use only!
-
-- Do not expose to the internet without authentication
-- Spotify credentials are stored in plaintext in `run.ps1`
-- All files are accessible without password
-- CORS is set to allow all origins
-
-For production deployment, consider:
-- Using environment variables instead of hardcoded credentials
-- Adding authentication/authorization
-- Restricting CORS origins
-- Using HTTPS
-- Running behind a reverse proxy (nginx, etc.)
-
-## Support
-
-For issues with spotdl itself: https://github.com/spotDL/spotdl
-
-## License
-
-This wrapper is provided as-is for personal use.
+For the current routes and response fields, see [API Reference](spotdl/architecture/API%20Reference.md). The legacy `/api/status`, `/api/downloads`, and `/api/download/{filename}` routes are no longer used.

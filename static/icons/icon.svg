@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- spotDLr home-screen icon: the app icon's mark on a full square (phones round the corners themselves).
+       The disc fits the inner 80% circle, so "maskable" crops never cut it. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2a2a2a"/><stop offset="1" stop-color="#0b0b0b"/></linearGradient>
+    <linearGradient id="disc" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3be477"/><stop offset="1" stop-color="#1db954"/></linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <circle cx="512" cy="512" r="300" fill="url(#disc)"/>
+  <path d="M470 290h84v204l72-72 59 59-173 173-173-173 59-59 72 72z" fill="#0b0b0b"/>
+  <rect x="340" y="694" width="344" height="52" rx="26" fill="#0b0b0b"/>
+</svg>

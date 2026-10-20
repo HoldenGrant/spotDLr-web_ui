@@ -8,6 +8,7 @@ A listen counts once the song has actually played for 30 s (or half of a shorter
 """
 
 import json
+import os
 import threading
 import time
 from collections import Counter, defaultdict
@@ -36,6 +37,25 @@ class Plays:
         with self.lock, open(self.path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
         return True
+
+    def rename_ids(self, mapping):
+        """Duplicates merged: their plays count for the copy that was kept."""
+        if not mapping or not self.path.exists():
+            return
+        with self.lock:
+            lines = self.path.read_text(encoding="utf-8").splitlines()
+            out = []
+            for line in lines:
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if entry.get("id") in mapping:
+                    entry["id"] = mapping[entry["id"]]
+                out.append(json.dumps(entry, ensure_ascii=False))
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text("\n".join(out) + ("\n" if out else ""), encoding="utf-8")
+            os.replace(tmp, self.path)
 
     def load(self):
         if not self.path.exists():
@@ -101,25 +121,86 @@ def library_stats(tracks, genre_of):
     }
 
 
-def listening_stats(plays, days, library_ids):
-    """Listening in the last `days` days (0 = all time), plus the same-length period before it for deltas."""
-    now = time.time()
-    start = now - days * 86400 if days else (min((p["t"] for p in plays), default=now))
-    current = [p for p in plays if p["t"] >= start]
-    previous = [p for p in plays if days and start - days * 86400 <= p["t"] < start]
+RANGES = ("today", "yesterday", "week", "last-week", "month", "last-month", "year", "last-year",
+          "7d", "30d", "90d", "365d", "all")
 
-    # Time buckets: days for ranges up to 90 days, months beyond that
-    by_day = days and days <= 90
-    if by_day:
-        first_day = datetime.fromtimestamp(now).date() - timedelta(days=days - 1)
-        keys = [(first_day + timedelta(days=i)).isoformat() for i in range(days)]
-        bucket = lambda ts: datetime.fromtimestamp(ts).date().isoformat()
+
+def _shift_months(day, n):
+    """The 1st of the month n months from `day`'s month."""
+    index = day.year * 12 + day.month - 1 + n
+    return day.replace(year=index // 12, month=index % 12 + 1, day=1)
+
+
+def period(range_key, now=None, first_play=None):
+    """Where a range starts and ends, what to compare it with, and how to bucket its chart.
+
+    Calendar ranges ("week", "last-month", …) follow the calendar; weeks start on Monday.
+    A period still going on (today, this week/month/year) is compared with the same stretch of the one
+    before ("this month so far" vs "last month up to the same day and hour"), since comparing a half
+    month with a whole one would always look like a drop. A finished period is compared with the whole
+    one before it; "Last 30 days" with the 30 days before that.
+    Returns {start, end, prev_start, prev_end, bucket ("hour" | "day" | "month"), keys, compare}."""
+    now = now or datetime.now()
+    today = datetime(now.year, now.month, now.day)
+    monday = today - timedelta(days=today.weekday())
+    month1 = today.replace(day=1)
+    year1 = today.replace(month=1, day=1)
+    calendar = {  # key: (start, end, previous start, bucket, in progress, what it's compared with)
+        "today": (today, today + timedelta(days=1), today - timedelta(days=1), "hour", True, "yesterday by this time"),
+        "yesterday": (today - timedelta(days=1), today, today - timedelta(days=2), "hour", False, "the day before"),
+        "week": (monday, monday + timedelta(days=7), monday - timedelta(days=7), "day", True, "last week by this time"),
+        "last-week": (monday - timedelta(days=7), monday, monday - timedelta(days=14), "day", False, "the week before"),
+        "month": (month1, _shift_months(month1, 1), _shift_months(month1, -1), "day", True, "last month by this time"),
+        "last-month": (_shift_months(month1, -1), month1, _shift_months(month1, -2), "day", False, "the month before"),
+        "year": (year1, year1.replace(year=year1.year + 1), year1.replace(year=year1.year - 1), "month", True, "last year by this time"),
+        "last-year": (year1.replace(year=year1.year - 1), year1, year1.replace(year=year1.year - 2), "month", False, "the year before"),
+    }
+    if range_key in calendar:
+        start, end, prev_start, bucket, ongoing, compare = calendar[range_key]
+        prev_end = min(prev_start + (now - start), start) if ongoing else start
+        end_of_data = min(end, now) if ongoing else end
+    elif range_key == "all":
+        start = datetime.fromtimestamp(first_play) if first_play else today
+        end = end_of_data = now
+        prev_start = prev_end = compare = None
+        bucket = "month"
     else:
-        keys = _months_between(_month_key(start), _month_key(now)) if current else []
-        bucket = _month_key
+        days = int(range_key.rstrip("d"))
+        start, end = now - timedelta(days=days), now
+        end_of_data = now
+        prev_start, prev_end = start - timedelta(days=days), start
+        bucket = "day" if days <= 90 else "month"
+        compare = "the year before" if days == 365 else f"the {days} days before"
+        start_day = today - timedelta(days=days - 1)  # chart: the last N calendar days, today included
+
+    # Chart columns: the whole period (days still to come show as empty), so its shape is familiar
+    if bucket == "hour":
+        keys = [(start + timedelta(hours=h)).strftime("%Y-%m-%dT%H") for h in range(24)]
+    elif bucket == "day":
+        first = start_day if range_key.endswith("d") else start
+        last = today if range_key.endswith("d") else end - timedelta(days=1)
+        keys = [(first + timedelta(days=i)).date().isoformat() for i in range((last - first).days + 1)]
+    else:
+        keys = _months_between(start.strftime("%Y-%m"), (end_of_data if range_key in ("all", "365d") else end - timedelta(days=1)).strftime("%Y-%m"))
+    return {"start": start.timestamp(), "end": end.timestamp(),
+            "prev_start": prev_start.timestamp() if prev_start else None, "prev_end": prev_end.timestamp() if prev_end else None,
+            "bucket": bucket, "keys": keys, "compare": compare}
+
+
+BUCKET_FORMAT = {"hour": "%Y-%m-%dT%H", "day": "%Y-%m-%d", "month": "%Y-%m"}
+
+
+def listening_stats(plays, range_key, library_ids, now=None):
+    """Listening in a range (see `period`), plus the period it's compared with for the ▲/▼ deltas."""
+    p_ = period(range_key, now, min((p["t"] for p in plays), default=None))
+    current = [p for p in plays if p_["start"] <= p["t"] < p_["end"]]
+    compared = p_["prev_start"] is not None
+    previous = [p for p in plays if compared and p_["prev_start"] <= p["t"] < p_["prev_end"]]
+    keys = p_["keys"]
+    fmt = BUCKET_FORMAT[p_["bucket"]]
     per_bucket = defaultdict(float)
     for p in current:
-        per_bucket[bucket(p["t"])] += p["s"]
+        per_bucket[datetime.fromtimestamp(p["t"]).strftime(fmt)] += p["s"]
 
     songs, song_seconds, song_meta = Counter(), defaultdict(float), {}
     artist_seconds, genre_seconds = defaultdict(float), defaultdict(float)
@@ -137,14 +218,17 @@ def listening_stats(plays, days, library_ids):
 
     top_songs = sorted(songs, key=lambda k: (songs[k], song_seconds[k]), reverse=True)[:10]
     return {
-        "days": days,
-        "bucket": "day" if by_day else "month",
+        "range": range_key,
+        "start": p_["start"],
+        "end": p_["end"],
+        "compare": p_["compare"],
+        "bucket": p_["bucket"],
         "seconds": round(sum(p["s"] for p in current)),
         "plays": len(current),
         "songs": len(songs),
         "artists": len(artist_seconds),
-        "previous_seconds": round(sum(p["s"] for p in previous)) if days else None,
-        "previous_plays": len(previous) if days else None,
+        "previous_seconds": round(sum(p["s"] for p in previous)) if compared else None,
+        "previous_plays": len(previous) if compared else None,
         "per_bucket": [{"key": k, "value": round(per_bucket.get(k, 0))} for k in keys],
         "top_songs": [{"id": k, "title": song_meta[k]["title"], "artists": song_meta[k]["artists"],
                        "in_library": k in library_ids, "plays": songs[k], "seconds": round(song_seconds[k])}

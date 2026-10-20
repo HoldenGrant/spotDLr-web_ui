@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 import time
 from pathlib import Path
 
@@ -63,9 +64,16 @@ def _result(synced=None, plain=None, instrumental=False, source=None):
     }
 
 
+def _lrc_text(lines):
+    return "\n".join(f"[{int(l['t'] // 60):02d}:{l['t'] % 60:05.2f}]{l['text']}" for l in lines) + "\n"
+
+
 class Lyrics:
     def __init__(self, cache_dir: Path):
         self.cache_dir = cache_dir
+        self._save_lock = threading.Lock()
+        self._save_status = {"running": False, "done": 0, "total": 0, "saved": 0,
+                             "existing": 0, "unavailable": 0, "failed": 0, "error": None}
 
     # ---------- public ----------
 
@@ -101,12 +109,60 @@ class Lyrics:
             duration = getattr(getattr(info, "info", None), "length", 0) or 0
             result = self.lookup(title, artists, duration)
             if result["lines"]:
-                body = "\n".join(f"[{int(l['t'] // 60):02d}:{l['t'] % 60:05.2f}]{l['text']}" for l in result["lines"])
-                audio_path.with_suffix(".lrc").write_text(body + "\n", encoding="utf-8")
+                audio_path.with_suffix(".lrc").write_text(_lrc_text(result["lines"]), encoding="utf-8")
                 return True
         except Exception:
             pass
         return False
+
+    def save_existing(self, track, path: Path):
+        """Save synced lyrics beside an existing song, without replacing its own .lrc file."""
+        if not path.is_file():
+            raise OSError("The audio file is no longer available")
+        lrc = path.with_suffix(".lrc")
+        if lrc.exists():
+            return "existing"
+        result = self.lookup(track["title"], track["artists"], track.get("duration") or 0)
+        if not result["lines"]:
+            return "unavailable"
+        try:
+            with lrc.open("x", encoding="utf-8") as file:
+                file.write(_lrc_text(result["lines"]))
+        except FileExistsError:
+            return "existing"
+        return "saved"
+
+    def save_status(self):
+        with self._save_lock:
+            return dict(self._save_status)
+
+    def start_save(self, tracks, root: Path):
+        """One library pass at a time; it continues when Settings or the browser is closed."""
+        with self._save_lock:
+            if self._save_status["running"]:
+                return dict(self._save_status)
+            self._save_status = {"running": True, "done": 0, "total": len(tracks), "saved": 0,
+                                 "existing": 0, "unavailable": 0, "failed": 0, "error": None}
+            status = dict(self._save_status)
+        threading.Thread(target=self._save_library, args=(tracks, root), daemon=True).start()
+        return status
+
+    def _save_library(self, tracks, root):
+        try:
+            for track in tracks:
+                error = None
+                try:
+                    outcome = self.save_existing(track, root / track["path"])
+                except Exception as e:
+                    outcome, error = "failed", f"{track['title']}: {e}"
+                with self._save_lock:
+                    self._save_status[outcome] += 1
+                    self._save_status["done"] += 1
+                    if error:
+                        self._save_status["error"] = error
+        finally:
+            with self._save_lock:
+                self._save_status["running"] = False
 
     # ---------- LRCLIB ----------
 

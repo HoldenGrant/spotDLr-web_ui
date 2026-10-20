@@ -1,10 +1,9 @@
 """
 Where spotDLr's files live.
 
-Run from source (run.sh, spotDLr.app on the Mac): everything stays in the project folder,
-exactly as before. Packaged (the Windows installer, built with PyInstaller): the code is
-read-only in Program Files, so music goes to the user's Music folder and settings/caches
-to %LOCALAPPDATA%\\spotDLr. SPOTDLR_MUSIC_DIR / SPOTDLR_DATA_DIR override both (used by tests).
+Run from source: data stays in the project folder. Packaged apps keep music in the
+user's Music folder and settings/caches in Application Support on Mac, or
+LOCALAPPDATA on Windows. SPOTDLR_MUSIC_DIR / SPOTDLR_DATA_DIR override both.
 """
 
 import os
@@ -43,7 +42,9 @@ def _music_folder():
 
 if FROZEN:
     MUSIC_DIR = Path(os.environ.get("SPOTDLR_MUSIC_DIR") or _music_folder() / "spotDLr")
-    DATA_DIR = Path(os.environ.get("SPOTDLR_DATA_DIR") or Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".local" / "share") / "spotDLr")
+    data_home = (Path.home() / "Library" / "Application Support" if sys.platform == "darwin"
+                 else Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".local" / "share"))
+    DATA_DIR = Path(os.environ.get("SPOTDLR_DATA_DIR") or data_home / "spotDLr")
 else:
     MUSIC_DIR = Path(os.environ.get("SPOTDLR_MUSIC_DIR") or APP_DIR / "downloads")
     DATA_DIR = Path(os.environ.get("SPOTDLR_DATA_DIR") or APP_DIR)

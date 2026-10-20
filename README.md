@@ -12,14 +12,21 @@ What's new in each version: [CHANGELOG.md](CHANGELOG.md).
 - 🔗 **Paste any Spotify or YouTube Music link** (song, album, playlist). Spotify links work without Spotify API access: the song list is read from Spotify's public player and each song is found on YouTube Music
 - ✅ **Knows what you already have**: every result shows a green check (play it) or a download button, matched by exact Spotify or YouTube ID, then title + artist
 - 💿 **Album, playlist and artist pages**, with "Download N missing" for partly downloaded albums
-- 📊 **Stats page** (chart icon, top right): library charts (songs added per month, genres, top artists, release decades) and listening stats (listening time, top songs and artists, a weekday × hour heatmap) for the last 7/30/90 days, 12 months or all time. Every chart has a table view. Listening history stays on your computer (`plays.jsonl`); a song counts after 30 s of real listening
+- 📊 **Stats page** (chart icon, top right): library charts (songs added per month, genres, top artists, release decades) and listening stats (listening time, top songs and artists, a weekday × hour heatmap) for today, this week/month/year, last month, all time and more, each compared with the period before. Every chart has a table view. Listening history stays on your computer (`plays.jsonl`); a song counts after 30 s of real listening
 - 🏷️ **Browse by genre** on Home, a page per genre, and genre chips on All songs. Genres are looked up once on Deezer's public API (no account) in the background and cached in `.genres.json`; your files aren't modified
 - 📚 **Your Library**: playlists and albums (one per folder), artists, and All songs, built from the tags and cover art in your files
 - 🎧 **Player** with play/pause, next/previous, shuffle, repeat (all/one), seek, volume, and keyboard shortcuts
 - 🍎 **Mac media keys and Control Center** support (Media Session API)
 - 📥 **Download queue** with live progress, cancel, and the real reason when something fails
 - 🎚️ Formats: M4A (AAC), MP3, Opus, FLAC, WAV; quality "Auto" (keeps source quality) or 128–320 kbps
-- 📝 Optional synced lyrics (.lrc files)
+- 📝 Synced lyrics (`.lrc` files) for new downloads or songs already in your library
+- 🖥️ Native Mac app using Swift + Apple WebKit; opens from Applications or the Dock
+- 📱 **Phone access**: scan a QR code (Settings → Phone access) to use spotDLr in your phone's browser, on your Wi-Fi, or anywhere with [Tailscale](https://tailscale.com) (HTTPS, Add to Home Screen). Only phones that scanned the code get in
+- 🧹 **Tidy up** (Stats → Tidy up): merge duplicate songs (playlists and likes follow the copy you keep; the rest go to the Trash) and fix albums that are really a playlist's name, looked up on YouTube Music, with undo
+- 📃 **Queue** (Play next / Add to queue), **sleep timer**, **even out volume**, **crossfade**, and **scheduled plays** (like an alarm)
+- ✍️ Your own playlists: create, add/remove, **drag to reorder**, rename
+- 🔀 **Sort and filter**: Your Library by recents/added/name/creator; All songs by search, genre and any column; list or grid view
+- 🎨 **Now Playing** with visualizers, synced lyrics, full screen; on phones, swipe the cover for next/previous
 
 ## 🚀 Quick Start
 
@@ -57,13 +64,27 @@ The script will automatically:
 
 **First-time installation:** If Python is installed for the first time, you'll be prompted to restart your computer. Simply run `run.bat` again after restart.
 
-### Mac: open it like an app
+### Mac: personal standalone installer
+
+The self-contained Apple Silicon build is in `dist-mac/spotDLr-2.2.0-mac-arm64.dmg`.
+Open it and drag **spotDLr** into **Applications**. It includes Python, FFmpeg,
+ffprobe and Node.js; no source folder or Homebrew is needed to run it. This personal,
+ad hoc signed build requires macOS 15+. It uses `~/Music/spotDLr/` and
+`~/Library/Application Support/spotDLr/`, keeping your source library separate.
+⌘Q stops its backend. See [Mac installer details](installer/MAC.md) and
+[moving existing music](SETUP.md#mac-personal-standalone-installer).
+
+### Mac: open it like an app (from source)
 
 Run this once in Terminal from the project folder:
 ```bash
 ./make_launcher.sh
 ```
-It creates **spotDLr.app** in Applications. From then on, open spotDLr from Launchpad, Spotlight or the Dock: it starts the server in the background if needed and opens spotDLr in its own window (Chrome/Edge/Brave app mode). Keep the project **out of Downloads, Documents and Desktop**, which macOS blocks new apps from reading; e.g. `~/Projects/spotDLr-web_ui`. Re-run `make_launcher.sh` if you move the folder. Log: `~/Library/Logs/spotDLr.log`.
+It builds **spotDLr.app** in Applications: a native Mac window using Apple's WebKit, with its own Dock icon, menus, file picker and fullscreen support. No browser or App Store account is needed to run it. Building requires **macOS 12.3+ and Xcode Command Line Tools** (`xcode-select --install`).
+
+Open spotDLr from Launchpad, Spotlight or the Dock. It reuses the local music server or starts it in the background. Closing the window keeps the native app running; reopening its Dock icon restores the window. **⌘Q** quits the native app, while the server stays running for downloads and phone access. Scheduled playback requires the app to remain running on the device that owns the schedule.
+
+This local build uses the project's Python environment and music files: keep the project **out of Downloads, Documents and Desktop**, which macOS can restrict apps from reading; e.g. `~/Projects/spotDLr-web_ui`. Re-run `make_launcher.sh` if you move the folder. Log: `~/Library/Logs/spotDLr.log`. Interface preferences, playback sessions, and schedule device identity are stored separately from Chrome; they are not migrated automatically. The Mac app does not bundle Python, FFmpeg, Node.js, or the project for use on another computer. See [SETUP.md](SETUP.md).
 
 ### Mac/Linux
 
@@ -128,7 +149,7 @@ Downloading from YouTube needs **Node.js or Deno** installed (yt-dlp uses it to 
 
 ## 📦 Prerequisites
 
-- **Python 3.8+** (automatically installed by run.bat on Windows)
+- **Python 3.10–3.13** for source builds (bundled in the Windows installer)
 - **FFmpeg** (automatically installed by the launcher scripts)
 - **Internet connection** (for downloading from Spotify/YouTube)
 
@@ -147,6 +168,7 @@ All Python dependencies are automatically installed from `requirements.txt`:
 - **Paste a link:** paste any Spotify track, album, playlist or artist link into the search box or the Downloads page.
 - **Play:** double-click a song, or use the green play button on any playlist, album or artist. Songs already in your library show a green ✓ everywhere.
 - **Settings** (sliders icon, top right): format, quality, and lyrics.
+- **Lyrics for existing music:** choose **Download lyrics** from a song's ⋯ menu, or open **Settings → Downloads → Download library lyrics** for the whole library. Available synced lyrics are saved as `.lrc` files beside the audio; existing `.lrc` files are kept. The library pass runs in the background while spotDLr stays running, with progress and results in Settings.
 
 ### Keyboard shortcuts
 
@@ -172,10 +194,21 @@ spotDLr-web_ui/
 ├── ytmusic.py          # YouTube Music search/pages, Spotify→YouTube matching, yt-dlp download + tags
 ├── spotify_embed.py    # Reads Spotify links from the public embed player (no keys)
 ├── genres.py           # Genre lookup on Deezer, cached in .genres.json
+├── organize.py         # Likes, your playlists, adding files, albums, sending to a device
+├── cleanup.py          # Tidy up: duplicate songs and album info
+├── loudness.py         # Song loudness (FFmpeg EBU R128) for "Even out volume"
+├── schedules.py        # Scheduled plays
+├── phone.py            # Phone access: the Wi-Fi server and QR-code pairing
+├── tailscale.py        # Phone access anywhere, through Tailscale (and Funnel)
+├── stats.py, lyrics.py, abx.py, apple_music.py, version.py
 ├── index.html          # Page shell
+├── launcher/macOS.swift # Native Mac window, WebKit delegates, server startup
+├── make_launcher.sh    # Builds and locally signs spotDLr.app for this Mac
 ├── static/
 │   ├── app.js          # UI: router, views, player, downloads (no build step)
-│   └── app.css         # Styles
+│   ├── app.css         # Styles
+│   ├── sw.js, manifest.webmanifest, icons/   # Add to Home Screen on phones
+│   └── vendor/qrcode.min.js                   # QR codes for Phone access (MIT)
 ├── run.sh / run.command  # Mac/Linux launcher (run.command = double-click on Mac)
 ├── run.bat / run.ps1   # Windows launchers
 ├── requirements.txt
@@ -187,7 +220,7 @@ spotDLr-web_ui/
 
 If you prefer manual setup instead of using the launcher scripts:
 
-1. **Install Python 3.8+**
+1. **Install Python 3.10–3.13**
    - Windows: Download from [python.org](https://python.org)
    - Mac: `brew install python@3.13` (spotDL 4.4.3 doesn't support Python 3.14+)
    - Linux: `sudo apt install python3 python3-pip`
@@ -258,11 +291,14 @@ If you prefer manual setup instead of using the launcher scripts:
 | GET / POST | `/api/credentials` | Connection status / test and save new keys |
 | GET | `/api/library` | All tracks (from tags, each with a `genre`) and collections (folders) |
 | GET | `/api/genres/status` | Background genre lookup progress |
-| GET | `/api/stats?days=` | Library + listening stats (`days`: 7, 30, 90, 365, or 0 = all time) |
+| GET | `/api/stats?range=` | Library + listening stats (`today`, `week`, `month`, `last-month`, `year`, `all`, `7d`…; the old `?days=` still works) |
 | POST | `/api/plays` | The player reports a listen (`track_id`, `seconds`) |
 | GET | `/api/img?u=` | Cached proxy for remote cover images |
 | GET | `/api/stream/{track_id}` | Audio, with HTTP Range support for seeking |
 | GET | `/api/art/{track_id}` | Embedded cover art |
+| GET / POST | `/api/lyrics/{track_id}` | Read lyrics / save a synced sidecar beside an existing song |
+| POST | `/api/lyrics/save-library` | Start or reuse the background library lyrics-save pass |
+| GET | `/api/lyrics/save-status` | Lyrics-save progress and saved/existing/unavailable/failed counts |
 | GET | `/api/search?q=[&source=ytm\|spotify]` | Search (YouTube Music unless Spotify is connected) |
 | GET | `/api/ytm/{album\|playlist\|artist}/{id}` | YouTube Music item details |
 | GET | `/api/spotify/{album\|playlist\|artist}/{id}` | Spotify item details (albums/playlists fall back to the public embed) |
@@ -270,10 +306,12 @@ If you prefer manual setup instead of using the launcher scripts:
 | GET | `/api/jobs` | Download queue and history |
 | DELETE | `/api/jobs/{id}` | Cancel a download |
 
+That's the core. Playlists, likes, Tidy up, loudness, schedules and phone access have more; the full list is in the Obsidian vault: `spotdl/architecture/API Reference.md`.
+
 ## ⚙️ Configuration
 
 - `SPOTIFY_MARKET` in `.env` (default `US`): the country Spotify results are for.
-- Download folder: `DOWNLOAD_DIR` in `app.py` (default `downloads/` next to `app.py`).
+- Directory selection: `paths.py`; source builds (including the native Mac app) default to `<project>/downloads/` for music and the project folder for settings. `SPOTDLR_MUSIC_DIR` / `SPOTDLR_DATA_DIR` override these when set before Python starts. The Windows installer has separate defaults; see [SETUP.md](SETUP.md#where-your-files-live).
 - spotDL flags: `Downloader._command()` in `downloader.py`.
 
 **Local use only.** There's no login. The server only answers requests addressed to `localhost`/`127.0.0.1` (add others with `SPOTDLR_HOSTS=` in `.env`) and blocks cross-site writes, so other websites can't change your keys or start downloads.

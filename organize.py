@@ -75,6 +75,14 @@ class Likes:
                 self.data.pop(track_id, None)
             _atomic_json(self.path, self.data)
 
+    def merge(self, old_ids, new_id):
+        """Duplicates merged into new_id: liked if any copy was, keeping the earliest like."""
+        with self.lock:
+            when = [self.data.pop(i) for i in old_ids if i in self.data]
+            if when:
+                self.data[new_id] = min(when + ([self.data[new_id]] if new_id in self.data else []))
+                _atomic_json(self.path, self.data)
+
 
 # ---------- your playlists ----------
 
@@ -101,6 +109,22 @@ def user_playlist(music_dir: Path, key):
     if folder.parent != music_dir or not folder.is_dir() or not is_user_playlist(folder):
         raise OrganizeError("Only playlists you made in spotDLr can be changed", 403)
     return folder
+
+
+def rename_playlist(music_dir: Path, key, name):
+    """Renames the playlist's folder. Its playlist.m3u8 uses paths relative to the folder, and the folder
+    stays at the same depth, so every entry still points at the same song."""
+    folder = user_playlist(music_dir, key)
+    new_name = safe_folder_name(name or "")
+    if not new_name:
+        raise OrganizeError("Give the playlist a name")
+    if new_name == key:
+        return key
+    target = music_dir / new_name
+    if target.exists() and target.resolve() != folder.resolve():  # (a case-only rename on macOS is the same folder)
+        raise OrganizeError(f'There\'s already a playlist or album called "{new_name}"', 409)
+    folder.rename(target)
+    return new_name
 
 
 def delete_playlist(music_dir: Path, key):
@@ -203,6 +227,36 @@ def _write_cover(path: Path, data, mime):
             audio = mutagen.File(path)
             audio["metadata_block_picture"] = [base64.b64encode(picture.write()).decode("ascii")]
         audio.save()
+
+
+def _remove_cover(path: Path):
+    import mutagen
+    from mutagen.flac import FLAC
+    from mutagen.id3 import ID3, ID3NoHeaderError
+    from mutagen.mp4 import MP4
+
+    suffix = path.suffix.lower()
+    if suffix in (".m4a", ".mp4", ".aac"):
+        audio = MP4(path)
+        if audio.tags and "covr" in audio.tags:
+            del audio.tags["covr"]
+            audio.save()
+    elif suffix == ".mp3":
+        try:
+            tags = ID3(path)
+        except ID3NoHeaderError:
+            return
+        tags.delall("APIC")
+        tags.save(path)
+    elif suffix == ".flac":
+        audio = FLAC(path)
+        audio.clear_pictures()
+        audio.save()
+    elif suffix in (".ogg", ".opus"):
+        audio = mutagen.File(path)
+        if audio and "metadata_block_picture" in audio:
+            del audio["metadata_block_picture"]
+            audio.save()
 
 
 # ---------- devices ----------

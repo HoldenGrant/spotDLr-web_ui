@@ -21,7 +21,7 @@ from typing import Optional
 import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -41,6 +41,10 @@ import stats  # noqa: E402
 from library import MEDIA_TYPES, Library  # noqa: E402
 from lyrics import Lyrics, LyricsError  # noqa: E402
 import organize  # noqa: E402
+import cleanup  # noqa: E402
+import loudness  # noqa: E402
+import phone  # noqa: E402
+import schedules  # noqa: E402
 import version  # noqa: E402
 import abx  # noqa: E402
 import apple_music  # noqa: E402
@@ -58,13 +62,46 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 # Local-only guard. The API can write your Spotify secret to disk, so:
 # - Host must be this machine (blocks DNS rebinding: evil.example resolving to 127.0.0.1)
 # - writes must come from this page, not another site you happen to have open
-ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]"} | {h.strip() for h in os.getenv("SPOTDLR_HOSTS", "").split(",") if h.strip()}
+# Phone access (phone.py) is the one way in from another device: its own server on the Wi-Fi address,
+# and every request from there needs the key from the QR code (as a cookie after the first visit).
+EXTRA_HOSTS = {h.strip() for h in os.getenv("SPOTDLR_HOSTS", "").split(",") if h.strip()}
+ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]"} | EXTRA_HOSTS
+phones = phone.PhoneAccess(DATA_DIR / "phone.json", app)
+LOCAL_ONLY_PATHS = ("/api/phone", "/api/credentials")  # managing access and Spotify keys: on the computer only
+# What a phone's browser fetches without cookies (home-screen icon, manifest, service worker): nothing private
+PUBLIC_PATHS = {"/static/manifest.webmanifest", "/sw.js", "/static/icons/icon-192.png", "/static/icons/icon-512.png",
+                "/static/icons/apple-touch-icon.png", "/static/icons/icon.svg"}
+
+PAIR_PAGE = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>spotDLr</title><body style="font:16px/1.5 system-ui,sans-serif;background:#121212;color:#fff;padding:32px 20px;max-width:440px;margin:auto">
+<h1 style="font-size:22px">Scan the QR code to open spotDLr</h1>
+<p style="color:#b3b3b3">On your computer, open spotDLr → Settings → <b>Phone access</b>, and scan the code with this phone's camera.
+If you already did, the code was renewed or phone access was turned off: scan it again.</p></body>"""
 
 
 @app.middleware("http")
 async def local_only(request: Request, call_next):
     host = request.headers.get("host", "")
-    if host.rsplit(":", 1)[0] not in ALLOWED_HOSTS:
+    hostname = host.rsplit(":", 1)[0]
+    if phones.is_remote(request) and hostname not in EXTRA_HOSTS:
+        verdict = phones.check(request) if phones.allowed_host(hostname) else None
+        if not verdict and request.method == "GET" and request.url.path in PUBLIC_PATHS and phones.allowed_host(hostname):
+            verdict = "ok"
+        if request.url.path == "/" or not verdict:  # one line per page visit or refusal (never the key itself)
+            logger.info("Phone access: %s %s from %s via %s → %s", request.method, request.url.path,
+                        request.client.host if request.client else "?", hostname, verdict or "refused")
+        if not verdict:
+            if request.url.path == "/":
+                return HTMLResponse(PAIR_PAGE, status_code=403)
+            return JSONResponse({"detail": "Scan the QR code in spotDLr's Settings → Phone access on your computer"}, status_code=403)
+        if request.url.path.startswith(LOCAL_ONLY_PATHS) and request.method not in ("GET", "HEAD"):
+            return JSONResponse({"detail": "That can only be changed on the computer running spotDLr"}, status_code=403)
+        if verdict == "pair":  # first visit from the QR code: remember this phone, and drop the key from the address bar
+            response = RedirectResponse("/", status_code=303)
+            response.set_cookie(phone.COOKIE, phones.session_value(), max_age=365 * 86400, httponly=True, samesite="lax", path="/",
+                                secure=hostname.endswith(".ts.net"))  # HTTPS through Tailscale
+            return response
+    elif hostname not in ALLOWED_HOSTS and not phones.allowed_host(hostname):  # this computer on its own Wi-Fi/Tailscale address
         return JSONResponse({"detail": f"Host {host!r} not allowed. Add it to SPOTDLR_HOSTS in .env to allow it."}, status_code=403)
     origin = request.headers.get("origin")
     if request.method not in ("GET", "HEAD", "OPTIONS") and origin and urlparse(origin).netloc != host:
@@ -82,6 +119,10 @@ genres = Genres(DATA_DIR / ".genres.json", library.scan)  # fills in genres from
 plays = stats.Plays(DATA_DIR / "plays.jsonl")  # listening history for the Stats page
 lyrics = Lyrics(DATA_DIR / ".lyrics")  # one cached lookup per song
 likes = Likes(DATA_DIR / "likes.json")
+album_fixer = cleanup.AlbumFixer(DATA_DIR / "tag-backups")  # "Fix album info": old tags saved here, for undo
+REMOVED_DIR = DATA_DIR / "Removed songs"  # only when the Trash can't be used
+scheduled = schedules.Schedules(DATA_DIR / "schedules.json")  # "Schedule play": alarm-style plays
+song_loudness = loudness.Loudness(DATA_DIR / "loudness.json", ytmusic.ffmpeg_path, library)  # "Even out volume"
 exporter = Exporter(ytmusic.ffmpeg_path)  # "Send to device"
 abx_tests = abx.ABX(DATA_DIR / ".abx", ytmusic.ffmpeg_path)  # blind listening tests
 apple = apple_music.AppleMusic(ytmusic.ffmpeg_path)  # "Add to Apple Music" (Mac)
@@ -110,7 +151,11 @@ class PlaylistRequest(BaseModel):
 
 class PlaylistTracksRequest(BaseModel):
     track_ids: list[str]
-    action: str  # add | remove
+    action: str  # add | remove | order (track_ids = the same songs in their new order)
+
+
+class RenameRequest(BaseModel):
+    name: str
 
 
 class AlbumRequest(BaseModel):
@@ -119,6 +164,24 @@ class AlbumRequest(BaseModel):
     artist: str
     year: Optional[str] = None
     cover: Optional[str] = None    # data: URL of a JPEG/PNG
+
+
+class MergeRequest(BaseModel):
+    keep: str
+    remove: list[str]
+
+
+class AlbumFix(BaseModel):
+    id: str
+    album: str
+    album_artist: Optional[str] = None
+    artist: Optional[str] = None
+    year: Optional[str] = None
+    cover_url: Optional[str] = None
+
+
+class AlbumFixRequest(BaseModel):
+    items: list[AlbumFix]
 
 
 class ExportRequest(BaseModel):
@@ -182,7 +245,7 @@ def ping():
 
 
 @app.get("/api/status/init")
-def check_initialization():
+def check_initialization(request: Request):
     """Is Spotify usable? Search and downloads fall back to YouTube Music when it isn't.
     Never waits on Spotify (see spotify_api.check): it must answer at once."""
     ok, error = spotify_api.check(wait=False)
@@ -194,6 +257,7 @@ def check_initialization():
         "version": version.VERSION,
         "build": version.source_build(),  # git describe when running from source, else None
         "apple_music": apple_music.available(),
+        "on_phone": phones.is_remote(request),  # opened through phone access (Wi-Fi or Tailscale)
     }
 
 
@@ -311,10 +375,19 @@ def change_playlist(key: str, request: PlaylistTracksRequest):
         ids = current + [i for i in request.track_ids if i not in current]  # no duplicates, appended at the end
     elif request.action == "remove":
         ids = [i for i in current if i not in set(request.track_ids)]
+    elif request.action == "order":
+        if sorted(request.track_ids) != sorted(current):
+            raise HTTPException(status_code=409, detail="The playlist changed meanwhile. Refresh and try again.")
+        ids = request.track_ids
     else:
-        raise HTTPException(status_code=400, detail="action must be add or remove")
+        raise HTTPException(status_code=400, detail="action must be add, remove or order")
     write_playlist(folder, _paths_for(ids))
     return {"count": len(ids)}
+
+
+@app.post("/api/playlists/{key}/rename")
+def rename_playlist(key: str, request: RenameRequest):
+    return {"key": organize.rename_playlist(DOWNLOAD_DIR, key, request.name)}
 
 
 @app.delete("/api/playlists/{key}")
@@ -354,6 +427,161 @@ def make_album(request: AlbumRequest):
         else:
             untaggable.append(path.name)
     return {"tagged": tagged, "untaggable": untaggable}
+
+
+# ---------- tidying: duplicates and album info (cleanup.py) ----------
+
+@app.exception_handler(cleanup.CleanupError)
+def cleanup_error(request: Request, error: cleanup.CleanupError):
+    return JSONResponse({"detail": str(error)}, status_code=error.status)
+
+
+@app.get("/api/duplicates")
+def duplicates():
+    snapshot = library.snapshot()
+    groups = cleanup.find_duplicates(snapshot["tracks"], snapshot["collections"], set(likes.ids()))
+    return {"groups": groups, "extra_bytes": sum(g["extra_bytes"] for g in groups)}
+
+
+@app.post("/api/duplicates/merge")
+def merge_duplicates(request: MergeRequest):
+    return cleanup.merge(DOWNLOAD_DIR, library.scan(), request.keep, request.remove, likes, plays, REMOVED_DIR)
+
+
+@app.post("/api/album-fix/scan")
+def album_fix_scan():
+    snapshot = library.snapshot()
+    return album_fixer.start(cleanup.album_suspects(snapshot["tracks"], snapshot["collections"]))
+
+
+@app.get("/api/album-fix")
+def album_fix_status():
+    job = album_fixer.get()
+    return {"job": job, "can_undo": bool(album_fixer.last_backup())}
+
+
+@app.post("/api/album-fix/apply")
+def album_fix_apply(request: AlbumFixRequest):
+    if not request.items:
+        raise HTTPException(status_code=400, detail="Pick at least one song")
+    for item in request.items:
+        if not item.album.strip():
+            raise HTTPException(status_code=400, detail="An album name can't be empty")
+        if item.cover_url and not re.match(r"^https://[\w.-]+\.(googleusercontent|ggpht|ytimg)\.com/", item.cover_url):
+            raise HTTPException(status_code=400, detail="Covers can only come from YouTube Music")
+    return album_fixer.apply(DOWNLOAD_DIR, [i.model_dump() if hasattr(i, "model_dump") else i.dict() for i in request.items],
+                             _paths_for, organize.tag_album, ytmusic._fetch_cover)
+
+
+@app.post("/api/album-fix/undo")
+def album_fix_undo():
+    return album_fixer.undo(DOWNLOAD_DIR)
+
+
+# ---------- loudness, for "Even out volume" (loudness.py) ----------
+
+@app.get("/api/loudness/{track_id}")
+def track_loudness(track_id: str):
+    """{lufs, peak} for one song, measured now if it hasn't been (about a second)."""
+    track = library._tracks_by_id.get(track_id) or next((t for t in library.scan() if t["id"] == track_id), None)
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    return song_loudness.get(track) or {"lufs": None, "peak": None}
+
+
+@app.post("/api/loudness/scan")
+def loudness_scan():
+    """Measure every song not measured yet, in the background (when "Even out volume" is turned on)."""
+    return song_loudness.start_scan()
+
+
+@app.get("/api/loudness")
+def loudness_status():
+    return dict(song_loudness.scan, measured=len(song_loudness.data))
+
+
+# ---------- scheduled plays (schedules.py) ----------
+
+@app.exception_handler(schedules.ScheduleError)
+def schedule_error(request: Request, error: schedules.ScheduleError):
+    return JSONResponse({"detail": str(error)}, status_code=error.status)
+
+
+class FiredRequest(BaseModel):
+    occurrence: str
+
+
+@app.get("/api/schedules")
+def list_schedules():
+    return {"schedules": scheduled.all()}
+
+
+@app.post("/api/schedules")
+async def save_schedule(request: Request):
+    return scheduled.save(await request.json())
+
+
+@app.delete("/api/schedules/{schedule_id}")
+def delete_schedule(schedule_id: str):
+    scheduled.delete(schedule_id)
+    return {"deleted": schedule_id}
+
+
+@app.post("/api/schedules/{schedule_id}/fired")
+def schedule_fired(schedule_id: str, body: FiredRequest):
+    """The page claims this occurrence before playing it; only the first claim wins."""
+    return {"play": scheduled.fired(schedule_id, body.occurrence)}
+
+
+# ---------- phone access (phone.py) ----------
+
+class PhoneRequest(BaseModel):
+    enabled: Optional[bool] = None
+    tailscale: Optional[bool] = None
+    funnel: Optional[bool] = None
+
+
+@app.on_event("startup")
+def start_phone_access():
+    threading.Thread(target=phones.start, daemon=True).start()  # if it was on last time
+
+
+@app.get("/sw.js")
+def service_worker():
+    """At the root so its scope is the whole app (from /static/ it could only cover /static/)."""
+    # The offline page offers the home Wi-Fi address (no key in it: this file is public), for when Tailscale
+    # is off on the phone but it's on the same Wi-Fi as this computer
+    status = phones.status(with_tailscale=False)
+    home = "" if status["tailscale"]["funnel"] else status["address"] or ""  # public with Funnel: don't reveal the home network name
+    script = (BASE_DIR / "static" / "sw.js").read_text(encoding="utf-8").replace("__HOME_URL__", home)
+    return Response(script, media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/api/phone")
+def phone_status():
+    return phones.status()
+
+
+@app.post("/api/phone")
+def set_phone_access(request: Request, body: PhoneRequest):
+    result = None
+    if body.enabled is not None:
+        result = phones.enable(request.url.port) if body.enabled else phones.disable()
+    if body.tailscale is not None:
+        if body.tailscale and not phones.enabled:
+            raise HTTPException(status_code=400, detail="Turn on phone access first")
+        result = phones.set_tailscale(body.tailscale)
+    if body.funnel is not None:
+        result = phones.set_funnel(body.funnel)
+    return result or phones.status()
+
+
+@app.post("/api/phone/new-key")
+def new_phone_key():
+    """A new QR code: every phone signed in with the old one is signed out."""
+    if not phones.enabled:
+        raise HTTPException(status_code=400, detail="Phone access is off")
+    return phones.new_key()
 
 
 @app.get("/api/devices")
@@ -476,13 +704,15 @@ def open_windows():
 
 
 @app.get("/api/stats")
-def get_stats(days: int = 30):
-    if days not in (0, 7, 30, 90, 365):
-        raise HTTPException(status_code=400, detail="days must be 7, 30, 90, 365 or 0 (all time)")
+def get_stats(range: str = "30d", days: int | None = None):
+    if days is not None:  # the old ?days=7|30|90|365|0
+        range = f"{days}d" if days else "all"
+    if range not in stats.RANGES:
+        raise HTTPException(status_code=400, detail=f"range must be one of: {', '.join(stats.RANGES)}")
     tracks = library.scan()
     return {
         "library": stats.library_stats(tracks, genres.genre_for),
-        "listening": stats.listening_stats(plays.load(), days, {t["id"] for t in tracks}),
+        "listening": stats.listening_stats(plays.load(), range, {t["id"] for t in tracks}),
     }
 
 
@@ -531,6 +761,30 @@ def _ranged_file(path: Path, media_type: str, range_header: Optional[str]):
 
     headers = {"Content-Range": f"bytes {start}-{end}/{size}", "Accept-Ranges": "bytes", "Content-Length": str(end - start + 1)}
     return StreamingResponse(chunks(), status_code=206, media_type=media_type, headers=headers)
+
+
+@app.get("/api/lyrics/save-status")
+def lyrics_save_status():
+    return lyrics.save_status()
+
+
+@app.post("/api/lyrics/save-library")
+def save_library_lyrics():
+    return lyrics.start_save(library.scan(), DOWNLOAD_DIR)
+
+
+@app.post("/api/lyrics/{track_id}")
+def save_track_lyrics(track_id: str):
+    path = library.path_for(track_id)
+    track = library._tracks_by_id.get(track_id)
+    if not path or not path.is_file() or not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    try:
+        return {"status": lyrics.save_existing(track, path)}
+    except LyricsError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Couldn't save lyrics: {e}")
 
 
 @app.get("/api/lyrics/{track_id}")

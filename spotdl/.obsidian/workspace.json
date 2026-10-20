@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Roadmap.md",
+                "file": "bugs/Bug Log.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Roadmap"
+              "title": "Bug Log"
             }
           }
         ]
@@ -190,10 +190,15 @@
   },
   "active": "f558cdfbb019e5ff",
   "lastOpenFiles": [
-    "Home.md",
     "History.md",
-    "architecture/Launchers & Setup.md",
+    "Home.md",
+    "Documentation Log.md",
+    "architecture/Phone Access.md",
+    "architecture/Playback and Schedules.md",
+    "architecture/Search and Downloads.md",
+    "architecture/Data and Storage.md",
     "Roadmap.md",
+    "architecture/Launchers & Setup.md",
     "bugs/Bug Log.md",
     "Welcome.md",
     "bugs",

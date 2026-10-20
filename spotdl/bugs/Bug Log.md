@@ -2,6 +2,14 @@
 
 Started Oct 15, 2026 from a full code read. Each entry says how it was checked. Related: [[Backend]] · [[Frontend]] · [[How It Works]]
 
+## Fixed Oct 20, 2026
+
+### Lyrics download: Method Not Allowed from an older running server
+
+The interface had the new **Download lyrics** action, but the running Python process only exposed `GET /api/lyrics/{track_id}`. A POST therefore returned `405`. Confirmed through the live server's OpenAPI routes; restarting the server loaded the new POST and library-status routes. This was a stale process, not a missing route in the updated source.
+
+If it recurs after an update, finish active downloads, quit the native client with ⌘Q, stop only the confirmed spotDLr server process and reopen the app. Quitting the native Mac window does not stop/reload Python. See [[Launchers & Setup#spotDLr.app (native Mac app)]] and [[API Reference]].
+
 ## Open
 
 ### Spotify secret: rotate once working
@@ -42,6 +50,42 @@ Everything Windows-side was checked on the Mac only (portable PowerShell 7.4.6: 
 - Spotify search and album/playlist/artist pages have only been tested against a mock built from real library IDs, because the current credentials are dead. Re-test once `.env` has working keys.
 
 ## Fixed
+
+### The Mac couldn't open its own phone-access addresses (Oct 19)
+
+Opening `https://…ts.net:8443` (or the Wi-Fi name) on the Mac itself showed "Scan the QR code": requests through Tailscale count as phones. **Fix:** `PhoneAccess.is_remote()` treats a client whose address is one of this computer's own (Tailscale IPs + Wi-Fi IP, cached 60 s) as local, and the host check accepts the phone-access host names for local clients. **Why it's safe:** through `tailscale serve` the client address comes from X-Forwarded-For, and uvicorn 0.23 takes the last entry, which Tailscale adds: sending `X-Forwarded-For: 100.79.20.11` or `127.0.0.1` through the real address still logged the Mac's true 100.84.170.72. On the Wi-Fi listener the address is the TCP peer (XFF isn't trusted there). **Checked:** Mac → Tailscale address 200, → Wi-Fi name 200, unknown Host 403.
+
+### Unticking phone access wiped the key and the Tailscale address (Oct 19)
+
+Holden unticked "Open spotDLr on your phone" (looking for the Funnel switch) and every QR code disappeared; ticking it again would have made a new key, signing out the iPhone's home-screen app. **Fix:** `disable()` is a pause: it stops the Wi-Fi listener and removes the Tailscale entry (Funnel first) but keeps `key`, `tailscale` and `funnel`; `enable()` → `start()` restores them on the same port. **Checked** (stand-in CLI): paired → 200; off → 403, no Tailscale entry, no Wi-Fi listener; on → same key, entry and Funnel back, same phone 200 without rescanning; New QR code → 403.
+
+### Phone couldn't open spotDLr on the same Wi-Fi (Oct 19)
+
+Two causes. (1) The **Anywhere** link (`*.ts.net`) only resolves inside Tailscale, so with Tailscale switched off on the phone it fails even next to the Mac: the steps in Settings now say to keep it connected at home too, and `/sw.js` is served with the home address so the offline page offers it. (2) The **Home Wi-Fi** link used the Mac's DHCP address, which changed 192.168.8.182 → .1.51 → .1.71 in one day. **Fix:** on a Mac, `phone.local_name()` (`scutil --get LocalHostName` + `.local`, cached 60 s) is the link's host, the number address is shown as a fallback, and `allowed_host` accepts the name. **Checked:** curl as a phone on the Wi-Fi with Host `Holdens-MacBook-Pro.local` → 403 without the key, pairing → 898 songs; another `.local` name → 403; the served `sw.js` carries the home URL.
+
+### Phone layout issues from Holden's iPhone screenshots (Oct 19)
+
+Found on the real phone, not by the 390/360 px portrait audit: (1) Bars (32% of the panel's height) and Wave (at 80% height) drew right behind the title/♥/progress, which sit at the bottom on phones → under 700 px wide or 500 px tall: bars 14% high and fainter, wave a thin line at 93%, plus a text shadow on `.nv-info`. (2) Long playlist names were 4 lines at 48 px → 24–40 px, at most 3 lines. (3) **Landscape** (844×390) used the desktop rows (64 + 72 px) and the cover was `56vh` → `@media (max-height: 500px) and (orientation: landscape)`: 48/56 px rows, cover `min(46vh, 260px)`, tags/up next/album hidden. (4) `viewport-fit=cover` + `env(safe-area-inset-*)` padding on `.app`, and the overlays' bottoms include the home bar. **Checked** with Chrome's safe-area emulation (47/34 px portrait, 47/21/47 px landscape): Now Playing ends 4 px above the player bar in both, the player bar is fully on screen, the cover stays in its panel; the 26-screen audit still finds nothing off the edge.
+
+### iPhone: music stopped when the screen locked (Oct 19)
+
+**Cause:** opening Now Playing starts the visualizer, which calls `createMediaElementSource(P.audio)`: from then on all playback runs through an AudioContext, and iOS Safari suspends AudioContexts when the screen locks, so the music went silent. Also, iOS makes `audio.volume` read-only (always 1), so crossfade would have played both songs at full volume. **Fix:** `IOS` (iPhone/iPod UA, or iPadOS = MacIntel + touch) → `ensureAudioGraph()` never touches `P.audio`; a `syntheticAnalyser()` (music-shaped spectrum, slow drift, 120 BPM pulse, eases to 0 when paused) feeds the same drawing code, and the visualizer menu says it's generated. `VOLUME_WORKS` (feature test: set 0.5, read back) gates crossfade and even volume; Settings disables them with a note. **Checked** with an iPhone user agent in Chrome: 0 AudioContexts created, music playing, visualizer drawing, note shown; desktop still creates one real AudioContext. **Confirmed on Holden's iPhone 13 Pro (Oct 19):** keeps playing with the screen locked, through Tailscale.
+
+### Phone access moved to port 8001 after a restart (Oct 19)
+
+**Cause:** the free-port test bound without `SO_REUSEADDR`, and the just-stopped spotDLr was still releasing the port, so the new one took 8001 and phones' bookmarks broke. **Fix:** `SO_REUSEADDR` in the test, wait up to 8 s for the usual port, and the 20 s watcher moves back to it if a fallback was used.
+
+### Tailscale HTTPS on port 443 answered with someone else's certificate (Oct 19)
+
+**Cause:** Local (Flywheel)'s nginx listens on `*:443`, so a connection from this Mac to its own Tailscale address on 443 reached nginx (self-signed "gardenwashington-2026.local / Super Fake Company") instead of `tailscale serve`. **Fix:** `serve_on` bind-tests 443 on the Tailscale IPs and uses 8443 when it's taken (moving an existing spotDLr entry). **Checked:** real `tailscale serve` on 8443 → Let's Encrypt certificate for the `.ts.net` name, 403 without the key, pairing, library, streaming, Chrome installability with no errors.
+
+### Phones: no way to open Now Playing, so no visualizer (Oct 19)
+
+**Cause:** under 600 px, `.extras` (⤢ Now Playing button, mute, volume) is hidden, leaving only a tap on the 56 px `#npArt` cover, which nothing hints at. **Fix:** on phones, a tap anywhere on `.now-playing` (cover, title, artist text) opens Now Playing, except ♥ and the artist links; the title link's navigation is prevented there. Desktop is unchanged (the title still goes to the playlist). **Checked** at 390×844 with touch events: ♥ toggles without opening it, the title and text open it, the visualizer menu opens and picking Ring works; at 1440 px the title still navigates.
+
+### Phones: top search box ran under the Stats and Downloads buttons (Oct 19)
+
+**Cause:** `.search-box` is a flex item, whose default `min-width: auto` is its content's width (273 px), in a 154 px grid column, so it overflowed under the buttons (same grey, so it looked like they were inside it). **Fix:** `min-width: 0`; on phones also 40 px top buttons and a hidden ✕ while the box is empty. **Checked:** search 64–250, buttons 258–386, no overlap.
 
 ### Mac app: "Port 8000 is being used by another app" about spotDLr itself (Oct 18)
 

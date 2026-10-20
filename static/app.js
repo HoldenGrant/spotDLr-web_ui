@@ -43,6 +43,7 @@ const ICONS = {
     volumeLow: '<path d="M11 4.7 6.3 8.5H3v7h3.3l4.7 3.8z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/>',
     mute: '<path d="M11 4.7 6.3 8.5H3v7h3.3l4.7 3.8z"/><path d="m22 9-6 6"/><path d="m16 9 6 6"/>',
     search: '<circle cx="11" cy="11" r="7.5"/><path d="m21 21-4.6-4.6"/>',
+    spotify: '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M6.5 9c3.8-1.3 7.6-.9 11 1M7.2 12c3.3-1.1 6.8-.7 9.6.9M8 15c2.5-.8 5.1-.5 7.4.7" stroke="var(--panel)" stroke-width="1.5"/>',
     home: '<path d="M3 10.2 12 3l9 7.2V20a1 1 0 0 1-1 1h-5.5v-6.5h-5V21H4a1 1 0 0 1-1-1z"/>',
     library: '<path d="M4 3.5v17"/><path d="M9 3.5v17"/><path d="m13.6 4.3 6 16.2"/>',
     download: '<circle cx="12" cy="12" r="9.5"/><path d="M12 7v9"/><path d="m8.2 12.4 3.8 3.8 3.8-3.8"/>',
@@ -70,6 +71,12 @@ const ICONS = {
     ear: '<path d="M6 8.5a6 6 0 1 1 12 0c0 3.5-3 4.5-3 7.5a3.5 3.5 0 0 1-6.5 1.8"/><path d="M9.5 9a2.5 2.5 0 1 1 5 0c0 1.5-1.5 2-1.5 3.5"/>',
     apple: '<path d="M12 7.5c0-2 1.4-3.6 3.3-4"/><path d="M8 7.2c-2.8 0-4.5 2.3-4.5 5.4 0 4 2.6 8.4 4.8 8.4 1 0 1.6-.6 3.7-.6s2.7.6 3.7.6c2.2 0 4.8-4.4 4.8-8.4 0-3.1-1.7-5.4-4.5-5.4-1.6 0-2.6.8-4 .8s-2.4-.8-4-.8z"/>',
     checkPlain: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+    queue: '<path d="M3 5h12"/><path d="M3 10h12"/><path d="M3 15h7"/><path d="M14 13.5v7l5.5-3.5z" fill="currentColor"/>',
+    playNext: '<path d="M3 6h9"/><path d="M3 11h9"/><path d="M3 16h5"/><path d="m14 9 6 4.5-6 4.5z" fill="currentColor"/>',
+    moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
+    grip: '<circle fill="currentColor" stroke="none" cx="9" cy="6" r="1.4"/><circle fill="currentColor" stroke="none" cx="15" cy="6" r="1.4"/><circle fill="currentColor" stroke="none" cx="9" cy="12" r="1.4"/><circle fill="currentColor" stroke="none" cx="15" cy="12" r="1.4"/><circle fill="currentColor" stroke="none" cx="9" cy="18" r="1.4"/><circle fill="currentColor" stroke="none" cx="15" cy="18" r="1.4"/>',
+    viewList: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3.5 6h.01"/><path d="M3.5 12h.01"/><path d="M3.5 18h.01"/>',
+    viewGrid: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>',
     off: '<circle cx="12" cy="12" r="9.5"/><path d="m5.3 5.3 13.4 13.4"/>',
     fullscreen: '<path d="M4 9V4h5"/><path d="M15 4h5v5"/><path d="M20 15v5h-5"/><path d="M9 20H4v-5"/>',
     shrink: '<path d="M9 4v5H4"/><path d="M20 9h-5V4"/><path d="M15 20v-5h5"/><path d="M4 15h5v5"/>',
@@ -108,7 +115,7 @@ function fmtAdded(ts) {
     if (days < 28) { const w = Math.floor(days / 7); return `${w} week${w > 1 ? 's' : ''} ago`; }
     return new Date(ts * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
-const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
+const plural = (n, word, many = `${word}s`) => `${n.toLocaleString()} ${n === 1 ? word : many}`;
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'; };
 
 // ---------- state ----------
@@ -128,6 +135,10 @@ const S = {
     jobs: [],
     init: { initialized: true },
     libFilter: store.get('libFilter', 'all'),
+    libSort: store.get('libSort', 'recents'),
+    trackView: store.get('trackView', 'list'), // song tables as a 'list' or a 'grid' of covers
+    songsView: { q: '', genre: null, sort: store.get('songsSort', 'added'), dir: store.get('songsDir', 'desc') }, // All songs: search, filter, sort
+    recent: store.get('recentContexts', {}), // context key (as on the sidebar items) -> when it was last played
     libQuery: '',
     settings: { format: 'm4a', bitrate: 'auto', lyrics: false, ...store.get('settings', {}) },
     spotifyCache: new Map(), // "kind/id" or "search/q" -> { time, data }
@@ -262,14 +273,76 @@ const P = {
     order: [],           // play order (indexes into queue), shuffled when shuffle is on
     pos: -1,             // position in order
     context: null,       // { key, label, href }
+    upNext: [],          // "Next in queue": songs you added, played before the rest of the context
+    queued: null,        // id of the song playing now when it came from upNext (P.pos then stays on the context song before it)
     shuffle: store.get('shuffle', false),
     repeat: store.get('repeat', 'off'), // off | all | one
     seeking: false,
 };
 P.audio.preload = 'auto';
-P.audio.volume = store.get('volume', 0.8);
 
-const currentTrack = () => S.byId.get(P.queue[P.order[P.pos]]) || null;
+// iPhone/iPad Safari (and every iOS browser, which are all Safari inside) has two rules that matter here:
+// - it suspends Web Audio when the screen locks, so music routed through it (for the visualizer) goes silent;
+// - audio.volume is read-only (always 1): pages can't turn music down, only the phone's buttons can.
+const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const VOLUME_WORKS = (() => { const probe = new Audio(); probe.volume = 0.5; return probe.volume === 0.5; })();
+
+// ---------- volume: yours × the song's loudness adjustment × crossfade × sleep-timer fade ----------
+// Everything that changes loudness goes through applyVolume(), so they never fight over audio.volume.
+const PB = { // playback settings (Settings → Playback)
+    normalize: store.get('normalize', false), // "Even out volume"
+    crossfade: store.get('crossfade', 0),     // seconds, 0 = off
+};
+P.userVolume = store.get('volume', 0.8);
+P.trackGain = 1;   // < 1 turns a loud song down to TARGET_LUFS ("Even out volume")
+P.fadeIn = 1;      // crossfade: the incoming song's share
+P.sleepGain = 1;   // sleep timer: fades out over its last 10 s
+P.wakeGain = 1;    // a scheduled play's fade-in
+const XF = { el: new Audio(), active: false, prepared: null, out: 1, outGain: 1, timer: null, switching: false };
+XF.el.preload = 'auto';
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+function applyVolume() {
+    P.audio.volume = clamp01(P.userVolume * P.trackGain * P.fadeIn * P.sleepGain * P.wakeGain);
+    XF.el.volume = clamp01(P.userVolume * XF.outGain * XF.out * P.sleepGain);
+    XF.el.muted = P.audio.muted;
+}
+applyVolume();
+
+// Loudness (LUFS) per song from /api/loudness, measured by FFmpeg on the server and cached there
+const TARGET_LUFS = -14; // what Spotify and YouTube normalize to
+const LOUD = new Map();  // track id -> {lufs, peak} | Promise
+function loudnessOf(id) {
+    if (!LOUD.has(id)) LOUD.set(id, api(`/loudness/${encodeURIComponent(id)}`).then((r) => { LOUD.set(id, r); return r; }).catch(() => { LOUD.delete(id); return null; }));
+    const v = LOUD.get(id);
+    return v instanceof Promise ? v : Promise.resolve(v);
+}
+const gainFor = (r) => (r && r.lufs !== null && r.lufs !== undefined) ? 10 ** (Math.min(0, TARGET_LUFS - r.lufs) / 20) : null; // only ever turns down
+
+// Called when a song starts: its gain now if known, else a typical guess, eased to the real value when it arrives
+function setTrackGain(id) {
+    if (!PB.normalize || !VOLUME_WORKS) { P.trackGain = 1; applyVolume(); return; }
+    const known = LOUD.get(id);
+    if (known && !(known instanceof Promise)) { P.trackGain = gainFor(known) ?? 1; applyVolume(); }
+    else {
+        P.trackGain = 0.5; // ≈ -6 dB: most downloads are -7 to -10 LUFS
+        applyVolume();
+        loudnessOf(id).then((r) => {
+            if (currentTrack()?.id !== id) return;
+            const target = gainFor(r) ?? 1, start = P.trackGain, t0 = performance.now();
+            const step = setInterval(() => {
+                const x = Math.min(1, (performance.now() - t0) / 800);
+                P.trackGain = start + (target - start) * x;
+                applyVolume();
+                if (x >= 1) clearInterval(step);
+            }, 40);
+        });
+    }
+    const after = neighbour(1); // measure the next song ahead of time
+    if (after) loudnessOf(after.id);
+}
+
+const contextTrackId = () => P.queue[P.order[P.pos]];
+const currentTrack = () => S.byId.get(P.queued || contextTrackId()) || null;
 
 function buildOrder(startIndex) {
     const idx = P.queue.map((_, i) => i);
@@ -290,8 +363,19 @@ function playContext(trackIds, startIndex, context) {
     const start = startIndex === null || startIndex === undefined ? (P.shuffle ? -1 : 0) : ids.indexOf(trackIds[startIndex]);
     P.queue = ids;
     P.context = context;
+    P.queued = null; // a new context starts now; songs you queued still play next, as in Spotify
+    if (context?.key) rememberRecent(context.key);
     buildOrder(start);
     loadAndPlay();
+}
+
+// For "Recents" in Your Library: the newest 200 played playlists/albums/artists, newest first
+function rememberRecent(key) {
+    S.recent[key] = Date.now();
+    const keys = Object.keys(S.recent).sort((a, b) => S.recent[b] - S.recent[a]);
+    for (const old of keys.slice(200)) delete S.recent[old];
+    store.set('recentContexts', S.recent);
+    if (S.libSort === 'recents') renderSidebar();
 }
 
 // ---------- listening history (for the Stats page) ----------
@@ -327,7 +411,7 @@ function saveSession() {
     if (!t) return;
     store.set('session', {
         queue: P.queue, order: P.order, pos: P.pos, context: P.context,
-        trackId: t.id, time: Math.floor(P.audio.currentTime || 0),
+        trackId: contextTrackId(), queued: P.queued, upNext: P.upNext, time: Math.floor(P.audio.currentTime || 0),
     });
 }
 
@@ -345,9 +429,12 @@ function restoreSession() {
     P.queue = queue;
     P.context = saved.context || null;
     if (order.length === queue.length) { P.order = order; P.pos = order.indexOf(start); } else buildOrder(start);
+    P.upNext = (saved.upNext || []).filter((id) => S.byId.has(id));
+    P.queued = S.byId.has(saved.queued) ? saved.queued : null;
     const t = currentTrack();
     startListen(t.id);   // counting only happens while it actually plays
     P.audio.src = `/api/stream/${encodeURIComponent(t.id)}`;
+    setTrackGain(t.id);
     if (saved.time > 0) P.audio.addEventListener('loadedmetadata', () => { if (saved.time < P.audio.duration - 1) P.audio.currentTime = saved.time; }, { once: true });
     updateNowPlaying();
     updateControls();
@@ -357,9 +444,14 @@ function restoreSession() {
 function loadAndPlay() {
     const t = currentTrack();
     if (!t) return;
+    if (!XF.switching) endFade(); // you skipped: drop any crossfade in progress
+    setTrackGain(t.id);
     startListen(t.id);
     P.audio.src = `/api/stream/${encodeURIComponent(t.id)}`;
-    P.audio.play().catch((err) => { if (err.name !== 'AbortError') toast(`Couldn't play "${t.title}"`, 'error'); });
+    P.audio.play().catch((err) => {
+        if (err.name === 'NotAllowedError') showTapToPlay(P.context?.label || t.title); // no click on this page yet
+        else if (err.name !== 'AbortError') toast(`Couldn't play "${t.title}"`, 'error');
+    });
     updateNowPlaying();
     saveSession();
 }
@@ -375,15 +467,19 @@ function togglePlay() {
 function next(auto = false) {
     if (!currentTrack()) return;
     if (auto && P.repeat === 'one') { startListen(currentTrack().id); P.audio.currentTime = 0; P.audio.play(); return; }
+    // Songs you queued come first; P.pos stays put, so the context carries on where it was afterwards
+    if (P.upNext.length) { P.queued = P.upNext.shift(); loadAndPlay(); return; }
     if (P.pos < P.order.length - 1) P.pos++;
     else if (P.repeat !== 'off') { if (P.shuffle) buildOrder(-1); else P.pos = 0; }
     else { if (auto) { P.audio.pause(); P.audio.currentTime = 0; } return; }
+    P.queued = null;
     loadAndPlay();
 }
 
 function prev() {
     if (!currentTrack()) return;
-    if (P.audio.currentTime > 3 || P.pos === 0 && P.repeat === 'off') { P.audio.currentTime = 0; return; }
+    if (P.audio.currentTime > 3 || (!P.queued && P.pos === 0 && P.repeat === 'off')) { P.audio.currentTime = 0; return; }
+    if (P.queued) { P.queued = null; loadAndPlay(); return; } // back to the context song before the queued one
     P.pos = P.pos > 0 ? P.pos - 1 : P.order.length - 1;
     loadAndPlay();
 }
@@ -418,6 +514,7 @@ function updateNowPlaying() {
     document.title = `${t.title} • ${t.artists.join(', ')}`;
     $('#npLike').innerHTML = likeButton(t.id).s;
     renderNowView();
+    renderQueue();
     if ('mediaSession' in navigator) {
         navigator.mediaSession.metadata = new MediaMetadata({
             title: t.title,
@@ -457,6 +554,451 @@ function markPlaying() {
     $$('.lib-item[data-key]').forEach((item) => item.classList.toggle('playing', !!P.context && P.context.key === item.dataset.key));
 }
 
+// ---------- crossfade ----------
+// The last N seconds of a song overlap the start of the next. A second <audio> (XF.el) takes over the
+// outgoing song's tail at the same spot, fading out, while P.audio starts the next song fading in, so
+// everything else (seek bar, visualizer, media keys) keeps working with P.audio as the one player.
+// Timers, not requestAnimationFrame: rAF stops while the window is hidden, which would freeze the fade.
+
+function maybeCrossfade() {
+    const secs = VOLUME_WORKS ? PB.crossfade : 0; // without volume control both songs would play at full volume
+    if (!secs || XF.active || P.seeking || P.audio.paused || P.repeat === 'one' || SL.endOfSong) return;
+    const d = P.audio.duration, left = d - P.audio.currentTime;
+    if (!d || d < secs * 2 + 5 || !neighbour(1)) return;
+    if (left <= secs + 4 && XF.prepared !== P.audio.src) { // load the tail on the spare player ahead of time
+        XF.prepared = P.audio.src;
+        XF.el.src = P.audio.src;
+        XF.el.currentTime = Math.max(0, d - secs - 1);
+    }
+    if (left <= secs) startFade(secs);
+}
+
+function startFade(secs) {
+    XF.active = true;
+    XF.el.currentTime = P.audio.currentTime + 0.02;
+    XF.outGain = P.trackGain;
+    XF.out = 1;
+    applyVolume();
+    XF.el.play().then(() => {
+        if (!XF.active) return;
+        flushListen(); // the outgoing song's listening counts now
+        P.fadeIn = 0;
+        XF.switching = true;
+        next(true);
+        XF.switching = false;
+        const t0 = performance.now();
+        clearInterval(XF.timer);
+        XF.timer = setInterval(() => {
+            const x = Math.min(1, (performance.now() - t0) / (secs * 1000));
+            XF.out = Math.cos((x * Math.PI) / 2); // equal power: the sum sounds steady, not dipping in the middle
+            P.fadeIn = Math.sin((x * Math.PI) / 2);
+            applyVolume();
+            if (x >= 1) endFade();
+        }, 50);
+    }).catch(() => endFade());
+}
+
+function endFade() {
+    clearInterval(XF.timer);
+    XF.timer = null;
+    if (XF.active || XF.prepared) {
+        XF.el.pause();
+        XF.el.removeAttribute('src');
+        XF.el.load();
+    }
+    XF.active = false;
+    XF.prepared = null;
+    XF.out = 1;
+    P.fadeIn = 1;
+    applyVolume();
+}
+
+// ---------- sleep timer ----------
+// Pauses after N minutes (fading out over the last 10 s) or at the end of the song.
+
+const SL = { until: 0, endOfSong: false, timer: null };
+const SLEEP_FADE = 10; // seconds
+
+function setSleep(minutes) {
+    clearInterval(SL.timer);
+    SL.timer = null;
+    SL.until = 0;
+    SL.endOfSong = minutes === 'end';
+    P.sleepGain = 1;
+    applyVolume();
+    if (typeof minutes === 'number' && minutes > 0) {
+        SL.until = Date.now() + minutes * 60_000;
+        SL.timer = setInterval(sleepTick, 1000);
+        toast(`Sleep timer: pausing in ${minutes < 60 ? `${minutes} minutes` : '1 hour'}`);
+    } else if (SL.endOfSong) {
+        toast('Sleep timer: pausing at the end of this song');
+        endFade();
+    }
+    paintSleep();
+}
+
+function sleepTick() {
+    const left = (SL.until - Date.now()) / 1000;
+    if (left <= 0) { stopForSleep(); return; }
+    P.sleepGain = left < SLEEP_FADE ? left / SLEEP_FADE : 1;
+    applyVolume();
+    paintSleep();
+}
+
+function stopForSleep() {
+    P.audio.pause();
+    endFade();
+    setSleep(0);
+    toast('Sleep timer: paused. Good night');
+}
+
+const sleepLeft = () => SL.endOfSong ? 'End of song' : SL.until ? fmtTime(Math.max(0, (SL.until - Date.now()) / 1000)) : '';
+function paintSleep() {
+    const on = !!(SL.until || SL.endOfSong), left = sleepLeft();
+    $$('[data-action="sleep-menu"]').forEach((btn) => {
+        btn.classList.toggle('on', on);
+        btn.setAttribute('aria-label', on ? `Sleep timer: ${left === 'End of song' ? 'at the end of this song' : `${left} left`}` : 'Sleep timer');
+        const label = $('.sleep-left', btn);
+        if (label) label.textContent = on ? (SL.endOfSong ? 'End' : left) : '';
+    });
+}
+
+function sleepMenu(anchor) {
+    const on = !!(SL.until || SL.endOfSong);
+    showMenu([{ heading: on ? `Sleep timer · ${sleepLeft()}${SL.endOfSong ? '' : ' left'}` : 'Sleep timer' },
+        ...[5, 15, 30, 45, 60].map((m) => ({ label: m < 60 ? `${m} minutes` : '1 hour', icon: 'clock', run: () => setSleep(m) })),
+        { label: 'End of this song', icon: 'note', disabled: !currentTrack(), run: () => setSleep('end') },
+        ...(on ? ['-', { label: 'Turn off', icon: 'off', run: () => { setSleep(0); toast('Sleep timer off'); } }] : []),
+        '-', { label: 'Scheduled plays…', icon: 'clock', run: () => { closeNowView(); location.hash = '#/schedules'; } },
+    ], { anchor, label: 'Sleep timer' });
+}
+function sleepButton(extra = '') { // drawn with its current state; paintSleep() keeps the countdown going
+    const on = !!(SL.until || SL.endOfSong), left = sleepLeft();
+    return html`<button type="button" class="icon-btn sleep-btn ${extra} ${on ? 'on' : ''}" data-action="sleep-menu" aria-haspopup="menu" title="Sleep timer"
+        aria-label="${on ? `Sleep timer: ${SL.endOfSong ? 'at the end of this song' : `${left} left`}` : 'Sleep timer'}">${icon('moon', 18)}<span class="sleep-left">${on ? (SL.endOfSong ? 'End' : left) : ''}</span></button>`;
+}
+
+// ---------- scheduled plays ----------
+// "Play Reanimation at 7:00 on weekdays." Schedules are stored on the server (schedules.py) and each one
+// belongs to the device it was made on: this page checks every 15 s and starts the ones that are due here.
+// The server's /fired claim makes each occurrence start once, even with two windows open. A page that
+// isn't running can't play, so a phone has to have spotDLr on screen at that time (iOS freezes it otherwise).
+
+const DEVICE_ID = (() => { let id = store.get('deviceId', null); if (!id) { id = Math.random().toString(36).slice(2, 12); store.set('deviceId', id); } return id; })();
+const DEVICE_NAME = IOS ? (/iPad/.test(navigator.userAgent) || navigator.maxTouchPoints > 1 && navigator.platform === 'MacIntel' ? 'iPad' : 'iPhone')
+    : /Android/.test(navigator.userAgent) ? 'Android phone' : /Win/.test(navigator.platform) ? 'Windows PC' : /Mac/.test(navigator.platform) ? 'Mac' : 'This computer';
+const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const SCH = { list: [], loaded: 0, timer: null };
+const SCHEDULE_GRACE = 3 * 60_000; // start a schedule up to 3 minutes late (a sleeping laptop, a slow load), not later
+
+const pad2 = (n) => String(n).padStart(2, '0');
+const localDate = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const weekdayMon0 = (d) => (d.getDay() + 6) % 7;
+
+function repeatText(s) {
+    const d = s.days;
+    if (!d.length) return new Date(`${s.date}T${s.time}`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    if (d.length === 7) return 'Every day';
+    if (d.join() === '0,1,2,3,4') return 'Weekdays';
+    if (d.join() === '5,6') return 'Weekends';
+    return d.map((i) => DAY_NAMES[i]).join(', ');
+}
+const timeText = (hhmm) => new Date(`2000-01-01T${hhmm}`).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+
+// The occurrence due now ("2026-10-20T07:00"), if it started less than SCHEDULE_GRACE ago
+function dueOccurrence(s, now = new Date()) {
+    const today = localDate(now);
+    if (s.days.length ? !s.days.includes(weekdayMon0(now)) : s.date !== today) return null;
+    const at = new Date(`${today}T${s.time}`);
+    const late = now - at;
+    return late >= 0 && late < SCHEDULE_GRACE ? `${today}T${s.time}` : null;
+}
+
+async function loadSchedules() {
+    try { SCH.list = (await api('/schedules')).schedules; SCH.loaded = Date.now(); } catch { /* next tick */ }
+}
+
+async function checkSchedules() {
+    if (Date.now() - SCH.loaded > 60_000) await loadSchedules();
+    for (const s of SCH.list) {
+        if (!s.enabled || s.device !== DEVICE_ID) continue;
+        const occurrence = dueOccurrence(s);
+        if (!occurrence || s.last_run === occurrence) continue;
+        let claim;
+        try { claim = await api(`/schedules/${s.id}/fired`, { method: 'POST', body: JSON.stringify({ occurrence }) }); } catch { continue; }
+        s.last_run = occurrence;
+        if (claim.play) startScheduled(s);
+    }
+}
+
+function startScheduled(s) {
+    // A playlist or album plays as it is now (songs added since included); a song or a removed playlist as saved
+    const c = s.what.kind === 'collection' && S.collections.find((x) => x.key === s.what.key);
+    const ids = (c ? c.track_ids : s.what.kind === 'liked' ? S.likedOrder : s.what.ids).filter((id) => S.byId.has(id));
+    if (!ids.length) { toast(`Scheduled play: nothing left to play in ${s.what.label}`, 'error'); return; }
+    if (P.shuffle !== s.shuffle) toggleShuffle();
+    endFade();
+    P.wakeGain = s.fade_in && VOLUME_WORKS ? 0.05 : 1;
+    playContext(ids, null, { key: s.what.key ? `${s.what.kind === 'collection' ? 'collection:' : ''}${s.what.key}` : `scheduled:${s.id}`, label: s.what.label, href: s.what.href });
+    toast(`Scheduled play: ${s.what.label}`);
+    if (P.wakeGain < 1) { // fade in over a minute
+        const t0 = Date.now();
+        clearInterval(SCH.fade);
+        SCH.fade = setInterval(() => {
+            P.wakeGain = Math.min(1, 0.05 + 0.95 * ((Date.now() - t0) / 60_000));
+            applyVolume();
+            if (P.wakeGain >= 1) clearInterval(SCH.fade);
+        }, 500);
+    }
+}
+
+function startScheduler() {
+    clearInterval(SCH.timer);
+    SCH.timer = setInterval(checkSchedules, 15_000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) checkSchedules(); });
+    checkSchedules();
+}
+
+// When the browser refuses to start music without a tap (a page nobody has clicked yet), ask for one
+function showTapToPlay(label) {
+    $('#tapToPlay')?.remove();
+    document.body.insertAdjacentHTML('beforeend', html`<div class="tap-to-play" id="tapToPlay" role="alert">
+        <span>${icon('clock', 18)} ${label} is ready to play</span>
+        <button type="button" class="pill-btn primary small">Play</button></div>`.s);
+    const bar = $('#tapToPlay');
+    $('button', bar).addEventListener('click', () => { P.audio.play().catch(() => {}); bar.remove(); });
+}
+
+// What a menu schedules: a song, or a playlist/album (Liked Songs included)
+const whatForTrack = (t) => ({ kind: 'track', key: t.id, label: t.title, href: location.hash || '#/', ids: [t.id] });
+const whatForCollection = (c) => ({ kind: 'collection', key: c.key, label: c.name, href: `#/collection/${encodeURIComponent(c.key)}`, ids: c.track_ids });
+const whatForLiked = () => ({ kind: 'liked', key: 'liked', label: 'Liked Songs', href: '#/liked', ids: S.likedOrder });
+
+function scheduleDialog(what, existing = null) {
+    const now = new Date();
+    const nextHour = `${pad2((now.getHours() + 1) % 24)}:00`;
+    const s = existing || { time: nextHour, days: [], date: null, shuffle: false, fade_in: true };
+    const presets = [['once', 'Once'], ['daily', 'Every day'], ['weekdays', 'Weekdays'], ['weekends', 'Weekends'], ['custom', 'Choose days']];
+    const presetOf = (days) => !days.length ? 'once' : days.length === 7 ? 'daily' : days.join() === '0,1,2,3,4' ? 'weekdays' : days.join() === '5,6' ? 'weekends' : 'custom';
+    const defaultDate = () => { const t = $('#schTime')?.value || s.time, d = new Date(); if (new Date(`${localDate(d)}T${t}`) <= d) d.setDate(d.getDate() + 1); return localDate(d); };
+    openModal({
+        title: existing ? 'Edit scheduled play' : 'Schedule play',
+        body: html`<form id="schForm" class="dialog-form">
+            <p class="dialog-note">Plays <strong>${what.label}</strong>${what.kind === 'track' ? '' : html` (${plural(what.ids.length, 'song')})`}.</p>
+            <div class="sch-row">
+                <label class="field"><span>Time</span><input class="field-input plain" type="time" id="schTime" value="${s.time}" required></label>
+                <label class="field"><span>Repeat</span><select id="schRepeat">${presets.map(([k, label]) => html`<option value="${k}" ${presetOf(s.days) === k ? new Safe('selected') : ''}>${label}</option>`)}</select></label>
+            </div>
+            <label class="field" id="schDateField"><span>Date</span><input class="field-input plain" type="date" id="schDate" value="${s.date || defaultDate()}" min="${localDate(now)}"></label>
+            <div class="sch-days" id="schDays" role="group" aria-label="Days">${DAY_NAMES.map((d, i) => html`<button type="button" class="chip ${s.days.includes(i) ? 'active' : ''}" data-day="${i}" aria-pressed="${String(s.days.includes(i))}">${d}</button>`)}</div>
+            <label class="check"><input type="checkbox" id="schShuffle" ${s.shuffle ? new Safe('checked') : ''}> Shuffle</label>
+            <label class="check"><input type="checkbox" id="schFade" ${s.fade_in && VOLUME_WORKS ? new Safe('checked') : ''} ${VOLUME_WORKS ? '' : new Safe('disabled')}> Start quietly and fade in over a minute${VOLUME_WORKS ? '' : ' (not on iPhone)'}</label>
+            <p class="field-note">Plays on <strong>${existing ? existing.device_name || 'the device it was made on' : `this ${DEVICE_NAME}`}</strong>, if spotDLr is open there at that time.${IOS ? ' On iPhone it has to be on screen: iOS pauses web pages in the background.' : ''}</p>
+            <p class="form-error" id="schError" hidden></p>
+            <div class="modal-actions">${existing ? html`<button type="button" class="pill-btn" id="schDelete">Delete</button>` : ''}<button type="button" class="pill-btn" data-close>Cancel</button><button type="submit" class="pill-btn primary">${existing ? 'Save' : 'Schedule'}</button></div>
+        </form>`,
+        onOpen: (modal, close) => {
+            const repeat = $('#schRepeat', modal), days = $('#schDays', modal), dateField = $('#schDateField', modal);
+            const chosen = new Set(s.days);
+            const sync = () => {
+                const v = repeat.value;
+                if (v === 'daily') [0, 1, 2, 3, 4, 5, 6].forEach((i) => chosen.add(i));
+                if (v === 'weekdays') { chosen.clear(); [0, 1, 2, 3, 4].forEach((i) => chosen.add(i)); }
+                if (v === 'weekends') { chosen.clear(); [5, 6].forEach((i) => chosen.add(i)); }
+                if (v === 'once') chosen.clear();
+                dateField.hidden = v !== 'once';
+                days.hidden = v === 'once';
+                $$('[data-day]', days).forEach((b) => { const on = chosen.has(+b.dataset.day); b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
+            };
+            repeat.addEventListener('change', sync);
+            days.addEventListener('click', (e) => {
+                const b = e.target.closest('[data-day]');
+                if (!b) return;
+                const i = +b.dataset.day;
+                if (chosen.has(i)) chosen.delete(i); else chosen.add(i);
+                repeat.value = presetOf([...chosen].sort());
+                if (repeat.value === 'once') repeat.value = 'custom'; // no days picked yet, but you're picking days
+                sync();
+            });
+            sync();
+            $('#schDelete', modal)?.addEventListener('click', async () => {
+                try { await api(`/schedules/${existing.id}`, { method: 'DELETE' }); close(); toast('Scheduled play deleted'); await loadSchedules(); if (route().name === 'schedules') rerender(); }
+                catch (err) { toast(err.message, 'error'); }
+            });
+            $('#schForm', modal).addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const body = {
+                    id: existing?.id, device: existing?.device || DEVICE_ID, device_name: existing?.device_name || DEVICE_NAME, what,
+                    time: $('#schTime', modal).value, days: repeat.value === 'once' ? [] : [...chosen].sort(), date: repeat.value === 'once' ? $('#schDate', modal).value : null,
+                    shuffle: $('#schShuffle', modal).checked, fade_in: $('#schFade', modal).checked, enabled: existing ? existing.enabled : true,
+                };
+                if (repeat.value !== 'once' && !body.days.length) { const err = $('#schError', modal); err.textContent = 'Pick at least one day'; err.hidden = false; return; }
+                try {
+                    const saved = await api('/schedules', { method: 'POST', body: JSON.stringify(body) });
+                    close();
+                    const when = repeatText(saved);
+                    toast(`${what.label}: ${timeText(saved.time)}, ${['Every day', 'Weekdays', 'Weekends'].includes(when) ? when.toLowerCase() : when}`);
+                    await loadSchedules();
+                    if (route().name === 'schedules') rerender();
+                } catch (err) { const el = $('#schError', modal); el.textContent = err.message; el.hidden = false; }
+            });
+        },
+    });
+}
+
+async function viewSchedules() {
+    await loadSchedules();
+    const mine = (s) => s.device === DEVICE_ID;
+    const list = [...SCH.list].sort((a, b) => (b.enabled - a.enabled) || a.time.localeCompare(b.time));
+    return html`<div class="view-pad">
+        <h1 class="greeting" style="margin-top:8px">Scheduled plays</h1>
+        <p class="tidy-intro">Music that starts by itself, like an alarm. Add one from <b>⋯</b> on a song, album or playlist → <b>Schedule play</b>. It plays on the device it was made on, if spotDLr is open there at that time.</p>
+        ${list.length ? html`<ul class="sch-list">${list.map((s) => html`
+            <li class="sch-item ${s.enabled ? '' : 'off'}">
+                <div class="sch-when"><span class="sch-time">${timeText(s.time)}</span><span class="sch-repeat">${repeatText(s)}</span></div>
+                <div class="sch-what"><a href="${s.what.href}" class="title-name">${s.what.label}</a>
+                    <span class="title-sub">${s.shuffle ? 'Shuffle · ' : ''}${s.fade_in ? 'Fades in · ' : ''}on ${mine(s) ? `this ${DEVICE_NAME}` : s.device_name || 'another device'}</span></div>
+                <label class="switch" title="${s.enabled ? 'On' : 'Off'}"><input type="checkbox" data-sch-toggle="${s.id}" ${s.enabled ? new Safe('checked') : ''} aria-label="${s.what.label} at ${timeText(s.time)}"><span></span></label>
+                <button type="button" class="icon-btn" data-sch-edit="${s.id}" aria-label="Edit">${icon('more', 18)}</button>
+            </li>`)}</ul>`
+        : html`<div class="empty stats-empty">${icon('clock', 40)}<h2>Nothing scheduled</h2><p>⋯ on a song, album or playlist → Schedule play.</p></div>`}
+    </div>`;
+}
+
+// ---------- queue ----------
+// A side panel, like Spotify's: Now playing, "Next in queue" (P.upNext, songs you added: drag to reorder,
+// ✕ to remove) and "Next from <playlist>" (the rest of the context, in play order). Q opens and closes it.
+
+const Q = { open: false, opener: null };
+const QUEUE_SHOWN = 60; // rows of "Next from …": the rest of a 900-song shuffle isn't worth drawing
+
+function addToQueue(ids, { next = false } = {}) {
+    ids = ids.filter((id) => S.byId.has(id));
+    if (!ids.length) return;
+    if (!currentTrack()) { // nothing playing: start with these
+        playContext(ids, 0, { key: 'queue', label: 'Your queue', href: location.hash || '#/' });
+        return;
+    }
+    if (next) P.upNext.unshift(...ids); else P.upNext.push(...ids);
+    toast(next ? (ids.length === 1 ? `${S.byId.get(ids[0]).title} plays next` : `${plural(ids.length, 'song')} play next`)
+        : `Added ${ids.length === 1 ? S.byId.get(ids[0]).title : plural(ids.length, 'song')} to the queue`);
+    queueChanged();
+}
+
+function queueChanged() {
+    saveSession();
+    renderQueue();
+    renderNowView(); // its "Up next" line
+}
+
+function toggleQueue(open = !Q.open) {
+    if (open && !Q.open) Q.opener = document.activeElement;
+    Q.open = open;
+    $('#queueBtn')?.setAttribute('aria-pressed', String(open));
+    $('#queueBtn')?.classList.toggle('on', open);
+    renderQueue();
+    if (open) $('#queueRoot .queue-panel')?.focus();
+    else if (Q.opener?.isConnected) Q.opener.focus();
+}
+
+function playFromQueue(row) {
+    const i = +row.dataset.sortIndex;
+    if (row.dataset.queueKind === 'user') { P.queued = P.upNext.splice(i, 1)[0]; }
+    else { P.pos = i; P.queued = null; }
+    loadAndPlay();
+}
+
+function queueRow(t, { kind, index }) {
+    const now = kind === 'now';
+    return html`<li class="queue-row ${now ? 'now' : ''}" data-queue-kind="${kind}" ${now ? '' : html`data-sort-index="${index}"`}>
+        ${now ? html`<span class="queue-art">${trackArt(t)}${eq()}</span>`
+            : html`<button type="button" class="queue-art" data-action="queue-play" aria-label="Play ${t.title}">${trackArt(t)}<span class="queue-play">${icon('play', 16)}</span></button>`}
+        <span class="queue-text"><span class="title-name">${t.title}</span><span class="title-sub">${t.artists.join(', ')}</span></span>
+        ${kind === 'user' ? html`<button type="button" class="icon-btn drag-handle" aria-label="Move ${t.title}: drag, or use the up and down arrow keys" title="Drag to reorder">${icon('grip', 16)}</button>
+            <button type="button" class="icon-btn" data-action="queue-remove" aria-label="Remove ${t.title} from the queue">${icon('close', 14)}</button>` : ''}
+    </li>`;
+}
+
+function renderQueue() {
+    const root = $('#queueRoot');
+    if (!root) return;
+    if (!Q.open) { root.innerHTML = ''; return; }
+    const t = currentTrack();
+    const mine = P.upNext.map((id, i) => [S.byId.get(id), i]).filter(([x]) => x);
+    const from = t ? P.pos + 1 : P.order.length;
+    const rest = P.order.slice(from, from + QUEUE_SHOWN).map((qi, k) => [S.byId.get(P.queue[qi]), from + k]).filter(([x]) => x);
+    const more = Math.max(0, P.order.length - from - QUEUE_SHOWN);
+    const hadFocus = root.contains(document.activeElement);
+    root.innerHTML = html`<aside class="queue-panel" role="dialog" aria-label="Queue" tabindex="-1">
+        <div class="queue-head"><h2>Queue</h2><button type="button" class="icon-btn" data-action="queue-close" aria-label="Close the queue">${icon('close', 18)}</button></div>
+        <div class="queue-body">
+            ${t ? html`<h3 class="queue-h">Now playing</h3><ol class="queue-list">${queueRow(t, { kind: 'now' })}</ol>` : html`<p class="queue-empty">Nothing is playing.</p>`}
+            ${mine.length ? html`<div class="queue-h-row"><h3 class="queue-h">Next in queue</h3><button type="button" class="link-btn" data-action="queue-clear">Clear queue</button></div>
+                <ol class="queue-list" id="queueMine">${mine.map(([x, i]) => queueRow(x, { kind: 'user', index: i }))}</ol>` : ''}
+            ${rest.length ? html`<h3 class="queue-h">Next from: ${P.context ? html`<a href="${P.context.href}">${P.context.label}</a>` : 'your songs'}</h3>
+                <ol class="queue-list">${rest.map(([x, i]) => queueRow(x, { kind: 'context', index: i }))}</ol>
+                ${more ? html`<p class="queue-more">and ${plural(more, 'more song')}</p>` : ''}` : ''}
+            ${t && !mine.length && !rest.length ? html`<p class="queue-empty">Nothing after this song. Use ⋯ → <b>Add to queue</b> on any song.</p>` : ''}
+        </div>
+    </aside>`.s;
+    const panel = $('.queue-panel', root);
+    panel.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); toggleQueue(false); } });
+    makeSortable('#queueMine', (a, b) => { P.upNext.splice(b, 0, ...P.upNext.splice(a, 1)); queueChanged(); });
+    if (hadFocus && !root.contains(document.activeElement)) panel.focus();
+    markPlaying();
+}
+
+// Drag to reorder by a .drag-handle (mouse, touch or pen), or ↑/↓ on a focused handle. The items are the
+// list's children, each with data-sort-index. onMove(from, to) changes the data and redraws; it may be async.
+function makeSortable(selector, onMove) {
+    const list = $(selector);
+    if (!list) return;
+    const items = () => [...list.children].filter((c) => c.matches('[data-sort-index]'));
+    const refocus = (to) => requestAnimationFrame(() => $$(`${selector} > [data-sort-index]`)[to]?.querySelector('.drag-handle')?.focus());
+    list.addEventListener('pointerdown', (e) => {
+        const handle = e.target.closest('.drag-handle');
+        if (!handle || e.button > 0) return;
+        e.preventDefault();
+        const item = handle.closest('[data-sort-index]');
+        const from = items().indexOf(item);
+        // Listen on window, not with pointer capture: moving the row in the DOM would release the capture
+        item.classList.add('dragging');
+        list.classList.add('sorting');
+        const scroller = list.closest('.queue-body, .main');
+        const move = (ev) => {
+            const after = items().find((c) => c !== item && ev.clientY < c.getBoundingClientRect().top + c.offsetHeight / 2);
+            if (after !== item.nextElementSibling) list.insertBefore(item, after || null);
+            if (scroller) { // scroll while dragging near the top or bottom edge
+                const r = scroller.getBoundingClientRect();
+                if (ev.clientY < r.top + 40) scroller.scrollTop -= 12; else if (ev.clientY > r.bottom - 40) scroller.scrollTop += 12;
+            }
+        };
+        const done = (ev) => {
+            if (ev.pointerId !== e.pointerId) return;
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', done);
+            window.removeEventListener('pointercancel', done);
+            item.classList.remove('dragging');
+            list.classList.remove('sorting');
+            const to = items().indexOf(item);
+            if (ev.type === 'pointerup' && to !== from) onMove(from, to);
+            else if (to !== from) { const rest = items().filter((c) => c !== item); list.insertBefore(item, rest[from] || null); } // cancelled: put it back
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', done);
+        window.addEventListener('pointercancel', done);
+    });
+    list.addEventListener('keydown', (e) => {
+        const handle = e.target.closest('.drag-handle');
+        if (!handle || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+        e.preventDefault();
+        const from = items().indexOf(handle.closest('[data-sort-index]'));
+        const to = from + (e.key === 'ArrowUp' ? -1 : 1);
+        if (to < 0 || to >= items().length) return;
+        Promise.resolve(onMove(from, to)).then(() => refocus(to));
+    });
+}
+
 // ---------- Now Playing view ----------
 // Full view of the current song: info + genre on the left, a vertical feed of the previous / current / next
 // covers in the middle (scroll, ↑/↓ or click to move), background tinted from the cover.
@@ -470,6 +1012,21 @@ const NV = { open: false, opener: null, prevId: null, nextId: null, wheel: 0, wh
 
 const LYRICS_LEAD = 0.25;   // seconds early: a line should light up as it starts, not just after
 const L = { data: new Map(), raf: 0, index: -2, userScrollUntil: 0 }; // data: track id -> {state, result|error}
+const savingLyrics = new Set();
+
+async function saveTrackLyrics(track) {
+    if (savingLyrics.has(track.id)) return;
+    savingLyrics.add(track.id);
+    toast(`Looking up lyrics for ${track.title}…`);
+    try {
+        const result = await api(`/lyrics/${encodeURIComponent(track.id)}`, { method: 'POST' });
+        const message = result.status === 'saved' ? `Lyrics saved beside ${track.title}`
+            : result.status === 'existing' ? `${track.title} already has an .lrc file`
+            : `No synced lyrics available for ${track.title}`;
+        toast(message);
+    } catch (error) { toast(`Couldn't save lyrics: ${error.message}`, 'error'); }
+    finally { savingLyrics.delete(track.id); }
+}
 
 function fetchLyrics(trackId) {
     const known = L.data.get(trackId);
@@ -583,6 +1140,14 @@ if (!VIZ[V.mode]) V.mode = 'bars';
 
 function ensureAudioGraph() {
     if (V.analyser) return true;
+    if (IOS) { // never route the music through Web Audio here: it would stop when the screen locks
+        V.ctx = { sampleRate: 44100, state: 'running', resume() {} };
+        V.analyser = syntheticAnalyser();
+        V.freq = new Uint8Array(1024);
+        V.wave = new Uint8Array(2048);
+        V.generated = true;
+        return true;
+    }
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtx) return false;
     try {
@@ -598,6 +1163,37 @@ function ensureAudioGraph() {
         P.audio.addEventListener('play', () => V.ctx.state === 'suspended' && V.ctx.resume());
         return true;
     } catch { return false; }
+}
+
+// iPhone: no access to the real sound, so a generated stand-in with the same interface: a spectrum shaped
+// like typical music (loud bass, falling off towards treble) moving on slow waves plus a 120 BPM pulse, and a
+// matching waveform. It eases to silence when paused. The visualizer menu says it's generated.
+function syntheticAnalyser() {
+    const phase = Array.from({ length: 24 }, () => Math.random() * Math.PI * 2);
+    let level = 0;
+    return {
+        frequencyBinCount: 1024, fftSize: 2048,
+        getByteFrequencyData(out) {
+            const t = performance.now() / 1000;
+            level += ((P.audio.paused ? 0 : 1) - level) * 0.08;
+            const beat = Math.max(0, Math.cos(t * Math.PI * 4)) ** 6; // 2 beats per second
+            for (let k = 0; k < out.length; k++) {
+                const band = Math.min(23, Math.floor(Math.log2(k + 2) * 2.4));
+                const drift = 0.65 + 0.35 * Math.sin(t * (0.7 + band * 0.13) + phase[band]);
+                const shape = 235 * Math.exp(-k / 220) + 40 * Math.exp(-k / 900);
+                const kick = k < 12 ? 70 * beat : 0;
+                out[k] = Math.min(255, Math.max(0, (shape * drift + kick) * level));
+            }
+        },
+        getByteTimeDomainData(out) {
+            const t = performance.now() / 1000;
+            for (let i = 0; i < out.length; i++) {
+                const x = i / out.length;
+                const v = Math.sin(x * 40 + t * 9) * 0.5 + Math.sin(x * 97 - t * 13) * 0.3 + Math.sin(x * 11 + t * 3) * 0.2;
+                out[i] = 128 + v * 60 * level;
+            }
+        },
+    };
 }
 
 // Bars on a log scale, like hearing: 30 Hz to 16 kHz in equal *ratios*. Linear bins would give the bass
@@ -636,10 +1232,12 @@ const tint = (alpha, lift = 0.55) => { const [r, g, b] = V.color.map((c) => Math
 // card = the current cover's box inside the panel ({ x, y, size, cx, cy }), so Ring and Vinyl follow it as it slides.
 const VIZ_DRAW = {
     bars(g, f) {
-        const levels = bandLevels(64), stripH = f.h * 0.32, gap = 3, barW = (f.w - gap * 63) / 64;
+        // On a phone the title, ♥ and progress sit at the bottom, right where the bars grow: keep them low and faint there
+        const compact = f.w < 700 || f.h < 500;
+        const levels = bandLevels(compact ? 40 : 64), stripH = f.h * (compact ? 0.14 : 0.32), gap = 3, barW = (f.w - gap * (levels.length - 1)) / levels.length;
         levels.forEach((v, i) => {
             const barH = Math.max(2, v * v * stripH);      // squared: quiet stays low, loud jumps out
-            g.fillStyle = tint((0.14 + 0.36 * v) * (NV.lyrics ? 0.6 : 1)); // faint enough that white text on top stays readable
+            g.fillStyle = tint((0.14 + 0.36 * v) * (NV.lyrics ? 0.6 : 1) * (compact ? 0.7 : 1)); // faint enough that white text on top stays readable
             g.beginPath();
             g.roundRect(i * (barW + gap), f.h - barH, barW, barH, [3, 3, 0, 0]);
             g.fill();
@@ -648,7 +1246,8 @@ const VIZ_DRAW = {
     wave(g, f) {
         V.analyser.getByteTimeDomainData(V.wave);          // 2048 samples, 128 = silence
         // Every 8th sample: 256 points is smoother than 2048 (~2 per pixel, jagged) and ⅛ of the work
-        const points = V.wave.length / 8, step = f.w / (points - 1), mid = f.h * 0.8, amp = f.h * 0.18;
+        const compact = f.w < 700 || f.h < 500; // phones: a thin line along the bottom, under the song info
+        const points = V.wave.length / 8, step = f.w / (points - 1), mid = f.h * (compact ? 0.93 : 0.8), amp = f.h * (compact ? 0.05 : 0.18);
         g.lineWidth = 2;
         g.strokeStyle = tint(NV.lyrics ? 0.5 : 0.85);
         g.beginPath();
@@ -885,6 +1484,7 @@ function setVizMode(mode) {
 const cycleVizMode = () => setVizMode(VIZ_MODES[(VIZ_MODES.findIndex(([k]) => k === V.mode) + 1) % VIZ_MODES.length][0]);
 const vizButtonInner = () => html`${icon(VIZ[V.mode].icon, 16)}<span>${VIZ[V.mode].label}</span>${icon('down', 14, 'chev')}`;
 const vizMenu = () => html`<div class="nv-viz-menu" role="menu" aria-label="Visualizer" hidden>
+    ${IOS ? html`<p class="nv-viz-note" role="note">On iPhone these follow a generated pattern, not the song: Safari stops music that visualizers listen to when the screen locks.</p>` : ''}
     ${VIZ_MODES.map(([key, label, iconName]) => html`<button role="menuitemradio" aria-checked="${String(key === V.mode)}" data-viz-option="${key}" tabindex="-1">${icon(iconName, 16)}<span>${label}</span>${icon('checkPlain', 16, 'tick')}</button>`)}
 </div>`;
 
@@ -908,7 +1508,8 @@ function closeVizMenu(returnFocus = true) {
 // The song `offset` steps away in play order, or null. Wraps only when that's what next() would do.
 function neighbour(offset) {
     if (!currentTrack()) return null;
-    let i = P.pos + offset;
+    if (offset > 0 && P.upNext.length) return S.byId.get(P.upNext[0]) || null;
+    let i = P.pos + offset + (P.queued && offset < 0 ? 1 : 0); // while a queued song plays, "previous" is the context song
     if ((i < 0 || i >= P.order.length) && P.repeat === 'all' && !P.shuffle) i = (i + P.order.length) % P.order.length;
     return i >= 0 && i < P.order.length ? S.byId.get(P.queue[P.order[i]]) || null : null;
 }
@@ -916,6 +1517,7 @@ function neighbour(offset) {
 function stepSong(offset) {
     if (offset > 0) return neighbour(1) && next();
     if (!neighbour(-1)) return;
+    if (P.queued) { P.queued = null; loadAndPlay(); return; }
     P.pos = P.pos > 0 ? P.pos - 1 : P.order.length - 1; // previous song, even past the 3 s "restart" point
     loadAndPlay();
 }
@@ -957,6 +1559,7 @@ function renderNowView() {
                             <button class="nv-viz ${V.mode !== 'off' ? 'on' : ''}" data-nv-viz data-nv-focus="viz" aria-haspopup="menu" aria-expanded="false" title="Visualizer (V)"><span class="sr-only">Visualizer: </span>${vizButtonInner()}</button>
                             ${vizMenu()}
                         </div>
+                        ${sleepButton('nv-sleep')}
                         <button class="icon-btn" data-nv-fullscreen data-nv-focus="fullscreen" aria-pressed="${String(isFullscreen())}" aria-label="${isFullscreen() ? 'Exit full screen' : 'Full screen'}" title="${isFullscreen() ? 'Exit full screen' : 'Full screen'} (F)">${icon(isFullscreen() ? 'shrink' : 'fullscreen', 20)}</button>
                         <button class="icon-btn" data-nv-close data-nv-focus="close" aria-label="Close">${icon('close', 20)}</button>
                     </div>
@@ -969,7 +1572,7 @@ function renderNowView() {
                         <div class="nv-like">${likeButton(t.id, { big: true })}</div>
                         <div class="nv-progress" aria-hidden="true"><i></i></div>
                         ${t.genre ? html`<div class="nv-tags"><a class="chip small" href="${genreHref(t.genre)}">#${t.genre.toLowerCase()}</a></div>` : ''}
-                        ${nextT ? html`<p class="nv-upnext"><span>Up next</span>${nextT.title} • ${nextT.artists.join(', ')}</p>` : ''}
+                        ${nextT ? html`<button type="button" class="nv-upnext" data-action="queue-open" aria-label="Up next: ${nextT.title}. Open the queue"><span>Up next${P.upNext.length ? ' · from your queue' : ''}</span>${nextT.title} • ${nextT.artists.join(', ')}</button>` : ''}
                     </div>
                     ${NV.lyrics
                         ? html`<div class="nv-lyrics" tabindex="0" aria-label="Lyrics">${lyricsBody(t.id)}</div>`
@@ -1071,10 +1674,22 @@ function closeNowView() {
 
 function bindNowView() {
     $('#nowBtn').innerHTML = icon('expand', 16).s;
+    $('#queueBtn').insertAdjacentHTML('beforebegin', sleepButton().s);
+    $('#queueBtn').innerHTML = icon('queue', 16).s;
+    $('#queueBtn').addEventListener('click', () => toggleQueue());
     $('#nowBtn').addEventListener('click', () => (NV.open ? closeNowView() : openNowView()));
-    $('#player').addEventListener('click', (e) => { if (e.target.closest('#npArt')) openNowView(); });
+    // The cover opens Now Playing. On a phone the ⤢ button is hidden with the volume, so (as in Spotify's app)
+    // tapping anywhere on the song in the player bar opens it, except the ♥
+    $('#player').addEventListener('click', (e) => {
+        const phone = matchMedia('(max-width: 600px)').matches;
+        if (e.target.closest('#npArt') || (phone && e.target.closest('.now-playing') && !e.target.closest('#npLike, .np-artist a') && currentTrack())) {
+            e.preventDefault(); // the title is a link to the playlist; on a phone the tap opens Now Playing instead
+            openNowView();
+        }
+    });
     const root = $('#nowRoot');
     root.addEventListener('click', (e) => {
+        if (NV.swiped) { NV.swiped = false; e.preventDefault(); return; } // the end of a swipe, not a tap on a card
         const step = e.target.closest('[data-nv-step]');
         if (step) { stepSong(+step.dataset.nvStep); return; }
         const line = e.target.closest('.nv-line[data-t]');
@@ -1128,6 +1743,44 @@ function bindNowView() {
     for (const type of ['wheel', 'touchmove', 'pointerdown']) {
         root.addEventListener(type, (e) => { if (e.target.closest('.nv-lyrics')) L.userScrollUntil = Date.now() + 3000; }, { passive: true });
     }
+    // Touch: swipe the covers up for the next song, down for the previous one, as in Spotify's app. The covers
+    // follow the finger; let go past 70 px (or flick) to change song, otherwise they spring back.
+    root.addEventListener('pointerdown', (e) => {
+        const feed = e.target.closest('.nv-feed');
+        if (!feed || e.pointerType === 'mouse' || !e.isPrimary) return;
+        const start = { y: e.clientY, t: performance.now() };
+        let dy = 0, dragging = false, recent = [{ y: e.clientY, t: start.t }]; // the last ~100 ms, for flick speed
+        feed.style.setProperty('--drag-ease', '0s');
+        const move = (ev) => {
+            if (ev.pointerId !== e.pointerId) return;
+            dy = ev.clientY - start.y;
+            const t = performance.now();
+            recent.push({ y: ev.clientY, t });
+            while (recent.length > 2 && t - recent[0].t > 100) recent.shift();
+            if (!dragging && Math.abs(dy) < 8) return; // still a tap
+            dragging = true;
+            const blocked = dy < 0 ? !neighbour(1) : !neighbour(-1);
+            feed.style.setProperty('--drag', `${blocked ? dy * 0.25 : dy}px`); // resist where there's no song to go to
+        };
+        const end = (ev) => {
+            if (ev.pointerId !== e.pointerId) return;
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', end);
+            window.removeEventListener('pointercancel', end);
+            feed.style.setProperty('--drag-ease', '.25s');
+            feed.style.setProperty('--drag', '0px');
+            if (!dragging) return;
+            NV.swiped = true;
+            setTimeout(() => { NV.swiped = false; }, 400); // in case no click follows
+            const first = recent[0], last = recent[recent.length - 1];
+            const speed = (last.y - first.y) / Math.max(1, last.t - first.t); // px per ms, over the end of the gesture
+            const offset = dy < -70 || (dy < -24 && speed < -0.35) ? 1 : dy > 70 || (dy > 24 && speed > 0.35) ? -1 : 0;
+            if (ev.type === 'pointerup' && offset && neighbour(offset)) stepSong(offset);
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', end);
+        window.addEventListener('pointercancel', end);
+    });
     window.addEventListener('hashchange', closeNowView);
     document.addEventListener('fullscreenchange', onFullscreenChange);
     document.addEventListener('webkitfullscreenchange', onFullscreenChange);
@@ -1166,19 +1819,20 @@ function bindPlayer() {
     const volume = $('#volumeBar');
     const mute = $('#muteBtn');
     const showVolume = () => {
-        volume.value = P.audio.muted ? 0 : Math.round(P.audio.volume * 100);
+        volume.value = P.audio.muted ? 0 : Math.round(P.userVolume * 100);
         setRangeFill(volume);
-        const v = P.audio.muted ? 0 : P.audio.volume;
+        const v = P.audio.muted ? 0 : P.userVolume;
         mute.innerHTML = icon(v === 0 ? 'mute' : v < 0.5 ? 'volumeLow' : 'volume', 16).s;
         mute.setAttribute('aria-label', P.audio.muted ? 'Unmute' : 'Mute');
     };
     volume.addEventListener('input', () => {
         P.audio.muted = false;
-        P.audio.volume = volume.value / 100;
-        store.set('volume', P.audio.volume);
+        P.userVolume = volume.value / 100;
+        store.set('volume', P.userVolume);
+        applyVolume();
         showVolume();
     });
-    mute.addEventListener('click', () => { P.audio.muted = !P.audio.muted; showVolume(); });
+    mute.addEventListener('click', () => { P.audio.muted = !P.audio.muted; applyVolume(); showVolume(); });
     showVolume();
 
     P.audio.addEventListener('timeupdate', () => {
@@ -1198,7 +1852,13 @@ function bindPlayer() {
     P.audio.addEventListener('loadedmetadata', () => { $('#timeTotal').textContent = fmtTime(P.audio.duration); });
     P.audio.addEventListener('play', updateControls);
     P.audio.addEventListener('pause', updateControls);
-    P.audio.addEventListener('ended', () => { flushListen(); next(true); });  // report before moving on (or stopping)
+    P.audio.addEventListener('ended', () => { // report before moving on (or stopping)
+        flushListen();
+        if (SL.endOfSong) { stopForSleep(); return; }
+        next(true);
+    });
+    P.audio.addEventListener('timeupdate', maybeCrossfade);
+    P.audio.addEventListener('pause', () => { if (XF.active && !XF.switching) endFade(); });
     P.audio.addEventListener('seeking', () => { listen.last = null; });  // a jump isn't listening
     window.addEventListener('pagehide', () => { flushListen(true); saveSession(); });
     P.audio.addEventListener('pause', saveSession);
@@ -1313,6 +1973,19 @@ function buildLine(build, ver) {
     return html`<p class="about-build" title="${build}">${parts.join(', ')}</p>`;
 }
 
+// On a phone through Tailscale (HTTPS), a service worker lets "Add to Home Screen" install spotDLr as an
+// app and shows a clear page when the computer can't be reached. Not on this computer: nothing to gain.
+if ('serviceWorker' in navigator && location.hostname.endsWith('.ts.net')) navigator.serviceWorker.register('/sw.js').catch(() => {});
+
+let qrLoading = null;
+const loadQr = () => qrLoading || (qrLoading = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = '/static/vendor/qrcode.min.js';
+    script.onload = resolve;
+    script.onerror = () => { qrLoading = null; reject(); };
+    document.head.append(script);
+}));
+
 function openSettings(focus = 'downloads') {
     const s = S.settings;
     const lossless = (f) => f === 'flac' || f === 'wav';
@@ -1352,6 +2025,30 @@ function openSettings(focus = 'downloads') {
                     </form>
                 </section>
 
+                ${S.init.on_phone ? '' : html`<section class="modal-section" aria-labelledby="phoneTitle">
+                    <h3 id="phoneTitle">Phone access</h3>
+                    <div class="field">
+                        <label class="check"><input type="checkbox" id="setPhone"> Open spotDLr on your phone</label>
+                        <small>Scan a QR code with your phone's camera to use spotDLr in its browser: on the same Wi-Fi, or anywhere with Tailscale. Music plays on the phone, streamed from this computer, which has to stay on and awake. Only phones that scanned the code get in. Turning this off pauses it: phones get back in when you turn it on again.</small>
+                    </div>
+                    <div id="phonePanel" class="phone-panel" hidden></div>
+                </section>`}
+
+                <section class="modal-section" aria-labelledby="pbTitle">
+                    <h3 id="pbTitle">Playback</h3>
+                    <div class="field">
+                        ${VOLUME_WORKS ? '' : html`<p class="field-note">On iPhone and iPad, Safari doesn't let web pages change the volume, so these two only work on a computer or Android.</p>`}
+                        <label class="check"><input type="checkbox" id="setNormalize" ${PB.normalize ? new Safe('checked') : ''} ${VOLUME_WORKS ? '' : new Safe('disabled')}> Even out volume</label>
+                        <small>Plays every song at about the same loudness, like Spotify's “Normalize volume”: loud songs are turned down to match the rest, nothing is boosted. spotDLr measures each song once (about a second each, in the background).</small>
+                        <small id="loudStatus" role="status"></small>
+                    </div>
+                    <div class="field">
+                        <label for="setCrossfade">Crossfade <span class="field-value" id="crossfadeValue">${PB.crossfade ? `${PB.crossfade} s` : 'Off'}</span></label>
+                        <input type="range" class="bar" id="setCrossfade" min="0" max="12" step="1" value="${PB.crossfade}" ${VOLUME_WORKS ? '' : new Safe('disabled')} aria-valuetext="${PB.crossfade ? `${PB.crossfade} seconds` : 'Off'}">
+                        <small>The end of each song blends into the start of the next. Not on Repeat one, or when a song is shorter than twice this.</small>
+                    </div>
+                </section>
+
                 <section class="modal-section" aria-labelledby="dlTitle">
                     <h3 id="dlTitle">Downloads</h3>
                     <form id="dlForm">
@@ -1372,15 +2069,24 @@ function openSettings(focus = 'downloads') {
                         </div>
                         <div class="field">
                             <label class="check"><input type="checkbox" id="setLyrics" ${s.lyrics ? new Safe('checked') : ''}> Save synced lyrics (.lrc files)</label>
+                            <small>For new music downloads.</small>
                         </div>
                         <div class="modal-actions"><button type="submit" class="pill-btn primary">Save download settings</button></div>
                     </form>
+                    <div class="field lyrics-save">
+                        <span class="label">Lyrics for existing music</span>
+                        <small>Save available synced lyrics from LRCLIB beside songs already in your library. Existing .lrc files are kept. You can close Settings while it runs; keep spotDLr running.</small>
+                        <button type="button" class="pill-btn" id="saveLibraryLyrics" disabled>${icon('downloadPlain', 16)} Download library lyrics</button>
+                        <small id="lyricsSaveStatus" role="status"></small>
+                    </div>
                 </section>
 
                 <section class="modal-section about" aria-label="About spotDLr">
                     <div class="about-name">${icon('spotDLr', 20)}<strong>spotDLr</strong><span class="about-version">${S.init.version ? `Version ${S.init.version}` : ''}</span></div>
                     ${buildLine(S.init.build, S.init.version)}
                     <a class="link about-link" href="https://github.com/HoldenGrant/spotDLr-web_ui/blob/main/CHANGELOG.md" target="_blank" rel="noopener">What's new</a>
+                    <a class="link about-link" href="#/tidy" data-close>Tidy up your library</a>
+                    <a class="link about-link" href="#/schedules" data-close>Scheduled plays</a>
                 </section>
             </div>
         </div>`.s;
@@ -1389,8 +2095,157 @@ function openSettings(focus = 'downloads') {
     const backdrop = $('#modalRoot .modal-backdrop');
     const opener = document.activeElement;
     const close = () => { $('#modalRoot').innerHTML = ''; if (opener && opener.focus) opener.focus(); };
-    backdrop.addEventListener('click', (e) => { if (e.target.closest('[data-close]') && (e.target === backdrop || e.target.closest('button[data-close]'))) close(); });
+    backdrop.addEventListener('click', (e) => { if (e.target.closest('[data-close]') && (e.target === backdrop || e.target.closest('button[data-close], a[data-close]'))) close(); });
     backdrop.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+
+    const lyricsButton = $('#saveLibraryLyrics');
+    const lyricsStatus = $('#lyricsSaveStatus');
+    let lyricsTimer = 0;
+    const showLyricsSave = (st) => {
+        if (!backdrop.isConnected) return;
+        clearTimeout(lyricsTimer);
+        lyricsButton.disabled = st.running || !S.tracks.length;
+        lyricsButton.innerHTML = st.running
+            ? html`${icon('loader', 16, 'spinning')} Downloading lyrics…`.s
+            : html`${icon('downloadPlain', 16)} Download library lyrics`.s;
+        lyricsStatus.textContent = !S.tracks.length && !st.total ? 'Your library has no songs yet.' : st.total || st.running
+            ? `${st.running ? `Checked ${st.done} of ${st.total}` : 'Finished'}: ${st.saved} saved, ${st.existing} already had lyrics, ${st.unavailable} unavailable, ${st.failed} failed.${st.error ? ` Last error: ${st.error}` : ''}` : '';
+        if (st.running) lyricsTimer = setTimeout(loadLyricsSave, 1500);
+    };
+    const lyricsSaveError = (error) => {
+        if (!backdrop.isConnected) return;
+        lyricsStatus.textContent = `Couldn't check lyrics downloads: ${error.message}. Try again.`;
+        lyricsButton.disabled = !S.tracks.length;
+        lyricsButton.innerHTML = html`${icon('downloadPlain', 16)} Download library lyrics`.s;
+    };
+    const loadLyricsSave = () => {
+        if (backdrop.isConnected) api('/lyrics/save-status').then(showLyricsSave).catch(lyricsSaveError);
+    };
+    lyricsButton.addEventListener('click', () => {
+        clearTimeout(lyricsTimer);
+        lyricsButton.disabled = true;
+        lyricsStatus.textContent = 'Starting lyrics download…';
+        api('/lyrics/save-library', { method: 'POST' }).then(showLyricsSave).catch(lyricsSaveError);
+    });
+    loadLyricsSave();
+
+    if (S.init.on_phone) { // Spotify keys are changed on the computer only (the server refuses it from a phone)
+        $$('#credsForm input, #credsForm button').forEach((el) => { el.disabled = true; });
+        $('#credsForm').insertAdjacentHTML('afterbegin', html`<p class="field-note">Change these on the computer running spotDLr.</p>`.s);
+    }
+
+    // Phone access: on/off, then the QR code (drawn here by the vendored qrcode-generator, no network)
+    if (!S.init.on_phone) {
+        let qrKind = null; // 'tailscale' | 'wifi': which code is shown
+        const showPhone = (st) => {
+            $('#setPhone').checked = st.enabled;
+            const panel = $('#phonePanel');
+            panel.hidden = !st.enabled;
+            if (!st.enabled) { panel.innerHTML = ''; return; }
+            const ts = st.tailscale || {}, tss = ts.status || {};
+            if (!ts.url && qrKind === 'tailscale') qrKind = null;
+            const kind = qrKind || (ts.url ? 'tailscale' : 'wifi');
+            const url = kind === 'tailscale' ? ts.url : st.url;
+            const address = kind === 'tailscale' ? ts.address : st.address;
+            const tsBlock = !tss.installed
+                ? html`<p class="phone-ts-note">Away from home too? Install <a class="link" href="https://tailscale.com/download" target="_blank" rel="noopener">Tailscale</a> (free) on this computer and your phone, then come back here.</p>`
+                : html`<label class="check"><input type="checkbox" id="setTailscale" ${ts.enabled ? new Safe('checked') : ''} ${tss.running || ts.enabled ? '' : new Safe('disabled')}> Also away from home, with Tailscale</label>
+                    <small>${tss.running ? html`Your phone needs the Tailscale app, signed in as <b>${tss.account || 'the same account'}</b>. Music then reaches it anywhere, privately (only your devices can connect), over HTTPS.` : 'Tailscale is off on this computer. Turn it on (menu bar → Tailscale → Connect) to use this.'}</small>
+                    ${ts.enabled ? html`<label class="check phone-funnel"><input type="checkbox" id="setFunnel" ${ts.funnel ? new Safe('checked') : ''}> Also devices without Tailscale (Tailscale Funnel)</label>
+                    <small>${ts.funnel
+                        ? html`<b>On:</b> this address is on the public internet, so any phone or tablet can open it, at home or away, with no app. Only devices that scanned the code get in; everyone else sees “Scan the QR code”.`
+                        : 'Puts this address on the public internet so phones and tablets without the Tailscale app can use it too, anywhere. Only devices that scanned the code get in, but anyone with the address can reach the sign-in page. Leave it off if every device has Tailscale.'}</small>` : ''}
+                    ${ts.error ? html`<p class="dupe-warn">${icon('warn', 14)} ${ts.error}</p>` : ''}`;
+            if (!url) {
+                panel.innerHTML = html`<div class="phone-help"><p class="dupe-warn">${icon('warn', 14)} ${st.error || 'Starting…'}</p>${tsBlock}</div>`.s;
+                if (!st.error) setTimeout(() => api('/phone').then(showPhone), 1000);
+                bindTs();
+                return;
+            }
+            loadQr().then(() => {
+                const qr = qrcode(0, 'M');
+                qr.addData(url);
+                qr.make();
+                panel.innerHTML = html`
+                    ${ts.url && st.url ? html`<div class="filter-row phone-kind" role="group" aria-label="Which code">${[['tailscale', ts.funnel ? 'Anywhere' : 'Anywhere (Tailscale)'], ['wifi', 'Home Wi-Fi only']].map(([k, label]) =>
+                        html`<button type="button" class="chip ${k === kind ? 'active' : ''}" data-qr-kind="${k}" aria-pressed="${String(k === kind)}">${label}</button>`)}</div>` : ''}
+                    <div class="phone-row">
+                        <div class="phone-qr" role="img" aria-label="QR code for ${address}">${new Safe(qr.createSvgTag({ cellSize: 5, margin: 3, scalable: true }))}</div>
+                        <div class="phone-help">
+                            <ol>${kind === 'tailscale' && ts.funnel
+                                ? html`<li>Point any phone or tablet's camera at the code and tap the link: no Tailscale app needed.</li><li>Add it to your home screen: it opens like an app, at home or away.</li>`
+                                : kind === 'tailscale'
+                                ? html`<li>On your phone, open the Tailscale app and make sure it's connected.</li><li>Point the camera at the code and tap the link.</li><li>Add it to your home screen: it opens like an app, at home or away. Keep Tailscale connected, at home too: this link always goes through it.</li>`
+                                : html`<li>Connect your phone to the same Wi-Fi as this computer.</li><li>Open the camera and point it at the code.</li><li>Tap the link. Bookmark it to come back without scanning.</li>`}</ol>
+                            <p class="phone-address">${address}</p>
+                            <button type="button" class="pill-btn small" id="phoneNewKey">New QR code</button>
+                            <small>Signs out every phone that used the old one.</small>
+                            ${kind === 'wifi' && st.ip_url ? html`<small>Uses this computer's name on your network, which stays the same when your router changes its number address. If the link doesn't open on your phone, use <a class="link" href="${st.ip_url}">${st.ip_url.split('/?')[0]}</a> instead (it changes when the router gives this computer a new address).</small>` : ''}
+                            ${kind === 'wifi' ? html`<small>If the phone can't connect: check it's on the same Wi-Fi, and if this computer asked whether to allow incoming connections (for Python or spotDLr), allow them.</small>` : ''}
+                        </div>
+                    </div>
+                    <div class="phone-ts">${tsBlock}</div>`.s;
+                $('#phoneNewKey').addEventListener('click', () => api('/phone/new-key', { method: 'POST' }).then((x) => { showPhone(x); toast('New QR code. Phones that used the old one are signed out.'); }).catch((err) => toast(err.message, 'error')));
+                $$('[data-qr-kind]', panel).forEach((b) => b.addEventListener('click', () => { qrKind = b.dataset.qrKind; showPhone(st); }));
+                bindTs();
+            }).catch(() => { panel.textContent = `Open ${url} on your phone.`; });
+        };
+        const bindTs = () => {
+            const funnel = $('#setFunnel');
+            if (funnel) funnel.addEventListener('change', () => {
+                funnel.disabled = true;
+                api('/phone', { method: 'POST', body: JSON.stringify({ funnel: funnel.checked }) }).then((x) => {
+                    showPhone(x);
+                    if (x.tailscale.error) toast(x.tailscale.error, 'error');
+                    else toast(x.tailscale.funnel ? 'Funnel on: any device with the code can connect, no Tailscale needed' : 'Funnel off: only your Tailscale devices can reach this address');
+                }).catch((err) => { toast(err.message, 'error'); funnel.checked = !funnel.checked; funnel.disabled = false; });
+            });
+            const box = $('#setTailscale');
+            if (!box) return;
+            box.addEventListener('change', () => {
+                box.disabled = true;
+                api('/phone', { method: 'POST', body: JSON.stringify({ tailscale: box.checked }) }).then((x) => {
+                    qrKind = null;
+                    showPhone(x);
+                    if (x.tailscale.error) toast(x.tailscale.error, 'error');
+                    else if (x.tailscale.enabled) toast('Tailscale on: the QR code now works anywhere');
+                }).catch((err) => { toast(err.message, 'error'); box.checked = !box.checked; box.disabled = false; });
+            });
+        };
+        api('/phone').then(showPhone).catch(() => {});
+        $('#setPhone').addEventListener('change', (e) => {
+            api('/phone', { method: 'POST', body: JSON.stringify({ enabled: e.target.checked }) }).then((st) => {
+                showPhone(st);
+                if (!st.enabled) toast('Phone access paused. Phones get back in when you turn it on again.');
+            }).catch((err) => { toast(err.message, 'error'); e.target.checked = !e.target.checked; });
+        });
+    }
+
+    // Playback settings save as you change them (no Save button: you hear the difference right away)
+    const loudStatus = () => api('/loudness').then((r) => {
+        const el = $('#loudStatus');
+        if (!el) return;
+        el.textContent = !PB.normalize ? '' : r.running ? `Measuring songs…${r.total ? ` ${r.done} of ${r.total}` : ''}` : `${plural(r.measured, 'song')} measured`;
+        if (r.running && PB.normalize) setTimeout(loudStatus, 2000);
+    }).catch(() => {});
+    $('#setNormalize').addEventListener('change', (e) => {
+        PB.normalize = e.target.checked;
+        store.set('normalize', PB.normalize);
+        if (PB.normalize) api('/loudness/scan', { method: 'POST' }).then(loudStatus).catch(() => {});
+        else $('#loudStatus').textContent = '';
+        if (currentTrack()) setTrackGain(currentTrack().id);
+    });
+    loudStatus();
+    const xf = $('#setCrossfade');
+    setRangeFill(xf);
+    xf.addEventListener('input', () => {
+        PB.crossfade = +xf.value;
+        store.set('crossfade', PB.crossfade);
+        $('#crossfadeValue').textContent = PB.crossfade ? `${PB.crossfade} s` : 'Off';
+        xf.setAttribute('aria-valuetext', PB.crossfade ? `${PB.crossfade} seconds` : 'Off');
+        setRangeFill(xf);
+        if (!PB.crossfade) endFade();
+    });
 
     // Current status from the server (the cached S.init may be stale)
     api('/credentials').then((c) => {
@@ -1420,7 +2275,7 @@ function openSettings(focus = 'downloads') {
         btn.innerHTML = html`${icon('loader', 16, 'spinning')} Testing…`.s;
         try {
             const c = await api('/credentials', { method: 'POST', body: JSON.stringify({ client_id: id, client_secret: secret }) });
-            S.init = { initialized: c.initialized, message: c.message };
+            S.init = { ...S.init, initialized: c.initialized, message: c.message }; // keep version, on_phone, …
             S.spotifyCache.clear();
             $('#connStatus').innerHTML = connectionLine(c).s;
             $('#credId').value = '';
@@ -1451,19 +2306,32 @@ function openSettings(focus = 'downloads') {
 
 // ---------- sidebar ----------
 
+// Your Library: drawn into the sidebar, and into the Library page (#/library, the phone's "Your Library" tab)
+// when it's open. Same filter, search and sort state for both.
 function renderSidebar() {
-    $('#libraryChips').innerHTML = html`${[['all', 'All'], ['playlist', 'Playlists'], ['album', 'Albums'], ['artist', 'Artists']].map(([key, label]) =>
+    for (const prefix of ['library', 'pageLibrary']) if ($(`#${prefix}List`)) renderLibraryInto(prefix);
+    highlightSidebar();
+    markPlaying();
+}
+
+function renderLibraryInto(prefix) {
+    $(`#${prefix}Chips`).innerHTML = html`${[['all', 'All'], ['playlist', 'Playlists'], ['album', 'Albums'], ['artist', 'Artists']].map(([key, label]) =>
         html`<button class="chip ${S.libFilter === key ? 'active' : ''}" data-lib-filter="${key}">${label}</button>`)}`.s;
+
+    const sortLabel = LIB_SORTS.find(([key]) => key === S.libSort)?.[1] || LIB_SORTS[0][1];
+    $(`#${prefix}Sort`).innerHTML = html`<span>${sortLabel}</span>${icon('down', 14)}`.s;
+    $(`#${prefix}Sort`).setAttribute('aria-label', `Sort Your Library: ${sortLabel}`);
 
     const q = S.libQuery.trim().toLowerCase();
     const match = (text) => !q || text.toLowerCase().includes(q);
-    const items = [];
+    const pinned = []; // Liked Songs and All songs stay on top, as Spotify keeps Liked Songs
+    const entries = []; // { key, name, creator, added, html }: sorted below
     if ((S.libFilter === 'all' || S.libFilter === 'playlist') && match('Liked Songs')) {
-        items.push(html`<li class="lib-item" data-href="#/liked" data-key="liked">${likedArt()}
+        pinned.push(html`<li class="lib-item" data-href="#/liked" data-key="liked">${likedArt()}
             <div class="lib-item-text"><div class="lib-item-name">Liked Songs</div><div class="lib-item-sub">Playlist • ${plural(S.liked.size, 'song')}</div></div></li>`);
     }
     if (S.libFilter === 'all' && match('All songs')) {
-        items.push(html`<li class="lib-item" data-href="#/songs" data-key="songs">${allSongsArt()}
+        pinned.push(html`<li class="lib-item" data-href="#/songs" data-key="songs">${allSongsArt()}
             <div class="lib-item-text"><div class="lib-item-name">All songs</div><div class="lib-item-sub">Playlist • ${plural(S.tracks.length, 'song')}</div></div></li>`);
     }
     if (S.libFilter !== 'artist') {
@@ -1471,21 +2339,61 @@ function renderSidebar() {
             if (S.libFilter !== 'all' && c.kind !== S.libFilter) continue;
             if (!match(c.name)) continue;
             const sub = c.kind === 'album' ? `Album • ${c.artist}` : `Playlist • ${plural(c.track_ids.length, 'song')}`;
-            items.push(html`<li class="lib-item" data-href="#/collection/${encodeURIComponent(c.key)}" data-key="collection:${c.key}">${collectionArt(c)}
-                <div class="lib-item-text"><div class="lib-item-name">${c.name}</div><div class="lib-item-sub">${sub}</div></div></li>`);
+            entries.push({ key: `collection:${c.key}`, name: c.name, creator: c.artist || '', added: c.added,
+                html: html`<li class="lib-item" data-href="#/collection/${encodeURIComponent(c.key)}" data-key="collection:${c.key}">${collectionArt(c)}
+                    <div class="lib-item-text"><div class="lib-item-name">${c.name}</div><div class="lib-item-sub">${sub}</div></div></li>` });
         }
     }
     if (S.libFilter === 'artist' || S.libFilter === 'all') {
         const artists = S.libFilter === 'all' ? S.artists.filter((a) => a.trackIds.length >= 3).slice(0, 12) : S.artists;
         for (const a of artists) {
             if (!match(a.name)) continue;
-            items.push(html`<li class="lib-item" data-href="${artistHref(a.name)}" data-key="artist:${a.name}">${artistArt(a)}
-                <div class="lib-item-text"><div class="lib-item-name">${a.name}</div><div class="lib-item-sub">Artist</div></div></li>`);
+            entries.push({ key: `artist:${a.name}`, name: a.name, creator: a.name,
+                added: Math.max(0, ...a.trackIds.map((id) => S.byId.get(id)?.added || 0)),
+                html: html`<li class="lib-item" data-href="${artistHref(a.name)}" data-key="artist:${a.name}">${artistArt(a)}
+                    <div class="lib-item-text"><div class="lib-item-name">${a.name}</div><div class="lib-item-sub">Artist</div></div></li>` });
         }
     }
-    $('#libraryList').innerHTML = items.length ? html`${items}`.s : html`<li class="empty" style="padding:24px 8px">Nothing here yet</li>`.s;
-    highlightSidebar();
-    markPlaying();
+    sortLibrary(entries, S.libSort);
+    const items = [...pinned, ...entries.map((e) => e.html)];
+    $(`#${prefix}List`).innerHTML = items.length ? html`${items}`.s : html`<li class="empty" style="padding:24px 8px">Nothing here yet</li>`.s;
+}
+
+function viewLibrary() {
+    return html`<div class="view-pad library-page">
+        <div class="library-page-head"><h1 class="greeting">Your Library</h1>
+            <button class="icon-btn big" data-action="create-menu" aria-label="Create playlist or add music files" aria-haspopup="menu">${icon('plus', 22)}</button></div>
+        <div class="chips" id="pageLibraryChips" role="group" aria-label="Filter library"></div>
+        <div class="lib-tools">
+            <label class="lib-filter">${icon('search', 14)}<span class="sr-only">Search in Your Library</span>
+                <input id="pageLibraryFilterInput" type="search" placeholder="Search in Your Library" autocomplete="off" value="${S.libQuery}"></label>
+            <button class="lib-sort" id="pageLibrarySort" data-action="lib-sort-menu" aria-haspopup="menu"></button>
+        </div>
+        <ul class="lib-list" id="pageLibraryList"></ul>
+    </div>`;
+}
+
+const LIB_SORTS = [['recents', 'Recents'], ['added', 'Recently added'], ['alpha', 'Alphabetical'], ['creator', 'Creator']];
+
+function sortLibrary(entries, sort) {
+    const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true });
+    const byAdded = (a, b) => b.added - a.added;
+    const compare = {
+        // Played most recently first; never played after those, newest added first
+        recents: (a, b) => (S.recent[b.key] || 0) - (S.recent[a.key] || 0) || byAdded(a, b),
+        added: byAdded,
+        alpha: byName,
+        // By artist (an album's artist, or the artist itself); playlists have none, so they go last
+        creator: (a, b) => (!a.creator - !b.creator) || a.creator.localeCompare(b.creator, undefined, { sensitivity: 'base' }) || byName(a, b),
+    }[sort] || byAdded;
+    return entries.sort(compare);
+}
+
+function librarySortMenu(anchor) {
+    showMenu([{ heading: 'Sort by' }, ...LIB_SORTS.map(([key, label]) => ({
+        label, checked: S.libSort === key,
+        run: () => { S.libSort = key; store.set('libSort', key); renderSidebar(); },
+    }))], { anchor, label: 'Sort Your Library' });
 }
 
 function highlightSidebar() {
@@ -1504,16 +2412,24 @@ function registerContext(ids, context) {
 }
 
 // Track table for local tracks
-function localTable(tracks, context, { showAlbum = true, numbered = true } = {}) {
+function localTable(tracks, context, { showAlbum = true, numbered = true, sort = null, sortable = false } = {}) {
     const ctx = registerContext(tracks.map((t) => t.id), context);
+    if (S.trackView === 'grid') return trackGrid(tracks, context, ctx);
+    // sortable (a playlist you made, list view): each row gets a drag handle; see makeSortable
+    // With `sort` ({ key, dir }), the column titles are buttons that sort by that column
+    const head = (key, label, cls = '') => {
+        if (!sort) return html`<span class="${cls}">${label}</span>`;
+        const on = sort.key === key;
+        return html`<span class="${cls}" role="columnheader" aria-sort="${on ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}"><button class="sort-head ${on ? 'on' : ''}" data-action="songs-sort" data-sort="${key}" title="Sort by ${typeof label === 'string' ? label : 'duration'}" aria-label="Sort by ${SONG_SORTS.find(([k]) => k === key)[1]}">${label}${on ? icon(sort.dir === 'asc' ? 'up' : 'down', 14) : ''}</button></span>`;
+    };
     return html`
-    <div class="tracks ${showAlbum ? '' : 'no-album'}" role="grid" aria-label="${context.label}">
+    <div class="tracks ${showAlbum ? '' : 'no-album'}" role="grid" aria-label="${context.label}" ${sortable ? new Safe('id="sortTracks"') : ''}>
         <div class="track-head" role="row">
-            <span>#</span><span>Title</span>${showAlbum ? html`<span class="album-cell">Album</span>` : ''}<span class="date-cell">Date added</span>
-            <span class="right">${icon('clock', 16)}</span>
+            <span>#</span>${head('title', 'Title')}${showAlbum ? head('album', 'Album', 'album-cell') : ''}${head('added', 'Date added', 'date-cell')}
+            ${head('duration', icon('clock', 16), 'right')}
         </div>
         ${tracks.map((t, i) => html`
-        <div class="track" role="row" data-id="${t.id}" data-ctx="${ctx}" data-index="${i}">
+        <div class="track" role="row" data-id="${t.id}" data-ctx="${ctx}" data-index="${i}" ${sortable ? html`data-sort-index="${i}"` : ''}>
             <span class="num"><span class="n">${numbered ? i + 1 : ''}</span>${eq()}<button class="row-play" data-action="play-row" aria-label="Play ${t.title}">${icon('play', 14)}</button></span>
             <div class="title-cell">${trackArt(t)}<div class="title-text">
                 <div class="title-name">${t.title}</div>
@@ -1521,10 +2437,28 @@ function localTable(tracks, context, { showAlbum = true, numbered = true } = {})
             </div></div>
             ${showAlbum ? html`<span class="album-cell">${t.album}</span>` : ''}
             <span class="date-cell">${fmtAdded(t.added)}</span>
-            <span class="duration right">${likeButton(t.id)}<span class="dur">${fmtTime(t.duration)}</span><button class="row-more" data-action="row-menu" aria-label="More options for ${t.title}" aria-haspopup="menu">${icon('more', 16)}</button></span>
+            <span class="duration right">${sortable ? html`<button class="row-more drag-handle" aria-label="Move ${t.title}: drag, or use the up and down arrow keys" title="Drag to reorder">${icon('grip', 16)}</button>` : ''}${likeButton(t.id)}<span class="dur">${fmtTime(t.duration)}</span><button class="row-more" data-action="row-menu" aria-label="More options for ${t.title}" aria-haspopup="menu">${icon('more', 16)}</button></span>
         </div>`)}
     </div>`;
 }
+
+// The same songs as covers. Each tile is still a .track with data-id/ctx/index, so playing, the
+// playing highlight, double-click, right-click and ⋯ all work exactly as in the list.
+function trackGrid(tracks, context, ctx) {
+    return html`
+    <div class="track-grid" role="list" aria-label="${context.label}">
+        ${tracks.map((t, i) => html`
+        <div class="track tile-track" role="listitem" data-id="${t.id}" data-ctx="${ctx}" data-index="${i}">
+            <div class="tt-art">${trackArt(t)}${eq()}<button class="fab" data-action="play-row" aria-label="Play ${t.title}">${icon('play', 20)}</button></div>
+            <div class="tt-title" title="${t.title}">${t.title}</div>
+            <div class="tt-sub">${t.artists.map((a, j) => html`${j ? ', ' : ''}<a href="${artistHref(a)}">${a}</a>`)}</div>
+            <div class="tt-foot"><span class="dur">${fmtTime(t.duration)}</span>${likeButton(t.id)}<button class="row-more" data-action="row-menu" aria-label="More options for ${t.title}" aria-haspopup="menu">${icon('more', 16)}</button></div>
+        </div>`)}
+    </div>`;
+}
+
+const viewToggle = () => html`<div class="view-toggle" role="group" aria-label="View as">${[['list', 'viewList', 'List'], ['grid', 'viewGrid', 'Grid']].map(([key, ic, label]) =>
+    html`<button class="icon-btn ${S.trackView === key ? 'on' : ''}" data-action="track-view" data-view="${key}" aria-pressed="${String(S.trackView === key)}" aria-label="View as ${label.toLowerCase()}" title="${label}">${icon(ic, 18)}</button>`)}</div>`;
 
 const likeButton = (id, { big = false } = {}) => html`<button class="like-btn ${big ? 'big' : ''} ${S.liked.has(id) ? 'on' : ''}" data-action="like" data-like-id="${id}" aria-pressed="${String(S.liked.has(id))}" aria-label="${S.liked.has(id) ? 'Remove from Liked Songs' : 'Save to Liked Songs'}">${icon(S.liked.has(id) ? 'heartFilled' : 'heart', big ? 22 : 16)}</button>`;
 
@@ -1664,7 +2598,7 @@ function viewGenre(name) {
         </div>
     </header>
     <div class="below-hero" style="--hero:${color}">
-        <div class="action-bar">${bigPlay(context.key, g.trackIds, context)}${shuffleToggle()}
+        <div class="action-bar">${bigPlay(context.key, g.trackIds, context)}${shuffleToggle()}${viewToggle()}
             <a class="pill-btn" href="#/genres">All genres</a></div>
         ${localTable(tracks, context)}
     </div>`;
@@ -1730,10 +2664,87 @@ function viewSongs() {
         </div>
     </header>
     <div class="below-hero" style="--hero:#5038a0">
-        <div class="action-bar">${bigPlay('songs', S.tracks.map((t) => t.id), context)}${shuffleToggle()}</div>
-        ${S.genres.length ? html`<div class="genre-chips">${S.genres.map((g) => html`<a class="chip" href="${genreHref(g.name)}">${g.name} <span class="chip-count">${g.trackIds.length}</span></a>`)}</div>` : ''}
-        ${S.tracks.length ? localTable(S.tracks, context) : html`<div class="empty"><h2>No songs yet</h2><p>Downloads show up here.</p></div>`}
+        ${S.tracks.length ? html`<div id="songsBody">${songsBody()}</div>` : html`<div class="empty"><h2>No songs yet</h2><p>Downloads show up here.</p></div>`}
     </div>`;
+}
+
+// ---------- All songs: search, filter by genre, sort ----------
+// Only #songsBody is redrawn as you type or pick, so the search box keeps focus.
+
+const SONG_SORTS = [['added', 'Date added', 'desc'], ['title', 'Title', 'asc'], ['artist', 'Artist', 'asc'], ['album', 'Album', 'asc'], ['duration', 'Duration', 'asc']];
+
+function songsFiltered() {
+    const v = S.songsView;
+    const g = v.genre && S.genres.find((x) => x.name === v.genre);
+    const inGenre = g ? new Set(g.trackIds) : null;
+    const words = v.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    // Every word must appear in the title, an artist or the album: "linkin numb" finds Numb by Linkin Park
+    const tracks = S.tracks.filter((t) => (!inGenre || inGenre.has(t.id)) &&
+        (!words.length || ((hay) => words.every((w) => hay.includes(w)))(`${t.title} ${t.artists.join(' ')} ${t.album}`.toLowerCase())));
+    const text = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true });
+    const compare = {
+        added: (a, b) => a.added - b.added,
+        title: (a, b) => text(a.title, b.title),
+        artist: (a, b) => text(a.artists[0] || '', b.artists[0] || '') || text(a.album, b.album) || text(a.title, b.title),
+        album: (a, b) => text(a.album, b.album) || text(a.title, b.title),
+        duration: (a, b) => a.duration - b.duration,
+    }[v.sort] || ((a, b) => a.added - b.added);
+    const sign = v.dir === 'asc' ? 1 : -1;
+    return tracks.sort((a, b) => sign * compare(a, b));
+}
+
+function songsBody() {
+    const v = S.songsView;
+    if (v.genre && !S.genres.some((g) => g.name === v.genre)) v.genre = null; // that genre's songs are gone
+    const tracks = songsFiltered();
+    const filtered = v.genre || v.q.trim();
+    // A filtered list is its own queue; `variant` tells the big Play button it isn't the one playing
+    const context = { key: 'songs', label: 'All songs', href: '#/songs', variant: `${v.genre || ''}|${v.q.trim()}|${v.sort}|${v.dir}` };
+    const sortLabel = SONG_SORTS.find(([k]) => k === v.sort)?.[1] || 'Date added';
+    return html`
+    <div class="action-bar">${bigPlay('songs', tracks.map((t) => t.id), context)}${shuffleToggle()}
+        <div class="songs-tools">
+            <label class="songs-search">${icon('search', 16)}<span class="sr-only">Search in All songs</span>
+                <input id="songsSearch" type="search" placeholder="Search in All songs" autocomplete="off" value="${v.q}"></label>
+            <button class="lib-sort" id="songsSort" data-action="songs-sort-menu" aria-haspopup="menu" aria-label="Sort: ${sortLabel}, ${v.dir === 'asc' ? 'ascending' : 'descending'}">
+                <span>${sortLabel}</span>${icon(v.dir === 'asc' ? 'up' : 'down', 14)}</button>
+            ${viewToggle()}
+        </div>
+    </div>
+    ${S.genres.length ? html`<div class="genre-chips" role="group" aria-label="Filter by genre">${S.genres.map((g) => html`<button class="chip ${v.genre === g.name ? 'active' : ''}" data-action="songs-genre" data-genre="${g.name}" aria-pressed="${String(v.genre === g.name)}">${g.name} <span class="chip-count">${g.trackIds.length}</span></button>`)}</div>` : ''}
+    ${filtered ? html`<p class="songs-count" role="status">${tracks.length ? `${plural(tracks.length, 'song')} of ${S.tracks.length}` : ''}${v.genre ? html` · <a href="${genreHref(v.genre)}">${v.genre} page</a>` : ''} · <button class="link-btn" data-action="songs-clear">Clear</button></p>` : ''}
+    ${tracks.length ? localTable(tracks, context, { sort: { key: v.sort, dir: v.dir } })
+        : html`<div class="empty"><h2>No songs found</h2><p>Nothing in ${v.genre || 'your library'} matches “${v.q.trim()}”.</p></div>`}`;
+}
+
+function refreshSongs() {
+    const body = $('#songsBody');
+    if (!body) return;
+    const input = $('#songsSearch');
+    const typing = document.activeElement === input;
+    const caret = typing ? [input.selectionStart, input.selectionEnd] : null;
+    body.innerHTML = songsBody().s;
+    if (typing) { const i = $('#songsSearch'); i.focus(); i.setSelectionRange(...caret); }
+    markPlaying();
+}
+
+function setSongsSort(key, dir) {
+    const v = S.songsView;
+    v.sort = key;
+    v.dir = dir || SONG_SORTS.find(([k]) => k === key)[2];
+    store.set('songsSort', v.sort);
+    store.set('songsDir', v.dir);
+    refreshSongs();
+}
+
+function songsSortMenu(anchor) {
+    const v = S.songsView;
+    showMenu([{ heading: 'Sort by' },
+        ...SONG_SORTS.map(([key, label]) => ({ label, checked: v.sort === key, run: () => setSongsSort(key, v.sort === key ? v.dir : null) })),
+        '-',
+        { label: 'Ascending', checked: v.dir === 'asc', run: () => setSongsSort(v.sort, 'asc') },
+        { label: 'Descending', checked: v.dir === 'desc', run: () => setSongsSort(v.sort, 'desc') },
+    ], { anchor, label: 'Sort All songs' });
 }
 
 function viewCollection(key) {
@@ -1754,8 +2765,8 @@ function viewCollection(key) {
         </div>
     </header>
     <div class="below-hero">
-        <div class="action-bar">${tracks.length ? html`${bigPlay(context.key, c.track_ids, context)}${shuffleToggle()}` : ''}${collectionMoreButton(c.name)}</div>
-        ${tracks.length ? localTable(tracks, context, { showAlbum: c.kind !== 'album' })
+        <div class="action-bar">${tracks.length ? html`${bigPlay(context.key, c.track_ids, context)}${shuffleToggle()}` : ''}${collectionMoreButton(c.name)}${tracks.length ? viewToggle() : ''}</div>
+        ${tracks.length ? localTable(tracks, context, { showAlbum: c.kind !== 'album', sortable: c.editable && tracks.length > 1 })
             : html`<div class="empty"><h2>Let's find something for your playlist</h2><p>On any song, click ${icon('more', 14)} and choose <strong>Add to playlist</strong>.</p></div>`}
     </div>`;
 }
@@ -1776,7 +2787,7 @@ function viewLiked() {
         </div>
     </header>
     <div class="below-hero" style="--hero:#4f3b9c">
-        <div class="action-bar">${tracks.length ? html`${bigPlay('liked', tracks.map((t) => t.id), context)}${shuffleToggle()}${collectionMoreButton('Liked Songs')}` : ''}</div>
+        <div class="action-bar">${tracks.length ? html`${bigPlay('liked', tracks.map((t) => t.id), context)}${shuffleToggle()}${collectionMoreButton('Liked Songs')}${viewToggle()}` : ''}</div>
         ${tracks.length ? localTable(tracks, context, { numbered: true })
             : html`<div class="empty"><h2>Songs you like will appear here</h2><p>Save songs by tapping the ${icon('heart', 14)} next to them.</p></div>`}
     </div>`;
@@ -1798,8 +2809,11 @@ function viewLocalArtist(name) {
         </div>
     </header>
     <div class="below-hero">
-        <div class="action-bar">${bigPlay(context.key, a.trackIds, context)}${shuffleToggle()}
-            <a class="pill-btn" href="#/search/${encodeURIComponent(name)}">${icon('search', 14)} More on Spotify</a></div>
+        <div class="action-bar">${bigPlay(context.key, a.trackIds, context)}${shuffleToggle()}${viewToggle()}
+            <a class="pill-btn artist-more" href="#/search/${encodeURIComponent(name)}" aria-label="More on Spotify" title="More on Spotify">
+                <span class="artist-more-label">${icon('search', 14)} More on Spotify</span>
+                <span class="artist-more-icon" aria-hidden="true">${icon('spotify', 26)}${icon('plus', 12, 'artist-more-plus')}</span>
+            </a></div>
         ${localTable(tracks, context)}
     </div>`;
 }
@@ -2048,7 +3062,28 @@ function viewDownloads() {
 
 // ---------- stats page ----------
 
-const STATS_RANGES = [[7, 'Last 7 days'], [30, 'Last 30 days'], [90, 'Last 90 days'], [365, 'Last 12 months'], [0, 'All time']];
+// Time ranges for Listening. Chips for the common ones; the rest are under "More"
+const STATS_RANGES = [['today', 'Today'], ['week', 'This week'], ['month', 'This month'], ['last-month', 'Last month'], ['year', 'This year'], ['all', 'All time']];
+const STATS_MORE = [['yesterday', 'Yesterday'], ['last-week', 'Last week'], ['last-year', 'Last year'], '-',
+    ['7d', 'Last 7 days'], ['30d', 'Last 30 days'], ['90d', 'Last 90 days'], ['365d', 'Last 12 months']];
+const statsRangeLabel = (key) => [...STATS_RANGES, ...STATS_MORE].find((r) => r[0] === key)?.[1] || 'This month';
+function statsRange() {
+    const saved = store.get('statsRange', null);
+    if (saved) return saved;
+    const days = store.get('statsDays', null); // before Oct 2026 the range was a number of days
+    return days === null ? 'month' : days ? `${days}d` : 'all';
+}
+// "Mon, Oct 19" · "Oct 12 – 18" · "Sep 1 – 30, 2026" · "Jan – Dec 2025": the dates a range covers
+function periodText(lis) {
+    const a = new Date(lis.start * 1000), b = new Date(Math.min(lis.end * 1000, Date.now()) - 1);
+    const day = (d, o = {}) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...o });
+    if (lis.bucket === 'hour') return a.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    const year = b.getFullYear() !== new Date().getFullYear() || a.getFullYear() !== b.getFullYear();
+    if (lis.bucket === 'month' && lis.range !== '365d' && lis.range !== 'all') return `${MONTHS[a.getMonth()]} – ${MONTHS[b.getMonth()]} ${b.getFullYear()}`;
+    if (a.toDateString() === b.toDateString()) return day(a, { year: year ? 'numeric' : undefined });
+    const sameMonth = a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear();
+    return `${day(a, { year: a.getFullYear() !== b.getFullYear() ? 'numeric' : undefined })} – ${sameMonth ? b.getDate() : day(b)}${year ? `, ${b.getFullYear()}` : ''}`;
+}
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -2065,6 +3100,7 @@ const monthLong = (key) => { const [y, m] = key.split('-').map(Number); return `
 const dayAxis = (key) => { const d = new Date(`${key}T12:00`); return `${MONTHS[d.getMonth()]} ${d.getDate()}`; };
 const dayLong = (key) => new Date(`${key}T12:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 const hourName = (h) => `${h % 12 || 12} ${h < 12 ? 'am' : 'pm'}`;
+const hourAxis = (key) => hourName(+key.slice(11, 13));
 
 // Axis top: the next "clean" number (1, 2, 4, 5, 10 × 10^n) at or above the max
 function niceMax(value) {
@@ -2156,23 +3192,34 @@ function statTile(label, value, delta) {
     return html`<div class="stat-tile"><div class="stat-label">${label}</div><div class="stat-value">${value}</div>${delta || ''}</div>`;
 }
 
-function deltaText(current, previous, rangeLabel) {
+function deltaText(current, previous, compare) {
     if (previous === null || previous === undefined) return '';
-    if (!previous) return current ? html`<div class="stat-delta">New this period</div>` : '';
+    if (!previous) return current ? html`<div class="stat-delta" title="Nothing played ${compare}">New this period</div>` : '';
     const pct = Math.round(((current - previous) / previous) * 100);
     const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '';
-    return html`<div class="stat-delta">${arrow} ${Math.abs(pct)}% vs previous ${rangeLabel.replace('Last ', '').replace('12 months', 'year')}</div>`;
+    return html`<div class="stat-delta">${arrow} ${Math.abs(pct)}% vs ${compare}</div>`;
 }
 
 let statsCache = null;
+
+function setStatsRange(key) {
+    store.set('statsRange', key);
+    $('#view').classList.add('refreshing');  // keep the old charts, dimmed, while the new range loads
+    rerender().then(() => $('#view').classList.remove('refreshing'));
+}
+
+function statsMoreMenu(anchor) {
+    const range = statsRange();
+    showMenu([{ heading: 'Time range' }, ...STATS_MORE.map((r) => r === '-' ? '-'
+        : { label: r[1], checked: r[0] === range, run: () => setStatsRange(r[0]) })], { anchor, label: 'More time ranges' });
+}
 async function viewStats() {
-    const days = store.get('statsDays', 30);
+    const range = statsRange();
     let data;
-    try { data = await api(`/stats?days=${days}`); statsCache = data; }
+    try { data = await api(`/stats?range=${encodeURIComponent(range)}`); statsCache = data; }
     catch (err) { if (!statsCache) return errorView(err.message); data = statsCache; }
     const lib = data.library;
     const lis = data.listening;
-    const rangeLabel = (STATS_RANGES.find(([d]) => d === days) || STATS_RANGES[1])[1];
 
     // Library: genres as top 10 + Other (bars, not a donut: there are more than 7 classes)
     const knownGenres = lib.genres.filter((g) => g.key !== 'Unknown');
@@ -2182,7 +3229,7 @@ async function viewStats() {
 
     const librarySection = html`
     <section class="stats-section">
-        <h2 class="section-title">Your library</h2>
+        <div class="section-head"><h2 class="section-title">Your library</h2><a class="pill-btn small" href="#/tidy">Tidy up</a></div>
         <div class="stat-row">
             ${statTile('Songs', lib.songs.toLocaleString())}
             ${statTile('Artists', lib.artists.toLocaleString())}
@@ -2206,22 +3253,23 @@ async function viewStats() {
         </div>
     </section>`;
 
-    const bucketAxis = lis.bucket === 'day' ? dayAxis : monthAxis;
-    const bucketLong = lis.bucket === 'day' ? dayLong : monthLong;
+    const bucketAxis = { hour: hourAxis, day: dayAxis, month: monthAxis }[lis.bucket];
+    const bucketLong = { hour: (k) => `${dayLong(k.slice(0, 10))}, ${hourAxis(k)}`, day: dayLong, month: monthLong }[lis.bucket];
+    const bucketName = { hour: 'Hour', day: 'Day', month: 'Month' }[lis.bucket];
     const listeningBody = !lis.plays
-        ? html`<div class="empty stats-empty">${icon('chart', 40)}<h2>No listening ${days ? 'in this period' : 'yet'}</h2>
+        ? html`<div class="empty stats-empty">${icon('chart', 40)}<h2>No listening ${range === 'all' ? 'yet' : 'in this period'}</h2>
             <p>Songs count once they've played for 30 seconds. Play some music and your stats appear here.</p></div>`
         : html`
         <div class="stat-row">
-            <div class="stat-tile hero-tile"><div class="stat-label">Listening time</div><div class="hero-value">${fmtListen(lis.seconds)}</div>${deltaText(lis.seconds, lis.previous_seconds, rangeLabel)}</div>
-            ${statTile('Plays', lis.plays.toLocaleString(), deltaText(lis.plays, lis.previous_plays, rangeLabel))}
+            <div class="stat-tile hero-tile"><div class="stat-label">Listening time</div><div class="hero-value">${fmtListen(lis.seconds)}</div>${deltaText(lis.seconds, lis.previous_seconds, lis.compare)}</div>
+            ${statTile('Plays', lis.plays.toLocaleString(), deltaText(lis.plays, lis.previous_plays, lis.compare))}
             ${statTile('Different songs', lis.songs.toLocaleString())}
             ${statTile('Artists', lis.artists.toLocaleString())}
         </div>
         <div class="chart-grid">
-            ${chartCard({ title: 'Listening time', sub: lis.bucket === 'day' ? 'Per day' : 'Per month', wide: true,
+            ${chartCard({ title: 'Listening time', sub: `Per ${bucketName.toLowerCase()}`, wide: true,
                 body: columnChart(lis.per_bucket, { fmt: fmtMinutes, axisLabel: bucketAxis, tipLabel: bucketLong }),
-                table: dataTable([lis.bucket === 'day' ? 'Day' : 'Month', 'Listening'], lis.per_bucket.map((d) => [bucketLong(d.key), fmtMinutes(d.value)])) })}
+                table: dataTable([bucketName, 'Listening'], lis.per_bucket.map((d) => [bucketLong(d.key), fmtMinutes(d.value)])) })}
             ${chartCard({ title: 'Top songs', sub: 'Most played',
                 body: html`<ol class="top-songs">${lis.top_songs.map((t, i) => {
                     const local = t.in_library ? S.byId.get(t.id) : null;
@@ -2247,11 +3295,189 @@ async function viewStats() {
         ${librarySection}
         <section class="stats-section">
             <h2 class="section-title">Listening</h2>
-            <div class="filter-row" role="group" aria-label="Time range">${STATS_RANGES.map(([d, label]) =>
-                html`<button class="chip ${d === days ? 'active' : ''}" data-stats-days="${d}" aria-pressed="${String(d === days)}">${label}</button>`)}</div>
+            <div class="filter-row" role="group" aria-label="Time range">${STATS_RANGES.map(([key, label]) =>
+                html`<button class="chip ${key === range ? 'active' : ''}" data-stats-range="${key}" aria-pressed="${String(key === range)}">${label}</button>`)}${(() => {
+                    const inMore = STATS_MORE.some((r) => r[0] === range); // a "More" range shows its name on the chip
+                    return html`<button class="chip ${inMore ? 'active' : ''}" data-action="stats-more" aria-haspopup="menu" aria-pressed="${String(inMore)}">${inMore ? statsRangeLabel(range) : 'More'} ${icon('down', 14)}</button>`;
+                })()}</div>
+            <p class="stats-period">${periodText(lis)}</p>
             <div class="stats-listening">${listeningBody}</div>
         </section>
     </div>`;
+}
+
+// ---------- Tidy up: duplicate songs and album info ----------
+// Duplicates come from /api/duplicates (grouped and ranked on the server, see cleanup.py); you pick the
+// copy to keep in each group. Album info: songs whose album is a playlist's name get looked up on
+// YouTube Music in the background; you tick the fixes to write, and the last batch can be undone.
+
+const TD = { tab: 'duplicates', pick: {}, fixOff: new Set(), polling: null };
+// A "432 Hz" or "sped up" copy can be the same length but sound different: never merged without a look
+const RETUNED = /432|528\s*hz|sped\s*up|slowed|nightcore|8d audio|reverb/i;
+const isRetuned = (g) => g.copies.some((c) => RETUNED.test(`${c.path} ${c.album} ${c.playlists.join(' ')}`));
+
+async function viewTidy() {
+    let dupes, fix;
+    try { [dupes, fix] = await Promise.all([api('/duplicates'), api('/album-fix')]); }
+    catch (err) { return errorView(err.message); }
+    TD.groups = dupes.groups;
+    TD.fixJob = fix.job;
+    TD.canUndo = fix.can_undo;
+    if (fix.job?.status === 'working') pollAlbumFix();
+    const tabs = [['duplicates', `Duplicates${dupes.groups.length ? ` ${dupes.groups.length}` : ''}`], ['albums', 'Album info']];
+    return html`<div class="view-pad tidy-page">
+        <h1 class="greeting" style="margin-top:8px">Tidy up your library</h1>
+        <div class="filter-row" role="tablist" aria-label="Tidy up">${tabs.map(([key, label]) =>
+            html`<button class="chip ${TD.tab === key ? 'active' : ''}" role="tab" aria-selected="${String(TD.tab === key)}" data-action="tidy-tab" data-tab="${key}">${label}</button>`)}</div>
+        ${TD.tab === 'duplicates' ? duplicatesBody(dupes) : albumFixBody()}
+    </div>`;
+}
+
+function duplicatesBody(dupes) {
+    const groups = dupes.groups;
+    if (!groups.length) return html`<div class="empty stats-empty">${icon('checkPlain', 40)}<h2>No duplicate songs</h2><p>Every song in your library is there once.</p></div>`;
+    const safe = groups.filter((g) => !isRetuned(g));
+    return html`
+    <p class="tidy-intro"><strong>${plural(groups.length, 'song')}</strong> ${groups.length === 1 ? 'has' : 'have'} more than one copy. Removing the extras frees <strong>${fmtBytes(dupes.extra_bytes)}</strong>.
+        Playlists keep the song (they switch to the copy you keep), likes and play counts move over, and removed files go to the ${navigator.platform.startsWith('Win') ? 'Recycle Bin' : 'Trash'}.</p>
+    ${safe.length ? html`<div class="tidy-actions"><button class="pill-btn primary" data-action="tidy-merge-all">Keep the suggested copy of ${plural(safe.length, 'song')}</button>
+        ${safe.length < groups.length ? html`<span class="tidy-note">${plural(groups.length - safe.length, 'song')} with a 432 Hz or sped-up copy ${groups.length - safe.length === 1 ? 'is' : 'are'} left for you to check.</span>` : ''}</div>` : ''}
+    <div class="dupe-list">${groups.map((g) => {
+        const keep = TD.pick[g.key] || g.copies[0].id;
+        return html`<section class="dupe-group" data-group="${g.key}">
+            <h3 class="dupe-title">${g.title} <span>· ${g.artist}</span></h3>
+            ${isRetuned(g) ? html`<p class="dupe-warn">${icon('warn', 14)} One copy may be a retuned version (432 Hz, sped up…). It can have the same length but sound different, so listen before removing it.</p>` : ''}
+            <div class="dupe-copies" role="radiogroup" aria-label="Copy of ${g.title} to keep">${g.copies.map((c) => html`
+                <label class="dupe-copy ${c.id === keep ? 'keep' : ''}">
+                    <input type="radio" name="keep-${g.key}" value="${c.id}" data-tidy-keep="${g.key}" ${c.id === keep ? new Safe('checked') : ''}>
+                    <button type="button" class="icon-btn" data-action="play-local" data-local-id="${c.id}" aria-label="Play this copy">${icon('play', 14)}</button>
+                    <span class="dupe-info">
+                        <span class="dupe-where">${c.folder ? html`${c.folder} / ` : ''}<b>${c.path.split('/').pop()}</b></span>
+                        <span class="dupe-meta">${c.format}${c.lossless ? ' · lossless' : c.bitrate ? ` · ${c.bitrate} kbps` : ''} · ${fmtBytes(c.size)} · ${fmtTime(c.duration)} · album “${c.album}”${c.has_cover ? '' : ' · no cover'}${c.liked ? ' · ♥' : ''}${c.playlists.length ? ` · in ${c.playlists.join(', ')}` : ''}</span>
+                        ${c.best ? html`<span class="dupe-best">Suggested${c.reasons.length ? `: ${c.reasons.join(', ')}` : ''}</span>` : ''}
+                    </span>
+                    <span class="dupe-tag">${c.id === keep ? 'Keep' : 'Remove'}</span>
+                </label>`)}</div>
+            <button class="pill-btn" data-action="tidy-merge" data-group="${g.key}">Keep this one, remove ${plural(g.copies.length - 1, 'other')}</button>
+        </section>`;
+    })}</div>`;
+}
+
+async function mergeGroup(g, keep) {
+    return api('/duplicates/merge', { method: 'POST', body: JSON.stringify({ keep, remove: g.copies.map((c) => c.id).filter((id) => id !== keep) }) });
+}
+
+async function tidyMerge(key) {
+    const g = TD.groups.find((x) => x.key === key);
+    if (!g) return;
+    try {
+        const r = await mergeGroup(g, TD.pick[key] || g.copies[0].id);
+        toast(`Removed ${plural(r.removed, 'copy', 'copies')} of ${g.title} (${fmtBytes(r.freed)}). ${r.trash.startsWith('the ') ? `They're in ${r.trash}.` : `Moved to ${r.trash}.`}`);
+        delete TD.pick[key];
+        await refreshLibrary();
+    } catch (err) { toast(err.message, 'error'); }
+}
+
+function tidyMergeAll() {
+    const groups = TD.groups.filter((g) => !isRetuned(g));
+    const extra = groups.reduce((n, g) => n + g.copies.length - 1, 0);
+    openModal({
+        title: `Remove ${plural(extra, 'extra copy', 'extra copies')}?`,
+        body: html`<p class="dialog-note">For ${plural(groups.length, 'song')}, spotDLr keeps the copy you picked (or the suggested one) and moves the others to the ${navigator.platform.startsWith('Win') ? 'Recycle Bin' : 'Trash'}. Playlists, likes and play counts switch to the kept copy.</p>
+            <div class="progress-bar" hidden><i></i></div>
+            <div class="modal-actions"><button type="button" class="pill-btn" data-close autofocus>Cancel</button><button type="button" class="pill-btn danger" id="confirmMerge">Remove ${plural(extra, 'copy', 'copies')}</button></div>`,
+        onOpen: (modal, close) => {
+            $('#confirmMerge', modal).addEventListener('click', async (e) => {
+                e.currentTarget.disabled = true;
+                const bar = $('.progress-bar', modal);
+                bar.hidden = false;
+                let removed = 0, freed = 0;
+                const failed = [];
+                for (const [i, g] of groups.entries()) {
+                    try { const r = await mergeGroup(g, TD.pick[g.key] || g.copies[0].id); removed += r.removed; freed += r.freed; }
+                    catch (err) { failed.push(`${g.title}: ${err.message}`); }
+                    $('i', bar).style.width = `${((i + 1) / groups.length) * 100}%`;
+                }
+                close();
+                toast(`Removed ${plural(removed, 'copy', 'copies')} and freed ${fmtBytes(freed)}${failed.length ? `. ${plural(failed.length, 'song')} couldn't be merged: ${failed[0]}` : ''}`, failed.length ? 'error' : undefined);
+                TD.pick = {};
+                await refreshLibrary();
+            });
+        },
+    });
+}
+
+function albumFixBody() {
+    const job = TD.fixJob;
+    const undo = TD.canUndo ? html`<button class="pill-btn" data-action="tidy-undo">Undo the last change</button>` : '';
+    if (!job || job.status === 'failed') {
+        return html`
+        <p class="tidy-intro">Some songs have a <strong>playlist's name as their album</strong> (for example “Green Day Radio”), which happens when a song was saved by another app. spotDLr can look each one up on YouTube Music and suggest the real album, its artist, year and cover. You see every change before anything is written, and you can undo it.</p>
+        ${job?.status === 'failed' ? html`<p class="dupe-warn">${icon('warn', 14)} The last lookup failed: ${job.error}</p>` : ''}
+        <div class="tidy-actions"><button class="pill-btn primary" data-action="tidy-scan">Find songs to fix</button>${undo}</div>`;
+    }
+    if (job.status === 'working') {
+        return html`<p class="tidy-intro" role="status">Looking up ${plural(job.total, 'song')} on YouTube Music… ${job.done} of ${job.total}</p>
+            <div class="progress-bar"><i style="width:${job.total ? (job.done / job.total) * 100 : 0}%"></i></div>`;
+    }
+    const found = job.results.filter((r) => r.proposed && r.proposed.album !== r.current.album);
+    const missed = job.results.filter((r) => !r.proposed);
+    if (!job.results.length) return html`<div class="empty stats-empty">${icon('checkPlain', 40)}<h2>Album info looks right</h2><p>No song has a playlist's name as its album.</p></div><div class="tidy-actions">${undo}</div>`;
+    const on = found.filter((r) => !TD.fixOff.has(r.id));
+    return html`
+    <p class="tidy-intro">Found the real album for <strong>${found.length} of ${plural(job.results.length, 'song')}</strong>. Untick any that look wrong, then apply. The album name, album artist, year and cover are written into the files; titles and artists stay as they are.</p>
+    <div class="tidy-actions"><button class="pill-btn primary" data-action="tidy-apply" ${on.length ? '' : new Safe('disabled')}>Fix ${plural(on.length, 'song')}</button>
+        <button class="pill-btn" data-action="tidy-scan">Look up again</button>${undo}</div>
+    <ul class="fix-list">${found.map((r) => html`
+        <li><label class="fix-row">
+            <input type="checkbox" data-tidy-fix="${r.id}" ${TD.fixOff.has(r.id) ? '' : new Safe('checked')}>
+            ${r.proposed.cover_url ? html`<img class="fix-cover" src="${proxied(r.proposed.cover_url.replace(/=w\d+-h\d+/, '=w120-h120'))}" alt="" loading="lazy">` : html`<span class="fix-cover"></span>`}
+            <span class="fix-text"><span class="title-name">${r.title}</span><span class="title-sub">${r.artists.join(', ')}</span></span>
+            <span class="fix-change"><s>${r.current.album}</s> → <b>${r.proposed.album}</b><small>${[r.proposed.album_artist, r.proposed.year].filter(Boolean).join(' · ')}</small></span>
+        </label></li>`)}</ul>
+    ${missed.length ? html`<details class="fix-missed"><summary>${plural(missed.length, 'song')} not found</summary><ul>${missed.map((r) => html`<li>${r.title} · ${r.artists.join(', ')}</li>`)}</ul></details>` : ''}`;
+}
+
+function pollAlbumFix() {
+    if (TD.polling) return;
+    TD.polling = setInterval(async () => {
+        try {
+            const { job } = await api('/album-fix');
+            if (route().name !== 'tidy') { clearInterval(TD.polling); TD.polling = null; return; }
+            TD.fixJob = job;
+            if (job?.status !== 'working') { clearInterval(TD.polling); TD.polling = null; TD.fixOff.clear(); rerender(); return; }
+            const bar = $('.tidy-page .progress-bar i'), text = $('.tidy-page .tidy-intro');
+            if (bar) bar.style.width = `${(job.done / job.total) * 100}%`;
+            if (text) text.textContent = `Looking up ${plural(job.total, 'song')} on YouTube Music… ${job.done} of ${job.total}`;
+        } catch { /* try again next tick */ }
+    }, 1000);
+}
+
+async function tidyScan() {
+    try { TD.fixJob = await api('/album-fix/scan', { method: 'POST' }); TD.fixOff.clear(); await rerender(); pollAlbumFix(); }
+    catch (err) { toast(err.message, 'error'); }
+}
+
+async function tidyApply(button) {
+    const items = TD.fixJob.results.filter((r) => r.proposed && r.proposed.album !== r.current.album && !TD.fixOff.has(r.id))
+        .map((r) => ({ id: r.id, album: r.proposed.album, album_artist: r.proposed.album_artist, artist: r.artists[0], year: r.proposed.year, cover_url: r.proposed.cover_url }));
+    button.disabled = true;
+    button.textContent = 'Writing…';
+    try {
+        const r = await api('/album-fix/apply', { method: 'POST', body: JSON.stringify({ items }) });
+        toast(`Fixed the album info of ${plural(r.written, 'song')}${r.failed.length ? `; ${r.failed.length} couldn't be changed (${r.failed[0]})` : ''}`, r.failed.length ? 'error' : undefined);
+        TD.fixJob = null;
+        await refreshLibrary();
+    } catch (err) { toast(err.message, 'error'); button.disabled = false; }
+}
+
+async function tidyUndo() {
+    try {
+        const r = await api('/album-fix/undo', { method: 'POST' });
+        toast(`Put back the old album info of ${plural(r.restored, 'song')}`);
+        TD.fixJob = null;
+        await refreshLibrary();
+    } catch (err) { toast(err.message, 'error'); }
 }
 
 // One shared tooltip for every chart mark (hover or keyboard focus); text only, never innerHTML
@@ -2301,6 +3527,9 @@ function route() {
         case 'downloads': return { name: 'downloads' };
         case 'genres': return { name: 'genres' };
         case 'stats': return { name: 'stats' };
+        case 'tidy': return { name: 'tidy' };
+        case 'library': return { name: 'library' };
+        case 'schedules': return { name: 'schedules' };
         case 'genre': return { name: 'genre', genre: parts.join('/') };
         default: return { name: 'home' };
     }
@@ -2330,7 +3559,9 @@ async function render({ keepScroll = false } = {}) {
     const isAsync = r.name === 'search' && r.q || r.name === 'remote';
     if (isAsync && !keepScroll) view.innerHTML = loadingView().s;
     switch (r.name) {
-        case 'songs': content = viewSongs(); break;
+        case 'songs':
+            if (!keepScroll) { S.songsView.q = ''; S.songsView.genre = null; } // a fresh visit starts unfiltered; the sort is kept
+            content = viewSongs(); break;
         case 'liked': content = viewLiked(); break;
         case 'abx': content = viewAbx(r.id); break;
         case 'collection': content = viewCollection(r.key); break;
@@ -2340,13 +3571,26 @@ async function render({ keepScroll = false } = {}) {
         case 'downloads': content = viewDownloads(); break;
         case 'genres': content = viewGenres(); break;
         case 'stats': content = await viewStats(); break;
+        case 'tidy': content = await viewTidy(); break;
+        case 'library': content = viewLibrary(); break;
+        case 'schedules': content = await viewSchedules(); break;
         case 'genre': content = viewGenre(r.genre); break;
         default: content = viewHome();
     }
     if (seq !== renderSeq) return; // a newer navigation won
     if (r.name !== 'abx' || (AB.session && $('#abxRoot')?.dataset.track !== r.id)) stopAbx(); // leaving the test stops its sound
+    // A background refresh mustn't steal focus from a box being typed in (the All songs search)
+    const typingIn = view.contains(document.activeElement) && document.activeElement.matches('input[id]') ? document.activeElement : null;
+    const caret = typingIn && [typingIn.selectionStart, typingIn.selectionEnd];
     view.innerHTML = content.s;
+    if (typingIn && keepScroll) { const again = document.getElementById(typingIn.id); again?.focus(); again?.setSelectionRange(...caret); }
     if (r.name === 'abx') mountAbx(r.id);
+    if (r.name === 'library') renderSidebar();
+    // Phone tab bar: Home, Search, or Your Library for everything you own
+    const tab = r.name === 'home' ? 'home' : r.name === 'search' ? 'search'
+        : ['library', 'songs', 'liked', 'collection', 'artist', 'genre', 'genres'].includes(r.name) ? 'library' : null;
+    $$('#tabbar [data-tab]').forEach((a) => a.toggleAttribute('aria-current', a.dataset.tab === tab));
+    if (r.name === 'collection') makeSortable('#sortTracks', (from, to) => movePlaylistSong(r.key, from, to));
     main.scrollTop = keepScroll ? scroll : 0;
 
     // Hero colour from the first cover in the header
@@ -2392,7 +3636,7 @@ function bindEvents() {
             else if (action === 'play-ctx') {
                 const c = contexts.get(actionEl.dataset.ctx);
                 if (!c) return;
-                if (actionEl.dataset.playContext && P.context && P.context.key === c.context.key && currentTrack()) togglePlay();
+                if (actionEl.dataset.playContext && P.context && P.context.key === c.context.key && P.context.variant === c.context.variant && currentTrack()) togglePlay();
                 else playContext(c.ids, actionEl.dataset.index !== undefined ? +actionEl.dataset.index : null, c.context);
             } else if (action === 'play-local') {
                 const id = actionEl.dataset.localId;
@@ -2417,6 +3661,37 @@ function bindEvents() {
             } else if (action === 'like') toggleLike(actionEl.dataset.likeId);
             else if (action === 'row-menu') rowMenu(actionEl.closest('.track'), { anchor: actionEl });
             else if (action === 'collection-menu') collectionMenu(actionEl);
+            else if (action === 'track-view') {
+                S.trackView = actionEl.dataset.view;
+                store.set('trackView', S.trackView);
+                if (route().name === 'songs') refreshSongs(); else rerender();
+            }
+            else if (action === 'songs-sort-menu') songsSortMenu(actionEl);
+            else if (action === 'stats-more') statsMoreMenu(actionEl);
+            else if (action === 'sleep-menu') sleepMenu(actionEl);
+            else if (action === 'lib-sort-menu') librarySortMenu(actionEl);
+            else if (action === 'create-menu') createMenu(actionEl);
+            else if (action === 'queue-open') toggleQueue(true);
+            else if (action === 'queue-close') toggleQueue(false);
+            else if (action === 'queue-play') playFromQueue(actionEl.closest('[data-queue-kind]'));
+            else if (action === 'queue-remove') { P.upNext.splice(+actionEl.closest('[data-sort-index]').dataset.sortIndex, 1); queueChanged(); }
+            else if (action === 'queue-clear') { P.upNext = []; queueChanged(); }
+            else if (action === 'tidy-tab') { TD.tab = actionEl.dataset.tab; rerender(); }
+            else if (action === 'tidy-merge') tidyMerge(actionEl.dataset.group);
+            else if (action === 'tidy-merge-all') tidyMergeAll();
+            else if (action === 'tidy-scan') tidyScan();
+            else if (action === 'tidy-apply') tidyApply(actionEl);
+            else if (action === 'tidy-undo') tidyUndo();
+            else if (action === 'songs-sort') { // a column title: again flips the order
+                const key = actionEl.dataset.sort, v = S.songsView;
+                setSongsSort(key, v.sort === key ? (v.dir === 'asc' ? 'desc' : 'asc') : null);
+            } else if (action === 'songs-genre') {
+                S.songsView.genre = S.songsView.genre === actionEl.dataset.genre ? null : actionEl.dataset.genre;
+                refreshSongs();
+            } else if (action === 'songs-clear') {
+                S.songsView.genre = null; S.songsView.q = '';
+                refreshSongs();
+            }
             else if (action === 'settings') openSettings();
             else if (action === 'connect-spotify') openSettings('spotify');
             return;
@@ -2425,14 +3700,14 @@ function bindEvents() {
         if (row && !e.target.closest('a')) {
             $$('.track.selected').forEach((r) => r.classList.remove('selected'));
             row.classList.add('selected');
+            // Touch screens: one tap plays, as in Spotify's app (no hover to reveal ▶, and double-tap is unreliable)
+            if (matchMedia('(hover: none)').matches && row.dataset.ctx && !e.target.closest('button')) playFromRow(row);
         }
         const libItem = e.target.closest('.lib-item[data-href]');
         if (libItem) location.hash = libItem.dataset.href;
-        const range = e.target.closest('[data-stats-days]');
+        const range = e.target.closest('[data-stats-range]');
         if (range) {
-            store.set('statsDays', +range.dataset.statsDays);
-            $('#view').classList.add('refreshing');  // keep the old charts, dimmed, while the new range loads
-            rerender().then(() => $('#view').classList.remove('refreshing'));
+            setStatsRange(range.dataset.statsRange);
             return;
         }
         const chip = e.target.closest('[data-lib-filter]');
@@ -2447,6 +3722,52 @@ function bindEvents() {
     document.addEventListener('dblclick', (e) => {
         const row = e.target.closest('.track[data-id]');
         if (row && !e.target.closest('a, button')) playFromRow(row);
+    });
+
+    // Scheduled plays list: on/off switches and ⋯ to edit
+    document.addEventListener('change', async (e) => {
+        const box = e.target.closest('[data-sch-toggle]');
+        if (!box) return;
+        const s = SCH.list.find((x) => x.id === box.dataset.schToggle);
+        if (!s) return;
+        try { await api('/schedules', { method: 'POST', body: JSON.stringify({ ...s, enabled: box.checked }) }); await loadSchedules(); rerender(); }
+        catch (err) { toast(err.message, 'error'); box.checked = !box.checked; }
+    });
+    document.addEventListener('click', (e) => {
+        const edit = e.target.closest('[data-sch-edit]');
+        if (!edit) return;
+        const s = SCH.list.find((x) => x.id === edit.dataset.schEdit);
+        if (s) scheduleDialog(s.what, s);
+    });
+
+    // Tidy up: which copy to keep, which album fixes to write (no redraw: the radios and boxes are the state)
+    document.addEventListener('change', (e) => {
+        const keep = e.target.closest('[data-tidy-keep]');
+        if (keep) {
+            TD.pick[keep.dataset.tidyKeep] = keep.value;
+            const group = keep.closest('.dupe-group');
+            $$('.dupe-copy', group).forEach((row) => {
+                const on = $('input', row).checked;
+                row.classList.toggle('keep', on);
+                $('.dupe-tag', row).textContent = on ? 'Keep' : 'Remove';
+            });
+        }
+        const fix = e.target.closest('[data-tidy-fix]');
+        if (fix) {
+            if (fix.checked) TD.fixOff.delete(fix.dataset.tidyFix); else TD.fixOff.add(fix.dataset.tidyFix);
+            const n = $$('[data-tidy-fix]').filter((x) => x.checked).length;
+            const button = $('[data-action="tidy-apply"]');
+            button.textContent = `Fix ${plural(n, 'song')}`;
+            button.disabled = !n;
+        }
+    });
+
+    document.addEventListener('input', (e) => {
+        if (e.target.id === 'pageLibraryFilterInput') { S.libQuery = e.target.value; $('#libraryFilterInput').value = S.libQuery; renderSidebar(); return; }
+        if (e.target.id !== 'songsSearch') return;
+        S.songsView.q = e.target.value;
+        clearTimeout(S.songsTimer);
+        S.songsTimer = setTimeout(refreshSongs, 120); // 855 rows: redraw after a short pause, not on every key
     });
 
     // Search box → #/search/<q>, debounced; replaceState so typing doesn't flood history
@@ -2479,6 +3800,7 @@ function bindEvents() {
         const el = e.target instanceof Element ? e.target : document.body;
         const typing = el.closest('input, select, textarea, [contenteditable]');
         if (e.key === ' ' && !typing && !el.closest('button, a')) { e.preventDefault(); togglePlay(); }
+        else if (e.key.toLowerCase() === 'q' && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); toggleQueue(); }
         else if ((e.key === '/' && !typing) || (e.key.toLowerCase() === 'k' && (e.metaKey || e.ctrlKey))) { e.preventDefault(); input.focus(); input.select(); }
     });
 }
@@ -2503,8 +3825,10 @@ function paintChrome() {
     $('#downloadsBtn').insertAdjacentHTML('afterbegin', icon('downloadPlain', 20).s);
     $('#settingsBtn').innerHTML = icon('settings', 20).s;
     $('#statsBtn').innerHTML = icon('chart', 20).s;
+    $$('#tabbar [data-icon]').forEach((el) => { el.innerHTML = icon(el.dataset.icon, 22).s; });
     $('#createBtn').innerHTML = icon('plus', 20).s;
     $('#createBtn').addEventListener('click', (e) => createMenu(e.currentTarget));
+    $('#librarySort').addEventListener('click', (e) => librarySortMenu(e.currentTarget));
     $('#libraryTitle').innerHTML = html`${icon('library', 22)}<span>Your Library</span>`.s;
     $('#libraryFilter').insertAdjacentHTML('afterbegin', icon('search', 14).s);
 }
@@ -2520,6 +3844,9 @@ function showMenu(items, { anchor = null, x = 0, y = 0, label = 'Options' } = {}
     const root = $('#menuRoot');
     root.innerHTML = html`<div class="menu" role="menu" aria-label="${label}">${items.map((item, i) => item === '-'
         ? html`<div class="menu-sep" role="separator"></div>`
+        : item.heading ? html`<div class="menu-heading" role="presentation">${item.heading}</div>`
+        : 'checked' in item // one of a set of choices: ✓ on the chosen one, no icon
+        ? html`<button class="menu-item menu-choice ${item.checked ? 'checked' : ''}" role="menuitemradio" aria-checked="${String(!!item.checked)}" data-menu-index="${i}" tabindex="-1"><span>${item.label}</span>${item.checked ? icon('checkPlain', 16) : ''}</button>`
         : html`<button class="menu-item ${item.danger ? 'danger' : ''}" role="menuitem" data-menu-index="${i}" tabindex="-1" ${item.disabled ? 'disabled' : ''}>${icon(item.icon || 'note', 16)}<span>${item.label}</span></button>`)}</div>`.s;
     const menu = $('.menu', root);
     // Under the button (right-aligned), or at the cursor; then kept inside the window
@@ -2533,7 +3860,7 @@ function showMenu(items, { anchor = null, x = 0, y = 0, label = 'Options' } = {}
     M.opener = anchor || document.activeElement;
     if (anchor) anchor.setAttribute('aria-expanded', 'true');
     const buttons = $$('.menu-item:not([disabled])', menu);
-    buttons[0]?.focus();
+    ($('.menu-item.checked', menu) || buttons[0])?.focus();
 
     const pick = (e) => {
         const btn = e.target.closest('.menu-item');
@@ -2587,10 +3914,15 @@ function rowMenu(row, position) {
     if (!t) return;
     const playlist = rowPlaylist(row);
     showMenu([
+        { label: 'Play next', icon: 'playNext', run: () => addToQueue([t.id], { next: true }) },
+        { label: 'Add to queue', icon: 'queue', run: () => addToQueue([t.id]) },
+        { label: 'Schedule play', icon: 'clock', run: () => scheduleDialog(whatForTrack(t)) },
+        '-',
         { label: S.liked.has(t.id) ? 'Remove from Liked Songs' : 'Save to Liked Songs', icon: S.liked.has(t.id) ? 'heartFilled' : 'heart', run: () => toggleLike(t.id) },
         { label: 'Add to playlist', icon: 'listAdd', run: () => addToPlaylistDialog([t.id], t.title) },
         ...(playlist ? [{ label: `Remove from ${playlist.name}`, icon: 'trash', run: () => removeFromPlaylist(playlist, [t.id], t.title) }] : []),
         { label: 'Send to device', icon: 'usb', run: () => sendToDeviceDialog([t.id], t.title, null) },
+        { label: savingLyrics.has(t.id) ? 'Downloading lyrics…' : 'Download lyrics', icon: 'downloadPlain', disabled: savingLyrics.has(t.id), run: () => saveTrackLyrics(t) },
         ...(S.init.apple_music ? [{ label: 'Add to Apple Music', icon: 'apple', run: () => appleMusicDialog([t.id], t.title, null, false) }] : []),
         { label: 'Blind listening test', icon: 'ear', run: () => { location.hash = `#/abx/${encodeURIComponent(t.id)}`; } },
         '-',
@@ -2604,10 +3936,13 @@ function collectionMenu(anchor) {
     const ids = c ? c.track_ids : r.name === 'liked' ? S.likedOrder : [];
     const name = c ? c.name : 'Liked Songs';
     showMenu([
+        { label: 'Add to queue', icon: 'queue', disabled: !ids.length, run: () => addToQueue(ids) },
+        { label: 'Schedule play', icon: 'clock', disabled: !ids.length, run: () => scheduleDialog(c ? whatForCollection(c) : whatForLiked()) },
         { label: 'Add to another playlist', icon: 'listAdd', disabled: !ids.length, run: () => addToPlaylistDialog(ids, name) },
         { label: 'Send to device', icon: 'usb', disabled: !ids.length, run: () => sendToDeviceDialog(ids, name, name) },
         ...(S.init.apple_music ? [{ label: 'Add to Apple Music', icon: 'apple', disabled: !ids.length, run: () => appleMusicDialog(ids, name, name, !(c && c.kind === 'album')) }] : []),
-        ...(c && c.editable ? ['-', { label: 'Delete playlist', icon: 'trash', danger: true, run: () => deletePlaylistDialog(c) }] : []),
+        ...(c && c.editable ? ['-', { label: 'Rename', icon: 'listAdd', run: () => renamePlaylistDialog(c) },
+            { label: 'Delete playlist', icon: 'trash', danger: true, run: () => deletePlaylistDialog(c) }] : []),
     ], { anchor, label: `Options for ${name}` });
 }
 
@@ -2710,6 +4045,52 @@ async function removeFromPlaylist(playlist, trackIds, label) {
         toast(`Removed ${label} from ${playlist.name}`);
         await refreshLibrary();
     } catch (error) { toast(error.message, 'error'); }
+}
+
+async function movePlaylistSong(key, from, to) {
+    const c = S.collections.find((x) => x.key === key);
+    if (!c) return;
+    const ids = [...c.track_ids];
+    ids.splice(to, 0, ...ids.splice(from, 1));
+    c.track_ids = ids; // show it straight away; the server confirms below
+    if (P.context?.key === `collection:${key}` && !P.shuffle) { // playing this playlist: the queue follows the new order
+        const playing = contextTrackId();
+        P.queue = ids.filter((id) => S.byId.has(id));
+        P.order = P.queue.map((_, i) => i);
+        P.pos = Math.max(0, P.queue.indexOf(playing));
+        saveSession();
+    }
+    try {
+        await api(`/playlists/${encodeURIComponent(key)}/tracks`, { method: 'POST', body: JSON.stringify({ track_ids: ids, action: 'order' }) });
+    } catch (error) { toast(error.message, 'error'); }
+    await refreshLibrary();
+}
+
+function renamePlaylistDialog(c) {
+    openModal({
+        title: 'Rename playlist',
+        body: html`<form id="renameForm" class="dialog-form">
+            <label class="field"><span>Name</span><input class="field-input plain" id="renameInput" maxlength="120" value="${c.name}" autofocus></label>
+            <p class="form-error" id="renameError" hidden></p>
+            <div class="modal-actions"><button type="button" class="pill-btn" data-close>Cancel</button><button type="submit" class="pill-btn primary">Save</button></div>
+        </form>`,
+        onOpen: (modal, close) => {
+            setTimeout(() => $('#renameInput', modal).select());
+            $('#renameForm', modal).addEventListener('submit', async (e) => {
+                e.preventDefault();
+                try {
+                    const { key } = await api(`/playlists/${encodeURIComponent(c.key)}/rename`, { method: 'POST', body: JSON.stringify({ name: $('#renameInput', modal).value }) });
+                    const oldKey = `collection:${c.key}`, newKey = `collection:${key}`, href = `#/collection/${encodeURIComponent(key)}`;
+                    if (S.recent[oldKey]) { S.recent[newKey] = S.recent[oldKey]; delete S.recent[oldKey]; store.set('recentContexts', S.recent); }
+                    if (P.context?.key === oldKey) { P.context = { ...P.context, key: newKey, label: key, href }; saveSession(); }
+                    close();
+                    history.replaceState(null, '', href);
+                    await refreshLibrary();
+                    toast(`Renamed to ${key}`);
+                } catch (error) { const err = $('#renameError', modal); err.textContent = error.message; err.hidden = false; }
+            });
+        },
+    });
 }
 
 function deletePlaylistDialog(c) {
@@ -3399,4 +4780,5 @@ function bindWindowCheckIn() {
     await render();
     pollJobs();
     pollGenres();
+    startScheduler(); // after the library loads: a due schedule needs its songs
 })();

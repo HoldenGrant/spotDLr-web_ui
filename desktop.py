@@ -96,7 +96,9 @@ def _open_window(url):
         return
     # Own profile: the window doesn't mix with the user's normal browsing (tabs, history, extensions)
     profile = DATA_DIR / "browser-profile"
-    subprocess.Popen([browser, f"--app={url}", f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check"])
+    # Its own profile, so these flags always apply. Autoplay: a scheduled play can start without a click first.
+    subprocess.Popen([browser, f"--app={url}", f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check",
+                      "--autoplay-policy=no-user-gesture-required"])
 
 
 def _wait_for_windows(open_windows, url):
