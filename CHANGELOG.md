@@ -4,7 +4,7 @@ What changed in each version of spotDLr, newest first. Downloads are on the [Rel
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## [2.3.0] - 2026-10-20
+## [2.3.1] - 2026-10-20
 
 ### Added
 - **Personal standalone Mac installer.** `installer/build_mac.sh` builds an ad hoc signed Apple Silicon app and drag-to-Applications DMG with Python, FFmpeg, ffprobe and Node.js included. Its native window owns a backend on a free local port; settings live in Mac Application Support and music in `~/Music/spotDLr`. Includes relocation/isolation smoke tests. Requires macOS 15+; no notarization or public release is performed.
@@ -31,6 +31,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - On All songs, the genre buttons now filter the list instead of opening the genre's page (the page is one click away, next to the song count).
 
 ### Fixed
+- **Windows release contents.** The installer now includes the app updates listed above. The v2.3.0 tag was created before those source changes were committed, so its installer contained the previous app code.
 - **Phones:** the visualizer's bars covered the song title, ♥ and progress in Now Playing; long playlist names filled the screen; held sideways, the player bar was cut off and the Now Playing cover ran past its panel; and content didn't keep clear of the iPhone's notch and home bar.
 - **Phones:** the Stats page cut off long totals ("54 hr 41 …"), and the page height now leaves room for the browser's own toolbars.
 - **iPhone and iPad:** music stopped when the screen locked after Now Playing had been opened. Safari suspends the audio processing the visualizers listen through, so on iOS spotDLr no longer routes music through it: playback continues with the screen off, and the visualizers follow a generated pattern there (the menu says so). Even volume and crossfade are off on iOS, where Safari doesn't let pages change the volume.
@@ -43,6 +44,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - **Phones:** the search box at the top ran underneath the Stats and Downloads buttons.
 - **Mac:** reopening spotDLr could say "Port 8000 is being used by another app" about spotDLr itself, when its connection check was slow (for example just after the Mac wakes up). It now recognises its own server and waits for it.
 - **Windows:** the same slow check could start a second copy of spotDLr on another port. It now finds the running one.
+
+## [2.3.0] - 2026-10-20
+
+### Changed
+- Updated the version and release notes. This tag preceded the app implementation commit; use v2.3.1 for the features and fixes listed above.
 
 ## [2.2.0] - 2026-10-18
 
