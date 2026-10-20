@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101210">
+  <title>spotDLr — Your music, on your terms.</title>
+  <meta name="description" content="A local music player for the collection you keep. Browse albums, make playlists, and follow synced lyrics with spotDLr for Windows and Mac.">
+  <link rel="canonical" href="https://holdengrant.github.io/spotDLr-web_ui/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="spotDLr — Your music, on your terms.">
+  <meta property="og:description" content="Bring your music collection home. A local player with playlists, synced lyrics, and a familiar library.">
+  <meta property="og:url" content="https://holdengrant.github.io/spotDLr-web_ui/">
+  <meta property="og:image" content="https://holdengrant.github.io/spotDLr-web_ui/assets/library.webp">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="assets/mark.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header wrap">
+    <a class="brand" href="./" aria-label="spotDLr home"><img src="assets/mark.svg" width="34" height="34" alt="">spotDLr</a>
+    <nav aria-label="Main navigation">
+      <a href="#features">The player</a>
+      <a href="https://github.com/HoldenGrant/spotDLr-web_ui">GitHub <span aria-hidden="true">↗</span></a>
+      <a class="nav-download" href="#get-started">Get spotDLr <span aria-hidden="true">↓</span></a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero wrap" aria-labelledby="hero-title">
+      <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Your collection. Right at home.</p>
+      <div class="hero-copy">
+        <h1 id="hero-title">Your music,<br><span>on your terms.</span></h1>
+        <div class="hero-intro">
+          <p>A familiar player for the music you keep. Bring your files together, build your playlists, and get lost in a good album.</p>
+          <a class="button primary" href="https://github.com/HoldenGrant/spotDLr-web_ui/releases/latest/download/spotDLr-Setup.exe"><span aria-hidden="true">↓</span> Download for Windows</a>
+          <a class="text-link" href="https://github.com/HoldenGrant/spotDLr-web_ui/blob/main/SETUP.md#mac-install-and-open-like-an-app">On a Mac? Start here <span aria-hidden="true">↗</span></a>
+          <p class="small-note">Free to download · Windows installer · Mac from source</p>
+        </div>
+      </div>
+      <figure class="product-preview">
+        <div class="window-bar" aria-hidden="true"><span></span><span></span><span></span><p>spotDLr / Your library</p></div>
+        <img src="assets/library.webp" alt="spotDLr showing an album, a library sidebar, track list, and playback controls." width="1440" height="1000" fetchpriority="high">
+        <figcaption><span>A little less searching. A lot more listening.</span><span>Current development preview</span></figcaption>
+      </figure>
+    </section>
+
+    <section id="features" class="features wrap" aria-labelledby="features-title">
+      <div class="section-heading"><p class="eyebrow">Made for the collection</p><h2 id="features-title">Give your music<br>a place to live.</h2></div>
+      <div class="feature-list">
+        <article><span class="feature-number" aria-hidden="true">01 /</span><div><h3>Your library, beautifully in order.</h3><p>Browse artists and albums, save your favorites, and make playlists from the songs on your computer.</p></div></article>
+        <article><span class="feature-number" aria-hidden="true">02 /</span><div><h3>Stay with the song.</h3><p>Follow synced lyrics, open the fullscreen player, and let the album take center stage.</p></div></article>
+        <article><span class="feature-number" aria-hidden="true">03 /</span><div><h3>Bring more music home.</h3><p>Search with YouTube Music or paste a supported link. Downloads join the same library, ready for your next listen.</p></div></article>
+      </div>
+    </section>
+
+    <section class="get-started" id="get-started" aria-labelledby="install-title">
+      <div class="wrap install-inner">
+        <div class="install-heading"><p class="eyebrow">Press play on your own collection</p><h2 id="install-title">Make yourself<br>at home.</h2><p>Choose your setup. Your music stays on your computer.</p></div>
+        <div class="platforms">
+          <article><div class="platform-label"><h3>Windows</h3><span>Installer</span></div><p>Download, install, and open spotDLr. Python, FFmpeg, and Node.js are included.</p><a class="button dark" href="https://github.com/HoldenGrant/spotDLr-web_ui/releases/latest/download/spotDLr-Setup.exe">Download for Windows <span aria-hidden="true">↓</span></a></article>
+          <article><div class="platform-label"><h3>Mac</h3><span>From source</span></div><p>Clone the project, install its tools, then create a local app with the included launcher script.</p><a class="button outlined" href="https://github.com/HoldenGrant/spotDLr-web_ui/blob/main/SETUP.md#mac-install-and-open-like-an-app">Follow the Mac guide <span aria-hidden="true">↗</span></a></article>
+          <a class="install-docs" href="https://github.com/HoldenGrant/spotDLr-web_ui/blob/main/SETUP.md">Full setup guide & troubleshooting <span aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+    </section>
+
+    <section class="faq wrap" aria-labelledby="faq-title">
+      <div><p class="eyebrow">Before the first track</p><h2 id="faq-title">A few good<br>questions.</h2></div>
+      <div class="questions">
+        <details><summary>Does the player run on this website?</summary><p>This is spotDLr’s home on the web. The player and its Python server run on your computer, where your music files live.</p></details>
+        <details><summary>Do I need a Spotify account?</summary><p>No. Search and downloads can use YouTube Music without Spotify keys. Connecting Spotify is optional; see the setup guide for its requirements.</p></details>
+        <details><summary>Can I listen offline?</summary><p>Yes, you can play files already on your computer. Finding and downloading music, fetching artwork, and looking up lyrics need an internet connection.</p></details>
+        <details><summary>Where can I get updates or report a problem?</summary><p>Find updates on <a href="https://github.com/HoldenGrant/spotDLr-web_ui/releases">GitHub Releases</a>, or open an issue in the <a href="https://github.com/HoldenGrant/spotDLr-web_ui/issues">issue tracker</a>. The screenshot above shows the current development build; released versions may look different.</p></details>
+      </div>
+    </section>
+  </main>
+
+  <footer class="wrap site-footer">
+    <a class="brand" href="./"><img src="assets/mark.svg" width="28" height="28" alt="">spotDLr</a>
+    <p>Made by <a href="https://github.com/HoldenGrant">Holden Grant</a>. Built for listening.</p>
+    <a href="https://github.com/HoldenGrant/spotDLr-web_ui">View the source <span aria-hidden="true">↗</span></a>
+    <small>Independent project, unaffiliated with Spotify or YouTube.</small>
+  </footer>
+</body>
+</html>
