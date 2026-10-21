@@ -50,7 +50,7 @@ No Spotify account is required. Search uses **YouTube Music** by default; connec
 | | Make it yours |
 | :--- | :--- |
 | **A home for your collection** | Browse albums, artists, genres, and playlists built from your files' tags and cover art. Search, filter, and switch between list and grid views. |
-| **Stay with the song** | Synced lyrics, fullscreen Now Playing, visualizers, Mac media keys, and swipe-to-skip on phones. Save available `.lrc` lyrics beside songs already in your library. |
+| **Stay with the song** | Synced lyrics, fullscreen Now Playing, visualizers (including a cassette deck whose buttons, knobs and VU meters work), an equalizer with reverb and balance, Mac media keys, and swipe-to-skip on phones. Save available `.lrc` lyrics beside songs already in your library. |
 | **Set the pace** | Play next, build a queue, shuffle, repeat, crossfade, even out volume, or drift off with a sleep timer. Schedule a song or playlist for later. |
 | **Find your next favorite** | Search YouTube Music or connect Spotify. Paste supported song, album, playlist, and artist links; spotDLr marks what you already have and can download missing tracks. |
 | **Keep the good copy** | Find duplicates, keep the copy you choose, and carry its likes and playlists forward. Fix album metadata with an undo option. |

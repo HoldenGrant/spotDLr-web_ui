@@ -17,6 +17,7 @@ import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -470,8 +471,10 @@ def download_track(meta, output_dir: Path, fmt="m4a", bitrate="auto"):
                     ydl.download([WATCH_URL.format(meta["video_id"])])
                 break
             except yt_dlp.utils.DownloadError as e:
-                if "403" not in str(e) or attempt == 2:
+                if "403" not in str(e):
                     raise
+                if attempt == 2:
+                    raise youtube_refused(e) from e
                 for leftover in Path(tmp).glob("audio.*"):
                     leftover.unlink()
                 time.sleep(2 * (attempt + 1))
@@ -483,6 +486,28 @@ def download_track(meta, output_dir: Path, fmt="m4a", bitrate="auto"):
         output_dir.mkdir(parents=True, exist_ok=True)
         shutil.move(str(produced), target)
     return target, False
+
+
+def youtube_refused(error):
+    """A 403 that outlives every retry is usually an old yt-dlp: YouTube changed and it can't keep up (Oct 21, 2026:
+    a 10-month-old copy got 403 on every song). Say how to fix it when yt-dlp is old; otherwise pass the error on."""
+    import yt_dlp
+    from paths import FROZEN
+    built = yt_dlp.version.__version__
+    try:
+        age = (date.today() - date(*map(int, built.split(".")[:3]))).days
+    except (TypeError, ValueError):
+        return error
+    if age < 90:  # yt-dlp warns about its own age at 90 days; releases can be 2 months apart
+        return error
+    if FROZEN:
+        fix = "Install the newest spotDLr."
+    elif sys.prefix == sys.base_prefix:
+        fix = "spotDLr is running on a Python outside its .venv. Quit it and start it from spotDLr.app or run.sh."
+    else:
+        fix = "Restart spotDLr (it updates yt-dlp once a week), or run installer/update_ytdlp.py with .venv's Python."
+    return YTMusicError(f"YouTube refused the song (HTTP 403). The YouTube downloader is yt-dlp {built}, "
+                        f"{age // 30} months old, and YouTube has probably changed since. {fix}")
 
 
 def _fetch_cover(url):

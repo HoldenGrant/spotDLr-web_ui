@@ -9,6 +9,8 @@ WORK="$REPO/build/mac"
 export MACOSX_DEPLOYMENT_TARGET="15.0"  # the bundled Homebrew FFmpeg requires macOS 15
 if [ "$(uname -m)" != arm64 ]; then echo "This build targets Apple Silicon Macs." >&2; exit 1; fi
 "$PYTHON" -m PyInstaller --version
+# The DMG freezes yt-dlp as it is today, and an old one gets HTTP 403 from YouTube, so start from the newest
+"$PYTHON" installer/update_ytdlp.py
 VERSION="$("$PYTHON" -c 'from version import VERSION; print(VERSION)')"
 mkdir -p "$WORK/tools" "$OUT"
 for tool in ffmpeg ffprobe node; do

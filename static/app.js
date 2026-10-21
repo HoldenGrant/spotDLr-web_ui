@@ -60,6 +60,7 @@ const ICONS = {
     sparkle: '<circle cx="5" cy="6" r="1.5"/><circle cx="17" cy="4" r="1"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="15" r="1.5"/><circle cx="6" cy="18" r="1"/>',
     vinyl: '<circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="12" r="3.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/>',
     sun: '<path d="M7 13a5 5 0 0 1 10 0"/><path d="M3 17h18"/><path d="M6 21h12"/><path d="M12 3v3"/><path d="m5 7 1.5 1.5"/><path d="m19 7-1.5 1.5"/>',
+    cassette: '<rect x="2.5" y="5" width="19" height="14" rx="2"/><circle cx="8" cy="11" r="2"/><circle cx="16" cy="11" r="2"/><path d="M10 11h4"/><path d="m6.5 19 1.5-3h8l1.5 3"/>',
     mic: '<rect x="9" y="2.5" width="6" height="11.5" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3.5"/>',
     heart: '<path d="M12 20.3 4.6 13a4.8 4.8 0 0 1 6.8-6.8l.6.6.6-.6a4.8 4.8 0 0 1 6.8 6.8z"/>',
     heartFilled: '<path fill="currentColor" stroke="none" d="M12 20.3 4.6 13a4.8 4.8 0 0 1 6.8-6.8l.6.6.6-.6a4.8 4.8 0 0 1 6.8 6.8z"/>',
@@ -299,22 +300,29 @@ P.trackGain = 1;   // < 1 turns a loud song down to TARGET_LUFS ("Even out volum
 P.fadeIn = 1;      // crossfade: the incoming song's share
 P.sleepGain = 1;   // sleep timer: fades out over its last 10 s
 P.wakeGain = 1;    // a scheduled play's fade-in
+P.balance = store.get('balance', 0); // -1 left only … 0 both … 1 right only: Settings → Sound and the Hi-Fi Deck's knob (needs Web Audio, see applySound)
 const XF = { el: new Audio(), active: false, prepared: null, out: 1, outGain: 1, timer: null, switching: false };
 XF.el.preload = 'auto';
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
-let graphVolume = null; // a GainNode once the visualizer routes the music through Web Audio (ensureAudioGraph)
+// Progress bars fill by sliding a full-width bar in from the left (a transform, so no layout on each update)
+const setProgress = (el, fraction) => el.style.setProperty('--p', clamp01(fraction || 0));
+let graphVolume = null; // a GainNode once the music goes through Web Audio (ensureAudioGraph)
+let xfVolume = null;    // the same for the crossfade's second player
 function applyVolume() {
     const level = clamp01(P.userVolume * P.trackGain * P.fadeIn * P.sleepGain * P.wakeGain);
+    const xfLevel = clamp01(P.userVolume * XF.outGain * XF.out * P.sleepGain);
     if (graphVolume) {
-        // The visualizer routes the music through Web Audio, and WebKit (the Mac app, Safari) then ignores
-        // audio.volume: measured, 20% sounded exactly like 100%. So the level goes on a gain node instead,
-        // after the analyser (the bars don't shrink with the volume), and the element stays at full volume.
-        P.audio.volume = 1;
-        graphVolume.gain.setTargetAtTime(P.audio.muted ? 0 : level, graphVolume.context.currentTime, 0.015); // 15 ms: no clicks
+        // Routed through Web Audio (a visualizer or a sound effect), WebKit (the Mac app, Safari) ignores
+        // audio.volume: measured, 20% sounded exactly like 100%. So the levels go on gain nodes instead,
+        // after the analyser (the bars don't shrink with the volume), and the elements stay at full volume.
+        const now = graphVolume.context.currentTime;
+        P.audio.volume = XF.el.volume = 1;
+        graphVolume.gain.setTargetAtTime(P.audio.muted ? 0 : level, now, 0.015); // 15 ms: no clicks
+        xfVolume.gain.setTargetAtTime(P.audio.muted ? 0 : xfLevel, now, 0.015);
     } else {
         P.audio.volume = level;
+        XF.el.volume = xfLevel;
     }
-    XF.el.volume = clamp01(P.userVolume * XF.outGain * XF.out * P.sleepGain);
     XF.el.muted = P.audio.muted;
 }
 applyVolume();
@@ -623,6 +631,298 @@ function endFade() {
     XF.out = 1;
     P.fadeIn = 1;
     applyVolume();
+}
+
+// ---------- sound: equalizer, reverb, balance ----------
+// All three are Web Audio nodes after the volume, so they need the music routed through Web Audio
+// (ensureAudioGraph): never on iPhone/iPad, where Safari would stop it when the screen locks. Saved per device.
+
+const SOUND_WORKS = !IOS && !!(window.AudioContext || window.webkitAudioContext);
+// Six bands like Spotify's, each a bump (a peaking filter) [centre, Q, label]. Q 1 is about 1.4 octaves wide, as far
+// apart as the bands are; 15 kHz is wider (Q 0.7), its neighbour being 2.6 octaves away. Not shelves at the ends: a
+// shelf is only halfway at its own frequency, so its dot sat off the line, and forcing it on overshot the deep bass.
+const EQ_BANDS = [[60, 1, '60 Hz'], [150, 1, '150 Hz'], [400, 1, '400 Hz'], [1000, 1, '1 kHz'], [2400, 1, '2.4 kHz'], [15000, 0.7, '15 kHz']];
+const eqFilters = (ctx) => EQ_BANDS.map(() => Object.assign(ctx.createBiquadFilter(), { type: 'peaking' }))
+    .map((f, i) => { f.frequency.value = EQ_BANDS[i][0]; f.Q.value = EQ_BANDS[i][1]; return f; });
+const EQ_RANGE = 12; // dB either way
+const EQ_PRESETS = {
+    flat: ['Flat', [0, 0, 0, 0, 0, 0]],
+    bass: ['Bass booster', [6, 4, 1, 0, 0, 0]],
+    bassCut: ['Bass reducer', [-6, -4, -1, 0, 0, 0]],
+    treble: ['Treble booster', [0, 0, 0, 1, 4, 6]],
+    trebleCut: ['Treble reducer', [0, 0, 0, -1, -4, -6]],
+    vocal: ['Vocal booster', [-2, -1, 2, 4, 3, 0]],
+    speakers: ['Small speakers', [5, 3, 0, -1, 1, 3]],
+    acoustic: ['Acoustic', [4, 3, 1, 1, 2, 2]],
+    dance: ['Dance', [6, 4, 1, -1, 2, 3]],
+    hiphop: ['Hip-hop', [6, 5, 1, -1, 1, 2]],
+    jazz: ['Jazz', [3, 2, -1, 1, 2, 3]],
+    pop: ['Pop', [-1, 1, 3, 3, 1, -1]],
+    rock: ['Rock', [4, 2, -1, -1, 2, 4]],
+    spoken: ['Spoken word', [-3, -1, 2, 4, 3, -2]],
+};
+// A room is how long its echoes take to fade by 60 dB (RT60), the number acousticians measure rooms by
+const ROOMS = { small: ['Small room', 0.4], studio: ['Studio', 0.8], hall: ['Concert hall', 1.8], cathedral: ['Cathedral', 4] };
+const FX = {
+    eq: { on: false, preset: 'flat', gains: [0, 0, 0, 0, 0, 0], ...store.get('eq', {}) },
+    reverb: { room: 'off', amount: 0.3, ...store.get('reverb', {}) },
+    nodes: null, rooms: {},
+};
+const soundInUse = () => SOUND_WORKS && ((FX.eq.on && FX.eq.gains.some(Boolean)) || !!ROOMS[FX.reverb.room] || !!P.balance);
+
+// The curve in dB at each frequency, from the same filters the music goes through (an offline context: no
+// sound, no click needed, works before the real one exists)
+const EQ_FREQS = Float32Array.from({ length: 160 }, (_, i) => 20 * 1000 ** (i / 159)); // 20 Hz to 20 kHz, evenly on a log scale
+const EQ_CENTERS = Float32Array.from(EQ_BANDS, ([freq]) => freq);
+let eqProbe = null;
+function eqResponse(filterGains, freqs = EQ_FREQS) {
+    // At the rate the music plays at (most computers: 48 kHz, assumed until the audio starts). A peaking filter is
+    // back to 0 dB at half that rate, so above 15 kHz the line depends on it: +6 at 15 kHz is +0.9 at 20 kHz at 44.1
+    // kHz, +1.9 at 48. The dots don't: each filter is exact at its own centre whatever the rate.
+    const rate = V.ctx?.sampleRate || 48000;
+    if (eqProbe?.rate !== rate) {
+        eqProbe = eqFilters(new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 1, rate));
+        eqProbe.rate = rate;
+        eqSolved.clear();
+    }
+    const total = new Float32Array(freqs.length), mag = new Float32Array(freqs.length), phase = new Float32Array(freqs.length);
+    eqProbe.forEach((f, i) => {
+        f.gain.value = filterGains[i];
+        f.getFrequencyResponse(freqs, mag, phase);
+        for (let k = 0; k < total.length; k++) total[k] += 20 * Math.log10(mag[k]);
+    });
+    return total;
+}
+// The bumps overlap (a band's neighbours add about a quarter of their gain at its centre), so a filter can't simply
+// get its slider's value: Pop's +3 at 400 Hz and 1 kHz came out +3.7 and +3.8. So: set each filter to its slider,
+// measure the line at the six dots, move each filter by how far its dot was missed, repeat. Each round removes most
+// of the error; 8 land every dot within 0.05 dB, even a ±12 zigzag. What you set is then exactly what you hear.
+const eqSolved = new Map();
+function eqSolve(sliders) {
+    const key = sliders.join();
+    if (!eqSolved.has(key)) {
+        let gains = sliders.slice();
+        for (let round = 0; round < 8; round++) {
+            const line = eqResponse(gains, EQ_CENTERS);
+            gains = gains.map((g, i) => Math.max(-30, Math.min(30, g + sliders[i] - line[i])));
+        }
+        if (eqSolved.size > 500) eqSolved.clear();
+        eqSolved.set(key, gains);
+    }
+    return eqSolved.get(key);
+}
+// Headroom: a boost of +6 dB doubles a band, and a song already peaking near full scale would then clip (flat-topped:
+// crackle). So the whole thing first goes down by the line's highest point, which can sit between the dots. The bass
+// ends up where you set it, nothing clips; the price is that boosting can't make it louder.
+const eqHeadroom = (sliders) => -Math.max(0, ...eqResponse(eqSolve(sliders)));
+
+// A room's echo, made rather than recorded: noise that dies away, different in each ear, highs fading twice as fast as
+// lows (as walls and air absorb them). tail(t) = noise · e^(−t/τ), τ = RT60 / ln 1000 (60 dB = 1/1000 of the amplitude).
+// Scaled to unit energy, so the room alone is about as loud as the song, and the dry/wet mix keeps the loudness.
+function roomImpulse(ctx, seconds) {
+    const rate = ctx.sampleRate, delay = Math.round(rate * Math.min(0.04, seconds * 0.01)); // first echo 4-40 ms late
+    const length = delay + Math.ceil(rate * seconds), tau = seconds / Math.log(1000);
+    const impulse = ctx.createBuffer(2, length, rate);
+    let energy = 0;
+    for (let side = 0; side < 2; side++) {
+        const data = impulse.getChannelData(side);
+        let low = 0;
+        for (let i = delay; i < length; i++) {
+            const t = (i - delay) / rate, noise = Math.random() * 2 - 1;
+            low += (noise - low) * 0.2;                         // one-pole low-pass, about 1.5 kHz
+            data[i] = (noise - low) * Math.exp((-2 * t) / tau) + low * Math.exp(-t / tau);
+            energy += data[i] * data[i];
+        }
+    }
+    const scale = 1 / Math.sqrt(energy / 2);
+    for (let side = 0; side < 2; side++) { const data = impulse.getChannelData(side); for (let i = 0; i < length; i++) data[i] *= scale; }
+    return impulse;
+}
+
+// A gain that is always stereo: mono is copied to both sides ('speakers'), 5.1 is folded down
+function twoChannels(ctx) {
+    return Object.assign(ctx.createGain(), { channelCount: 2, channelCountMode: 'explicit', channelInterpretation: 'speakers' });
+}
+
+// bus → headroom → 6 bands → dry + room (wet) → left/right levels (balance) → speakers
+function buildSound(ctx, bus) {
+    const preamp = ctx.createGain();
+    const bands = eqFilters(ctx);
+    bus.connect(preamp);
+    [preamp, ...bands].reduce((from, to) => { from.connect(to); return to; });
+    const out = bands[bands.length - 1], dry = ctx.createGain(), wet = ctx.createGain(), sum = twoChannels(ctx);
+    out.connect(dry);
+    dry.connect(sum);
+    wet.connect(sum);
+    const split = ctx.createChannelSplitter(2), merge = ctx.createChannelMerger(2);
+    sum.connect(split);
+    const sides = [0, 1].map((side) => { const level = ctx.createGain(); split.connect(level, side); level.connect(merge, 0, side); return level; });
+    merge.connect(ctx.destination);
+    FX.nodes = { preamp, bands, out, dry, wet, sides, room: null, roomKey: 'off' };
+}
+
+function applySound() {
+    const n = FX.nodes;
+    if (!n) return;
+    const ctx = n.dry.context, now = ctx.currentTime, glide = (param, value) => param.setTargetAtTime(value, now, 0.03);
+    const sliders = FX.eq.on ? FX.eq.gains : EQ_BANDS.map(() => 0);
+    eqSolve(sliders).forEach((g, i) => glide(n.bands[i].gain, g));
+    glide(n.preamp.gain, 10 ** (eqHeadroom(sliders) / 20));
+    // Reverb: a new convolver per room (not a new buffer on the old one, which some browsers refuse); none when off
+    const room = ROOMS[FX.reverb.room] ? FX.reverb.room : 'off';
+    if (room !== n.roomKey) {
+        if (n.room) { const old = n.room; setTimeout(() => old.disconnect(), 200); n.out.disconnect(old); } // after the wet fade
+        n.room = null;
+        if (room !== 'off') {
+            FX.rooms[room] = FX.rooms[room] || roomImpulse(ctx, ROOMS[room][1]);
+            n.room = Object.assign(ctx.createConvolver(), { normalize: false });
+            n.room.buffer = FX.rooms[room];
+            n.out.connect(n.room);
+            n.room.connect(n.wet);
+        }
+        n.roomKey = room;
+    }
+    // Equal power, like the crossfade: dry² + wet² = 1, so the total stays about as loud. At most 60% room: the song stays in front.
+    const mix = room === 'off' ? 0 : clamp01(FX.reverb.amount) * 0.6;
+    glide(n.dry.gain, Math.cos((mix * Math.PI) / 2));
+    glide(n.wet.gain, Math.sin((mix * Math.PI) / 2));
+    const b = P.balance; // turning right lowers the left side, and the other way round
+    glide(n.sides[0].gain, b > 0 ? 1 - b : 1);
+    glide(n.sides[1].gain, b < 0 ? 1 + b : 1);
+}
+
+// Changing a setting: save it, and route the music through Web Audio if that's the first effect (this runs in the click
+// or drag that changed it, so the browser lets the audio start)
+function setSound(change) {
+    change();
+    store.set('eq', { on: FX.eq.on, preset: FX.eq.preset, gains: FX.eq.gains });
+    store.set('reverb', FX.reverb);
+    store.set('balance', P.balance);
+    if (!FX.nodes && soundInUse()) ensureAudioGraph();
+    applySound();
+}
+const setBalance = (value) => setSound(() => { P.balance = Math.abs(value) < 0.05 ? 0 : Math.round(value * 100) / 100; }); // a little dead zone: the middle is easy to find
+
+// Settings → Playback → Sound. The equalizer is a graph: drag a band's point (or anywhere above or below it), or
+// use the arrow keys on it; the line is the real filters' response.
+const EQ_VIEW = { w: 560, h: 180, left: 40, right: 14, top: 14, bottom: 14 };
+const eqX = (freq) => EQ_VIEW.left + (Math.log(freq / 20) / Math.log(1000)) * (EQ_VIEW.w - EQ_VIEW.left - EQ_VIEW.right);
+const eqY = (db) => EQ_VIEW.top + ((EQ_RANGE - db) / (2 * EQ_RANGE)) * (EQ_VIEW.h - EQ_VIEW.top - EQ_VIEW.bottom);
+const dbText = (db) => (db > 0 ? `+${db}` : db < 0 ? `−${-db}` : '0') + ' dB';
+const balanceText = (b) => (b ? `${Math.round(Math.abs(b) * 100)}% ${b < 0 ? 'left' : 'right'}` : 'Center');
+
+function soundSettings() {
+    const { w, h, left, right } = EQ_VIEW;
+    return html`<h3 class="sound-title">Sound</h3>
+        ${SOUND_WORKS ? '' : html`<p class="field-note">On iPhone and iPad, Safari stops music that goes through sound effects when the screen locks, so these only work on a computer or Android.</p>`}
+        <fieldset class="sound" ${SOUND_WORKS ? '' : new Safe('disabled')}>
+            <div class="field">
+                <div class="eq-head">
+                    <label class="check"><input type="checkbox" id="setEq" ${FX.eq.on ? new Safe('checked') : ''}> Equalizer</label>
+                    <select id="setEqPreset" aria-label="Equalizer preset">
+                        ${Object.entries(EQ_PRESETS).map(([key, [label]]) => html`<option value="${key}">${label}</option>`)}
+                        <option value="custom">Custom</option>
+                    </select>
+                    <button type="button" class="pill-btn" id="eqReset">Reset</button>
+                </div>
+                <div class="eq-panel" id="eqPanel">
+                    <svg class="eq-graph" viewBox="0 0 ${w} ${h}" role="group" aria-label="Equalizer bands">
+                        ${[EQ_RANGE, EQ_RANGE / 2, 0, -EQ_RANGE / 2, -EQ_RANGE].map((db) => html`<line class="${db ? 'eq-grid' : 'eq-grid zero'}" x1="${left}" x2="${w - right}" y1="${eqY(db)}" y2="${eqY(db)}"></line><text class="eq-db" x="${left - 8}" y="${eqY(db) + 4}">${db > 0 ? `+${db}` : db}</text>`)}
+                        <path class="eq-curve" d=""></path>
+                        ${EQ_BANDS.map(([freq, , label], i) => html`<g class="eq-band" data-band="${i}" tabindex="0" role="slider" aria-label="${label}" aria-valuemin="${-EQ_RANGE}" aria-valuemax="${EQ_RANGE}" aria-orientation="vertical">
+                            <line class="eq-stem" x1="${eqX(freq)}" x2="${eqX(freq)}" y1="${eqY(EQ_RANGE)}" y2="${eqY(-EQ_RANGE)}"></line><circle class="eq-dot" cx="${eqX(freq)}" r="8"></circle></g>`)}
+                    </svg>
+                    <div class="eq-labels" aria-hidden="true">${EQ_BANDS.map(([freq, , label]) => html`<span style="left:${(eqX(freq) / w) * 100}%">${label}</span>`)}</div>
+                </div>
+                <small id="eqNote" role="status"></small>
+            </div>
+            <div class="field">
+                <label for="setRoom">Reverb</label>
+                <select id="setRoom">
+                    <option value="off">Off</option>
+                    ${Object.entries(ROOMS).map(([key, [label]]) => html`<option value="${key}" ${key === FX.reverb.room ? new Safe('selected') : ''}>${label}</option>`)}
+                </select>
+                <label for="setRoomAmount">Amount <span class="field-value" id="roomAmountValue">${Math.round(FX.reverb.amount * 100)}%</span></label>
+                <input type="range" class="bar" id="setRoomAmount" min="0" max="100" step="1" value="${Math.round(FX.reverb.amount * 100)}">
+                <small>The echo of a room around the music. Songs already have some from their recording, so a little goes a long way.</small>
+            </div>
+            <div class="field">
+                <label for="setBalance">Balance <span class="field-value" id="balanceValue">${balanceText(P.balance)}</span></label>
+                <input type="range" class="bar" id="setBalance" min="-100" max="100" step="1" value="${Math.round(P.balance * 100)}" aria-valuetext="${balanceText(P.balance)}">
+            </div>
+        </fieldset>`;
+}
+
+function drawEq() {
+    const panel = $('#eqPanel');
+    if (!panel) return;
+    const gains = FX.eq.gains, curve = eqResponse(eqSolve(gains)); // passes through every dot
+    $('.eq-curve', panel).setAttribute('d', `M${Array.from(EQ_FREQS, (f, k) => `${eqX(f).toFixed(1)},${eqY(Math.max(-EQ_RANGE - 1, Math.min(EQ_RANGE + 1, curve[k]))).toFixed(1)}`).join('L')}`);
+    $$('.eq-band', panel).forEach((band, i) => {
+        $('.eq-dot', band).setAttribute('cy', eqY(gains[i]));
+        band.setAttribute('aria-valuenow', gains[i]);
+        band.setAttribute('aria-valuetext', dbText(gains[i]));
+    });
+    panel.classList.toggle('off', !FX.eq.on);
+    $('#setEq').checked = FX.eq.on;
+    $('#setEqPreset').value = FX.eq.preset;
+    const headroom = eqHeadroom(gains);
+    $('#eqNote').textContent = !SOUND_WORKS ? '' : !FX.eq.on ? 'Off: the music plays as it was recorded.'
+        : headroom < -0.05 ? `Everything is turned down ${dbText(+(-headroom).toFixed(1)).replace('+', '')} first, so the boost can't distort.` : '';
+}
+
+// Any change to the bands makes it your own curve (and turns the equalizer on)
+function setEqGains(gains, preset = 'custom') {
+    setSound(() => { FX.eq.gains = gains.map((g) => Math.max(-EQ_RANGE, Math.min(EQ_RANGE, Math.round(g * 2) / 2))); FX.eq.preset = preset; FX.eq.on = true; });
+    drawEq();
+}
+
+function bindSoundSettings() {
+    const panel = $('#eqPanel');
+    if (!panel) return;
+    drawEq();
+    if (!SOUND_WORKS) return;
+    $('#setEq').addEventListener('change', (e) => { setSound(() => { FX.eq.on = e.target.checked; }); drawEq(); });
+    $('#setEqPreset').addEventListener('change', (e) => { if (EQ_PRESETS[e.target.value]) setEqGains(EQ_PRESETS[e.target.value][1], e.target.value); });
+    $('#eqReset').addEventListener('click', () => setEqGains(EQ_PRESETS.flat[1], 'flat'));
+    const svg = $('.eq-graph', panel);
+    const dbAt = (e) => { const r = svg.getBoundingClientRect(), y = ((e.clientY - r.top) / r.height) * EQ_VIEW.h; return EQ_RANGE - ((y - EQ_VIEW.top) / (EQ_VIEW.h - EQ_VIEW.top - EQ_VIEW.bottom)) * 2 * EQ_RANGE; };
+    const bandAt = (e) => { // the band nearest the pointer, left to right
+        const r = svg.getBoundingClientRect(), x = ((e.clientX - r.left) / r.width) * EQ_VIEW.w;
+        return EQ_BANDS.reduce((best, [freq], i) => (Math.abs(eqX(freq) - x) < Math.abs(eqX(EQ_BANDS[best][0]) - x) ? i : best), 0);
+    };
+    svg.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        const i = bandAt(e);
+        $(`.eq-band[data-band="${i}"]`, svg).focus({ preventScroll: true });
+        const set = (ev) => { const gains = FX.eq.gains.slice(); gains[i] = dbAt(ev); setEqGains(gains); };
+        set(e);
+        svg.setPointerCapture(e.pointerId);
+        const move = (ev) => set(ev);
+        const end = () => { svg.removeEventListener('pointermove', move); svg.removeEventListener('pointerup', end); svg.removeEventListener('pointercancel', end); };
+        svg.addEventListener('pointermove', move);
+        svg.addEventListener('pointerup', end);
+        svg.addEventListener('pointercancel', end);
+    });
+    svg.addEventListener('keydown', (e) => {
+        const band = e.target.closest('.eq-band');
+        const step = { ArrowUp: 0.5, ArrowRight: 0.5, PageUp: 3, ArrowDown: -0.5, ArrowLeft: -0.5, PageDown: -3 }[e.key];
+        if (!band || (step === undefined && e.key !== 'Home' && e.key !== 'End')) return;
+        e.preventDefault();
+        const i = +band.dataset.band, gains = FX.eq.gains.slice();
+        gains[i] = e.key === 'Home' ? -EQ_RANGE : e.key === 'End' ? EQ_RANGE : gains[i] + step;
+        setEqGains(gains);
+    });
+    const room = $('#setRoom'), amount = $('#setRoomAmount'), balance = $('#setBalance');
+    const showRoom = () => { amount.disabled = room.value === 'off'; $('#roomAmountValue').textContent = `${amount.value}%`; setRangeFill(amount); };
+    room.addEventListener('change', () => { setSound(() => { FX.reverb.room = room.value; }); showRoom(); });
+    amount.addEventListener('input', () => { setSound(() => { FX.reverb.amount = amount.value / 100; }); showRoom(); });
+    showRoom();
+    const showBalance = () => { $('#balanceValue').textContent = balanceText(P.balance); balance.setAttribute('aria-valuetext', balanceText(P.balance)); setRangeFill(balance); };
+    balance.addEventListener('input', () => { setBalance(balance.value / 100); showBalance(); });
+    balance.addEventListener('change', () => { balance.value = Math.round(P.balance * 100); showBalance(); }); // shows the dead zone's snap to the middle
+    showBalance();
 }
 
 // ---------- sleep timer ----------
@@ -1137,7 +1437,7 @@ function toggleLyrics() {
 
 const VIZ_MODES = [
     ['bars', 'Bars', 'bars'], ['wave', 'Wave', 'wave'], ['ring', 'Ring', 'ring'], ['particles', 'Particles', 'sparkle'],
-    ['vinyl', 'Vinyl', 'vinyl'], ['retro', 'Retro', 'sun'], ['off', 'Off', 'off'],
+    ['vinyl', 'Vinyl', 'vinyl'], ['retro', 'Retro', 'sun'], ['cassette', 'Cassette', 'cassette'], ['off', 'Off', 'off'],
 ];
 const VIZ = Object.fromEntries(VIZ_MODES.map(([key, label, iconName]) => [key, { label, icon: iconName }]));
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -1169,13 +1469,33 @@ function ensureAudioGraph() {
         V.analyser.fftSize = 2048;               // 1024 frequency bins, each sampleRate/2048 ≈ 21.5 Hz wide
         V.analyser.smoothingTimeConstant = 0.8;  // blend 80% of the last frame in, so bars fall smoothly
         source.connect(V.analyser);
+        // Then left and right apart, each through its own meter (the Hi-Fi Deck's VU needles), and back together.
+        // Through a 2-channel gain first: a splitter takes channels as they come, so a mono song would light the
+        // left needle only (and, through the balance below, play from the left speaker only).
+        const stereo = twoChannels(V.ctx), split = V.ctx.createChannelSplitter(2), merge = V.ctx.createChannelMerger(2);
+        V.analyser.connect(stereo);
+        stereo.connect(split);
+        V.meters = [0, 1].map((side) => {
+            const meter = V.ctx.createAnalyser();
+            meter.fftSize = 1024;                  // 23 ms of sound per reading
+            split.connect(meter, side);
+            meter.connect(merge, 0, side);
+            return { meter, samples: new Float32Array(meter.fftSize) };
+        });
         graphVolume = V.ctx.createGain();          // the volume, from here on (see applyVolume)
-        V.analyser.connect(graphVolume);
-        graphVolume.connect(V.ctx.destination);    // forget this and the music goes silent
+        merge.connect(graphVolume);
+        // The crossfade's second player joins here, so the song fading out gets the effects too
+        xfVolume = V.ctx.createGain();
+        V.ctx.createMediaElementSource(XF.el).connect(xfVolume);
+        const bus = twoChannels(V.ctx);
+        graphVolume.connect(bus);
+        xfVolume.connect(bus);
+        buildSound(V.ctx, bus);                    // equalizer, reverb, balance, and on to the speakers
         applyVolume();
+        applySound();
         V.freq = new Uint8Array(V.analyser.frequencyBinCount);
         V.wave = new Uint8Array(V.analyser.fftSize);
-        P.audio.addEventListener('play', () => V.ctx.state === 'suspended' && V.ctx.resume());
+        for (const el of [P.audio, XF.el]) el.addEventListener('play', () => V.ctx.state === 'suspended' && V.ctx.resume());
         return true;
     } catch { return false; }
 }
@@ -1432,6 +1752,8 @@ const VIZ_DRAW = {
         g.beginPath(); trace();
         g.strokeStyle = 'rgba(255, 220, 245, .8)'; g.lineWidth = 1.5; g.stroke();
     },
+    // A deck from a photo; nothing on the canvas (see cassetteFrame)
+    cassette(g, f) { cassetteFrame(f); },
 };
 const PULSE_MODES = new Set(['bars', 'wave', 'ring', 'particles', 'retro']); // Vinyl replaces the cover; no pulse
 
@@ -1486,8 +1808,15 @@ function stopViz() {
 
 function setVizMode(mode) {
     if (!VIZ[mode]) return;
+    const was = V.mode;
     V.mode = mode;
     store.set('vizMode', mode);
+    if ((mode === 'cassette') !== (was === 'cassette') && NV.open && !NV.lyrics) {
+        // The deck replaces the whole view rather than drawing behind it
+        const refocus = $('#nowRoot .nv')?.contains(document.activeElement);
+        renderNowView();
+        if (refocus) $('#nowRoot [data-nv-viz]').focus();
+    }
     const section = $('#nowRoot .nv');
     if (section) section.dataset.viz = mode;               // CSS: round cover for Ring, hidden cover for Vinyl
     const btn = $('#nowRoot [data-nv-viz]');
@@ -1518,6 +1847,302 @@ function closeVizMenu(returnFocus = true) {
     menu.hidden = true;
     btn.setAttribute('aria-expanded', 'false');
     if (returnFocus) btn.focus();
+}
+
+// ---------- cassette ----------
+// A deck from a photo (static/cassette/): the portable on small screens, the Hi-Fi Deck otherwise. The photos
+// have their moving parts painted out; the reels, tape, needles, knob pointers, screens and the lit PLAY button
+// are put back on top, placed in the photo's own pixels (DECKS), and the whole deck is scaled to fit. The
+// portable was drawn for a phone held upright, on its side: turn the phone and it stands up.
+
+const CASSETTE_SMALL = matchMedia('(max-width: 600px), (max-height: 500px)');
+const DECKS = {
+    portable: {
+        w: 1672, h: 941, plate: 'portable.webp', lit: { play: [436, 8, 242, 90], pause: [700, 8, 237, 90], stop: [960, 8, 235, 90] },
+        hub: 100, full: 280, reels: [[532, 474], [1105, 474]], tape: [632, 392, 371, 164],
+        buttons: [['rew', 185, 10, 225, 86], ['play', 436, 10, 242, 86], ['pause', 700, 10, 237, 86], ['stop', 960, 10, 235, 86], ['ff', 1215, 10, 217, 86]],
+        power: [1548, 478, 80, 96],
+    },
+    hifi: {
+        w: 1672, h: 595, plate: 'deck.webp', lit: { play: [362, 423, 115, 80], pause: [482, 423, 107, 80], stop: [247, 423, 110, 80] }, maxScale: 1.25,
+        hub: 40, full: 95, reels: [[328, 252], [523, 252]], tape: [232, 190, 390, 140],
+        buttons: [['rew', 133, 425, 107, 75], ['stop', 248, 425, 107, 75], ['play', 363, 425, 112, 75], ['pause', 483, 425, 104, 75], ['ff', 595, 425, 110, 75]],
+        power: [1458, 462, 64, 50],
+    },
+};
+const DECK_BUTTONS = {
+    rew: 'Rewind: previous song, hold to wind back', play: 'Play', pause: 'Pause', stop: 'Stop',
+    ff: 'Fast-forward: next song, hold to wind on',
+};
+const DECK_LOCKED = { volume: 'On iPhone and iPad, use the volume buttons on the side', balance: "Balance isn't available on iPhone and iPad" };
+const CS = {
+    kind: null, stage: null, deck: null, el: null, scale: 1, turn: false, ui: {},
+    radius: [0, 0], angle: [0, 0], needle: [0, 0], swing: [0, 0], leds: [], wind: null, held: false, holdTimer: 0,
+};
+
+// The VU scale as printed, measured off the photo: [VU, needle angle in degrees from upright]. A real meter's
+// marks are spaced by voltage (0 at 71% of the arc); this drawn face spaces them more evenly, and the needle
+// has to agree with the print, so it follows these marks rather than the formula.
+const VU_MARKS = [[-20, -23.5], [-10, -14.6], [-7, -7.7], [-5, 0], [-3, 7.8], [0, 16.5], [3, 26.6]];
+const VU_REST = -25.8, VU_PIN = 28.5; // the needle's two stops
+function vuAngle(vu) {
+    if (vu <= -20) return VU_REST + (VU_MARKS[0][1] - VU_REST) * 10 ** ((vu + 20) / 20); // by amplitude, down to silence
+    for (let i = 1; i < VU_MARKS.length; i++) {
+        const [v0, a0] = VU_MARKS[i - 1], [v1, a1] = VU_MARKS[i];
+        if (vu <= v1) return a0 + ((a1 - a0) * (vu - v0)) / (v1 - v0);
+    }
+    return VU_PIN;
+}
+
+// Each side's loudness in VU. A VU meter shows the average (RMS), not peaks; 0 VU = -10 dBFS, about where
+// loud modern masters sit, so they swing around 0 and into the red.
+function vuLevels(f) {
+    if (!V.meters) { // iPhone: no real sound to measure, so the generated level, the sides drifting a little apart
+        const t = f.now / 1000, vu = f.playing ? -15 + f.level * 24 : -60;
+        return [vu + 1.2 * Math.sin(t * 1.7), vu + 1.2 * Math.sin(t * 2.3 + 1)];
+    }
+    return V.meters.map(({ meter, samples }) => {
+        meter.getFloatTimeDomainData(samples);
+        let sum = 0;
+        for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+        return 20 * Math.log10(Math.sqrt(sum / samples.length) || 1e-6) + 10;
+    });
+}
+
+const px = ([x, y, w, h]) => `left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+const deckFile = (name) => `/static/cassette/${name}`;
+
+function cassetteDeck(kind) {
+    const d = DECKS[kind], [tx, ty] = d.tape;
+    return html`<div class="cs-deck cs-${kind}" style="width:${d.w}px;height:${d.h}px">
+        <img class="cs-plate" src="${deckFile(d.plate)}" alt="" draggable="false">
+        <div class="cs-tape" style="${px(d.tape)}">${d.reels.map(([x, y]) => html`<i class="cs-pack" style="${px([x - tx - d.full, y - ty - d.full, d.full * 2, d.full * 2])}"></i>`)}</div>
+        ${d.reels.map(([x, y]) => html`<img class="cs-reel" src="${deckFile('reel.webp')}" alt="" draggable="false" style="${px([x - d.hub, y - d.hub, d.hub * 2, d.hub * 2])}">`)}
+        ${kind === 'hifi' ? html`<i class="cs-strip" style="${px([240, 290, 372, 28])}"></i>` : ''}
+        ${Object.entries(d.lit).map(([name, box]) => html`<img class="cs-lit" data-lit="${name}" src="${deckFile(d.plate.replace('.webp', `-${name}.webp`))}" alt="" draggable="false" style="${px(box)}">`)}
+        ${d.buttons.map(([name, ...box]) => html`<button type="button" class="cs-btn" data-cs="${name}" style="${px(box)}" aria-label="${DECK_BUTTONS[name]}" title="${DECK_BUTTONS[name]}"></button>`)}
+        <button type="button" class="cs-power" data-nv-close style="${px(d.power)}" aria-label="Power: close Now Playing" title="Close"></button>
+        ${kind === 'portable' ? html`
+            <div class="cs-label" style="${px([360, 262, 845, 76])}"><span data-cs-title></span></div>
+            <div class="cs-lcd" style="${px([468, 765, 985, 125])}">
+                <span class="cs-note">${icon('note', 34)}</span>
+                <b data-cs-name></b><span class="cs-artist" data-cs-artist></span><span class="cs-time" data-cs-time></span>
+                <span class="cs-progress"><i data-cs-progress></i></span>
+                <span class="cs-leds">${Array.from({ length: 6 }, () => html`<span>${Array.from({ length: 8 }, () => html`<i></i>`)}</span>`)}</span>
+            </div>
+            <div class="cs-slider" data-cs-control="volume" role="slider" tabindex="0" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-disabled="${String(!VOLUME_WORKS)}" style="${px([1560, 160, 66, 270])}"><img class="cs-thumb" src="${deckFile('portable-thumb.webp')}" alt="" draggable="false"></div>`
+        : html`
+            ${[782, 1086].map((x) => html`<div class="cs-vu" style="${px([x, 130, 266, 144])}"><i class="cs-needle"></i></div>`)}
+            <div class="cs-screen" style="${px([755, 330, 625, 165])}">
+                <span class="cs-cover" data-cs-cover></span>
+                <b data-cs-name></b><span class="cs-artist" data-cs-artist></span>
+                <span class="cs-time"><span data-nv-time></span> / <span data-nv-dur></span></span>
+                <input type="range" class="bar cs-seek" data-nv-seek min="0" max="1000" step="1" value="0" aria-label="Seek">
+            </div>
+            <div class="cs-knob" data-cs-control="volume" role="slider" tabindex="0" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-disabled="${String(!VOLUME_WORKS)}" style="${px([1430, 152, 124, 124])}"><i class="cs-pointer"></i></div>
+            <div class="cs-knob small" data-cs-control="balance" role="slider" tabindex="0" aria-label="Balance" aria-valuemin="-100" aria-valuemax="100" aria-disabled="${String(IOS)}" style="${px([1463, 364, 54, 54])}"><i class="cs-pointer"></i></div>`}
+    </div>`;
+}
+
+// One deck element for as long as the size class stays, moved into each re-render like the canvas:
+// rebuilding it would reload the photo and restart the reels on every song.
+function cassetteStage() {
+    const kind = CASSETTE_SMALL.matches ? 'portable' : 'hifi';
+    if (CS.kind === kind) return CS.stage;
+    CS.kind = kind;
+    CS.stage = document.createElement('div');
+    CS.stage.className = 'cs';
+    CS.stage.innerHTML = cassetteDeck(kind).toString();
+    const deck = CS.deck = CS.stage.firstElementChild;
+    CS.el = {
+        packs: $$('.cs-pack', deck), reels: $$('.cs-reel', deck), needles: $$('.cs-needle', deck),
+        time: $('[data-cs-time]', deck), nvTime: $('[data-nv-time]', deck), nvDur: $('[data-nv-dur]', deck),
+        progress: $('[data-cs-progress]', deck), seek: $('[data-nv-seek]', deck),
+        play: $('[data-cs="play"]', deck), pause: $('[data-cs="pause"]', deck),
+    };
+    CS.leds = $$('.cs-leds > span', deck).map((column) => ({ segments: [...column.children], lit: -1, level: 0 }));
+    CS.radius = [0, 0];
+    CS.needle = [VU_REST, VU_REST];
+    CS.swing = [0, 0];
+    CS.ui = {};
+    CS.observer?.disconnect();
+    CS.observer = new ResizeObserver(fitCassette);
+    CS.observer.observe(CS.stage);
+    return CS.stage;
+}
+
+function fitCassette() {
+    const { stage, deck, kind } = CS;
+    if (!stage?.isConnected) return;
+    const d = DECKS[kind], w = stage.clientWidth, h = stage.clientHeight;
+    CS.turn = kind === 'portable' && h > w;
+    const [across, down] = CS.turn ? [d.h, d.w] : [d.w, d.h];
+    CS.scale = Math.min(w / across, h / down, d.maxScale || Infinity);
+    deck.style.transform = `translate(-50%, -50%)${CS.turn ? ' rotate(90deg)' : ''} scale(${CS.scale})`;
+}
+
+function showCassetteSong(t) {
+    const deck = CS.deck;
+    $$('[data-cs-name]', deck).forEach((el) => { el.textContent = t.title; });
+    $$('[data-cs-artist]', deck).forEach((el) => { el.textContent = t.artists.join(', '); });
+    const label = $('[data-cs-title]', deck);
+    if (label) { // handwritten on the cassette: as big as fits on the label
+        label.textContent = t.title;
+        let size = 60;
+        label.style.fontSize = `${size}px`;
+        while (label.scrollWidth > label.parentElement.clientWidth && size > 24) label.style.fontSize = `${(size -= 4)}px`;
+    }
+    const cover = $('[data-cs-cover]', deck);
+    if (cover) cover.innerHTML = (t.has_cover ? html`<img src="${artUrl(t.id)}" alt="">` : icon('note', 44)).toString();
+    CS.ui = {}; // the time, buttons and knobs redraw on the next frame
+}
+
+// Reels: the tape moves at one speed, 4.76 cm/s, past both. A reel turns at ω = v / r, so the thin one spins
+// fast and the full one slowly, and the tape fills area, so a reel holding fraction q of it has
+// r = √(hub² + (full² − hub²)·q). Hub radius 1.1 cm: 4.33 rad/s (41 rpm) on an empty hub.
+const HUB_SPIN = 4.76 / 1.1;
+
+function cassetteFrame(f) {
+    const deck = CS.deck;
+    if (!deck?.isConnected) return;
+    const d = DECKS[CS.kind], el = CS.el, dur = P.audio.duration || 0;
+    let pos = P.audio.currentTime || 0, rate = f.playing ? 1 : 0;
+    if (CS.wind) { // holding REW or FF: the tape winds faster the longer you hold (8× up to 40×), silent like a real deck
+        const w = CS.wind, speed = Math.min(40, 8 + ((f.now - w.from) / 1000) * 16);
+        w.pos = Math.max(0, Math.min(dur - 0.25, w.pos + w.dir * speed * f.dt));
+        pos = w.pos;
+        rate = w.dir * speed;
+    }
+    const progress = dur ? Math.min(1, pos / dur) : 0, area = d.full ** 2 - d.hub ** 2;
+    [1 - progress, progress].forEach((share, i) => {
+        const target = Math.sqrt(d.hub ** 2 + area * share);
+        CS.radius[i] = CS.radius[i] ? lerp(CS.radius[i], target, Math.min(1, f.dt * 6)) : target; // a new song rewinds visibly
+        const omega = Math.max(-18, Math.min(18, (rate * d.hub * HUB_SPIN) / CS.radius[i])); // faster only strobes
+        if (!reducedMotion.matches) CS.angle[i] -= omega * f.dt;                            // counter-clockwise in play
+        el.packs[i].style.transform = `scale(${CS.radius[i] / d.full})`;
+        el.reels[i].style.transform = `rotate(${CS.angle[i]}rad)`;
+    });
+
+    const state = CS.wind ? 'wind' : f.playing ? 'play' : pos > 0.5 ? 'pause' : 'stop';
+    if (CS.ui.state !== state) { // CSS lights PLAY, PAUSE or STOP to match, and holds PLAY or PAUSE down like a deck's latches
+        CS.ui.state = deck.dataset.state = state;
+        el.play.setAttribute('aria-pressed', String(state === 'play'));
+        el.pause.setAttribute('aria-pressed', String(state === 'pause'));
+    }
+    const second = Math.floor(pos);
+    if (CS.ui.second !== second || CS.ui.dur !== dur) {
+        CS.ui.second = second;
+        CS.ui.dur = dur;
+        if (el.time) el.time.textContent = `${fmtTime(pos)} / ${fmtTime(dur)}`;
+        if (el.nvTime && !NV.seeking) el.nvTime.textContent = fmtTime(pos);
+        if (el.nvDur) el.nvDur.textContent = fmtTime(dur);
+    }
+    if (el.progress) setProgress(el.progress, progress);
+    if (el.seek && !NV.seeking) { el.seek.value = Math.round(progress * 1000); setRangeFill(el.seek); }
+
+    if (el.needles.length) {
+        // A VU needle has weight: it reaches a reading in 300 ms and swings about 1% past it, which is a damped
+        // spring (stiffness 441, damping 34). Small steps, because one 100 ms step would overshoot wildly.
+        vuLevels(f).forEach((vu, i) => {
+            const target = vuAngle(vu);
+            for (let left = f.dt; left > 0; left -= 1 / 240) {
+                const dt = Math.min(left, 1 / 240);
+                CS.swing[i] += ((target - CS.needle[i]) * 441 - CS.swing[i] * 34) * dt;
+                CS.needle[i] += CS.swing[i] * dt;
+                if (CS.needle[i] < VU_REST || CS.needle[i] > VU_PIN) { CS.needle[i] = Math.max(VU_REST, Math.min(VU_PIN, CS.needle[i])); CS.swing[i] = 0; }
+            }
+            el.needles[i].style.transform = `rotate(${CS.needle[i]}deg)`;
+        });
+    }
+    if (CS.leds.length) { // the portable's 6 bars, bass to treble: up at once, falling back at 1.5 screens a second
+        bandLevels(6).forEach((level, i) => {
+            const column = CS.leds[i];
+            column.level = Math.max(level, column.level - f.dt * 1.5);
+            const lit = Math.round(column.level * 8);
+            if (lit !== column.lit) { column.lit = lit; column.segments.forEach((seg, k) => seg.classList.toggle('on', k < lit)); }
+        });
+    }
+    const volume = P.audio.muted ? 0 : P.userVolume;
+    if (CS.ui.volume !== volume) { CS.ui.volume = volume; showDeckControl('volume', volume); }
+    if (CS.ui.balance !== P.balance) { CS.ui.balance = P.balance; showDeckControl('balance', P.balance); }
+}
+
+function showDeckControl(name, value) {
+    const control = $(`[data-cs-control="${name}"]`, CS.deck);
+    if (!control) return;
+    if (control.matches('.cs-slider')) control.firstElementChild.style.top = `${413 - value * 236 - 160 - 9.5}px`; // the 0-10 marks
+    else control.firstElementChild.style.transform = `rotate(${name === 'balance' ? value * 130 : -140 + value * 280}deg)`;
+    const pct = Math.round(value * 100);
+    control.setAttribute('aria-valuenow', pct);
+    control.setAttribute('aria-valuetext', name === 'volume' ? `${pct}%` : pct ? `${Math.abs(pct)}% ${pct < 0 ? 'left' : 'right'}` : 'Center');
+}
+
+function setDeckControl(name, value) {
+    if (name === 'volume') {
+        const bar = $('#volumeBar');
+        bar.value = Math.round(value * 100);
+        bar.dispatchEvent(new Event('input')); // the player bar's handler saves it, applies it and updates its icon
+        return;
+    }
+    setBalance(value);
+}
+
+// A pointer position in the deck's own pixels, undoing the scale and the portable's quarter turn
+function toDeck(e) {
+    const r = CS.deck.getBoundingClientRect(), d = DECKS[CS.kind];
+    let x = (e.clientX - (r.left + r.width / 2)) / CS.scale, y = (e.clientY - (r.top + r.height / 2)) / CS.scale;
+    if (CS.turn) [x, y] = [y, -x];
+    return { x: x + d.w / 2, y: y + d.h / 2 };
+}
+
+// The value under the pointer: along the portable's slider, or the angle around a knob (null in its middle,
+// where the angle means nothing). The volume knob's ends meet at the bottom: past them, it stays at the near end.
+function deckValueAt(control, e) {
+    const p = toDeck(e);
+    if (control.matches('.cs-slider')) return clamp01((413 - p.y) / 236);
+    const radius = control.offsetWidth / 2, dx = p.x - (control.offsetLeft + radius), dy = p.y - (control.offsetTop + radius);
+    if (Math.hypot(dx, dy) < radius * 0.25) return null;
+    const angle = (Math.atan2(dx, -dy) * 180) / Math.PI; // 0 = up, clockwise
+    if (control.dataset.csControl === 'balance') return Math.max(-1, Math.min(1, angle / 130));
+    if (Math.abs(angle) > 140) return P.userVolume > 0.5 ? 1 : 0;
+    return (angle + 140) / 280;
+}
+
+function nudgeDeckControl(control, key) {
+    const name = control.dataset.csControl, min = name === 'volume' ? 0 : -1;
+    const value = name === 'volume' ? (P.audio.muted ? 0 : P.userVolume) : P.balance;
+    const step = { ArrowUp: 0.05, ArrowRight: 0.05, PageUp: 0.2, ArrowDown: -0.05, ArrowLeft: -0.05, PageDown: -0.2 }[key] || 0;
+    setDeckControl(name, key === 'Home' ? min : key === 'End' ? 1 : Math.max(min, Math.min(1, value + step)));
+}
+
+function deckButton(name) {
+    if (name === 'rew') prev();
+    else if (name === 'ff') next();
+    else if (name === 'play') { if (P.audio.paused) togglePlay(); }
+    else if (name === 'pause') { if (!P.audio.paused) P.audio.pause(); else if (P.audio.currentTime > 0.5) P.audio.play(); }
+    else if (name === 'stop') { P.audio.pause(); P.audio.currentTime = 0; }
+}
+
+function startWind(dir) {
+    if (!P.audio.duration) return;
+    CS.wind = { dir, from: performance.now(), pos: P.audio.currentTime, resume: !P.audio.paused };
+    P.audio.pause();
+}
+
+function endWind() {
+    const w = CS.wind;
+    CS.wind = null;
+    if (!w) return;
+    P.audio.currentTime = w.pos;
+    if (w.resume) P.audio.play();
+}
+
+function deckUpNext(t) {
+    return html`<button type="button" class="cs-upnext" data-action="queue-open" aria-label="Up next: ${t.title}. Open the queue">
+        <span class="cs-upnext-label">Up next</span>
+        ${t.has_cover ? html`<img src="${artUrl(t.id)}" alt="">` : html`<span class="cs-upnext-art">${icon('note', 20)}</span>`}
+        <span class="cs-upnext-song">${t.title} • ${t.artists.join(', ')}</span>${icon('queue', 20)}
+    </button>`;
 }
 
 // The song `offset` steps away in play order, or null. Wraps only when that's what next() would do.
@@ -1565,10 +2190,16 @@ function renderNowView() {
         section = $('.nv', root);
     }
     section.dataset.viz = V.mode;
+    // Cassette: the deck has its own transport, so ♥, shuffle and repeat move up here; lyrics still swap it out
+    const deck = V.mode === 'cassette' && !NV.lyrics;
     section.innerHTML = html`
                 <header class="nv-head">
                     <a class="nv-context" href="${context.href}">${context.label}</a>
                     <div class="nv-head-actions">
+                        ${deck ? html`<div class="cs-extras">${likeButton(t.id)}
+                            <button type="button" class="toggle-btn ${P.shuffle ? 'on' : ''}" data-nv-ctl="shuffle" data-nv-focus="shuffle" aria-label="Shuffle" aria-pressed="${String(P.shuffle)}">${icon('shuffle', 18)}</button>
+                            <button type="button" class="toggle-btn ${P.repeat !== 'off' ? 'on' : ''}" data-nv-ctl="repeat" data-nv-focus="repeat" aria-pressed="${String(P.repeat !== 'off')}" aria-label="${{ off: 'Repeat', all: 'Repeat all', one: 'Repeat one' }[P.repeat]}">${icon(P.repeat === 'one' ? 'repeatOne' : 'repeat', 18)}</button>
+                        </div>` : ''}
                         <button class="nv-pill ${NV.lyrics ? 'on' : ''}" data-nv-lyrics data-nv-focus="lyrics" aria-pressed="${String(NV.lyrics)}" title="Lyrics (L)">${icon('mic', 16)}<span>Lyrics</span></button>
                         <div class="nv-viz-wrap">
                             <button class="nv-viz ${V.mode !== 'off' ? 'on' : ''}" data-nv-viz data-nv-focus="viz" aria-haspopup="menu" aria-expanded="false" title="Visualizer (V)"><span class="sr-only">Visualizer: </span>${vizButtonInner()}</button>
@@ -1579,7 +2210,7 @@ function renderNowView() {
                         <button class="icon-btn" data-nv-close data-nv-focus="close" aria-label="Close">${icon('close', 20)}</button>
                     </div>
                 </header>
-                <div class="nv-body">
+                ${deck ? html`<div class="cs-slot"></div>${nextT && !CASSETTE_SMALL.matches ? deckUpNext(nextT) : ''}` : html`<div class="nv-body">
                     <div class="nv-info">
                         <h2 class="nv-title ${t.title.length > 40 ? 'long' : ''}">${t.title}</h2>
                         <p class="nv-artists">${t.artists.map((a, i) => html`${i ? ', ' : ''}<a href="${artistHref(a)}">${a}</a>`)}</p>
@@ -1596,7 +2227,12 @@ function renderNowView() {
                         <button class="icon-btn" data-nv-step="-1" data-nv-focus="up" aria-label="Previous song" ${prevT ? '' : 'disabled'}>${icon('up', 24)}</button>
                         <button class="icon-btn" data-nv-step="1" data-nv-focus="down" aria-label="Next song" ${nextT ? '' : 'disabled'}>${icon('down', 24)}</button>
                     </div>
-                </div>`.toString();
+                </div>`}`.toString();
+    if (deck) {
+        $('.cs-slot', section).replaceWith(cassetteStage());
+        fitCassette();
+        showCassetteSong(t);
+    }
     // One canvas for the whole time the view is open, moved into each re-render, so drawing never restarts
     if (!V.canvas) { V.canvas = document.createElement('canvas'); V.canvas.className = 'nv-viz-canvas'; V.canvas.setAttribute('aria-hidden', 'true'); }
     section.prepend(V.canvas);
@@ -1756,6 +2392,8 @@ function bindNowView() {
     const root = $('#nowRoot');
     root.addEventListener('click', (e) => {
         if (NV.swiped) { NV.swiped = false; e.preventDefault(); return; } // the end of a swipe, not a tap on a card
+        const deckBtn = e.target.closest('[data-cs]');
+        if (deckBtn) { if (!CS.held) deckButton(deckBtn.dataset.cs); return; } // after a hold, letting go isn't a tap
         const ctl = e.target.closest('[data-nv-ctl]');
         if (ctl) {
             ({ play: togglePlay, prev, next: () => next(), shuffle: toggleShuffle, repeat: cycleRepeat })[ctl.dataset.nvCtl]();
@@ -1790,6 +2428,13 @@ function bindNowView() {
             else if (e.key === 'Tab') closeVizMenu(false);
             return;                                        // Enter/Space click the focused option natively
         }
+        const control = el.closest('[data-cs-control]');
+        if (control && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.key)) {
+            e.preventDefault();                            // not the song arrows: this knob or slider
+            if (control.getAttribute('aria-disabled') === 'true') toast(DECK_LOCKED[control.dataset.csControl]);
+            else nudgeDeckControl(control, e.key);
+            return;
+        }
         if (e.key === 'Escape') { e.preventDefault(); closeNowView(); }
         else if (e.key === 'ArrowDown' && el.closest('[data-nv-viz]')) { e.preventDefault(); openVizMenu(); }
         else if (e.key.toLowerCase() === 'l' && !e.metaKey && !e.ctrlKey && !el.closest('input, textarea, select')) toggleLyrics();
@@ -1823,6 +2468,8 @@ function bindNowView() {
     });
     // One song per scroll gesture: a trackpad fires dozens of small wheel events, so add them up and then pause
     root.addEventListener('wheel', (e) => {
+        const control = e.target.closest('[data-cs-control]:not([aria-disabled="true"])');
+        if (control) { e.preventDefault(); nudgeDeckControl(control, e.deltaY < 0 ? 'ArrowUp' : 'ArrowDown'); return; }
         if (!e.target.closest('.nv-feed')) return;
         e.preventDefault();
         if (Date.now() < NV.wheelLock) return;
@@ -1836,6 +2483,52 @@ function bindNowView() {
     for (const type of ['wheel', 'touchmove', 'pointerdown']) {
         root.addEventListener(type, (e) => { if (e.target.closest('.nv-lyrics')) L.userScrollUntil = Date.now() + 3000; }, { passive: true });
     }
+    // Cassette: drag a knob or the slider; hold REW or FF to wind (a quick press is previous or next)
+    root.addEventListener('pointerdown', (e) => {
+        if (!e.isPrimary || e.button !== 0) return;
+        const until = (ev) => ev.pointerId === e.pointerId;
+        const control = e.target.closest('[data-cs-control]');
+        if (control) {
+            const name = control.dataset.csControl;
+            if (control.getAttribute('aria-disabled') === 'true') { toast(DECK_LOCKED[name]); return; }
+            e.preventDefault();
+            control.focus({ preventScroll: true });
+            const set = (ev) => { const value = deckValueAt(control, ev); if (value !== null) setDeckControl(name, value); };
+            const move = (ev) => until(ev) && set(ev);
+            const end = (ev) => {
+                if (!until(ev)) return;
+                window.removeEventListener('pointermove', move);
+                window.removeEventListener('pointerup', end);
+                window.removeEventListener('pointercancel', end);
+            };
+            set(e);
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', end);
+            window.addEventListener('pointercancel', end);
+            return;
+        }
+        const wind = e.target.closest('[data-cs="rew"], [data-cs="ff"]');
+        if (!wind) return;
+        clearTimeout(CS.holdTimer);
+        CS.holdTimer = setTimeout(() => { CS.held = true; startWind(wind.dataset.cs === 'ff' ? 1 : -1); }, 350);
+        const end = (ev) => {
+            if (!until(ev)) return;
+            window.removeEventListener('pointerup', end);
+            window.removeEventListener('pointercancel', end);
+            clearTimeout(CS.holdTimer);
+            if (!CS.held) return;
+            endWind();
+            setTimeout(() => { CS.held = false; }, 400); // in case no click follows
+        };
+        window.addEventListener('pointerup', end);
+        window.addEventListener('pointercancel', end);
+    });
+    CASSETTE_SMALL.addEventListener('change', () => { if (NV.open && V.mode === 'cassette') renderNowView(); });
+    // The equalizer, reverb and balance live in Web Audio, which a page may only start on a click or key: when any
+    // is on, start it on the first one of the visit
+    const soundOnGesture = () => { if (soundInUse() && !V.analyser) ensureAudioGraph(); };
+    document.addEventListener('pointerup', soundOnGesture, true);
+    document.addEventListener('keydown', soundOnGesture, true);
     // Touch: swipe the covers up for the next song, down for the previous one, as in Spotify's app. The covers
     // follow the finger; let go past 70 px (or flick) to change song, otherwise they spring back.
     root.addEventListener('pointerdown', (e) => {
@@ -2166,6 +2859,7 @@ function openSettings(focus = 'appearance') {
                         <input type="range" class="bar" id="setCrossfade" min="0" max="12" step="1" value="${PB.crossfade}" ${VOLUME_WORKS ? '' : new Safe('disabled')} aria-valuetext="${PB.crossfade ? `${PB.crossfade} seconds` : 'Off'}">
                         <small>The end of each song blends into the start of the next. Not on Repeat one, or when a song is shorter than twice this.</small>
                     </div>
+                    ${soundSettings()}
                 </section>
 
                 <section class="modal-section" role="tabpanel" id="settings-panel-downloads" aria-labelledby="settings-tab-downloads" ${initialTab === 'downloads' ? '' : new Safe('hidden')}>
@@ -2393,6 +3087,7 @@ function openSettings(focus = 'appearance') {
         setRangeFill(xf);
         if (!PB.crossfade) endFade();
     });
+    bindSoundSettings();
 
     // Current status from the server (the cached S.init may be stale)
     api('/credentials').then((c) => {
@@ -3568,7 +4263,7 @@ function tidyMergeAll() {
                 for (const [i, g] of groups.entries()) {
                     try { const r = await mergeGroup(g, TD.pick[g.key] || g.copies[0].id); removed += r.removed; freed += r.freed; }
                     catch (err) { failed.push(`${g.title}: ${err.message}`); }
-                    $('i', bar).style.width = `${((i + 1) / groups.length) * 100}%`;
+                    setProgress($('i', bar), (i + 1) / groups.length);
                 }
                 close();
                 toast(`Removed ${plural(removed, 'copy', 'copies')} and freed ${fmtBytes(freed)}${failed.length ? `. ${plural(failed.length, 'song')} couldn't be merged: ${failed[0]}` : ''}`, failed.length ? 'error' : undefined);
@@ -3590,7 +4285,7 @@ function albumFixBody() {
     }
     if (job.status === 'working') {
         return html`<p class="tidy-intro" role="status">Looking up ${plural(job.total, 'song')} on YouTube Music… ${job.done} of ${job.total}</p>
-            <div class="progress-bar"><i style="width:${job.total ? (job.done / job.total) * 100 : 0}%"></i></div>`;
+            <div class="progress-bar"><i style="--p:${job.total ? job.done / job.total : 0}"></i></div>`;
     }
     const found = job.results.filter((r) => r.proposed && r.proposed.album !== r.current.album);
     const missed = job.results.filter((r) => !r.proposed);
@@ -3619,7 +4314,7 @@ function pollAlbumFix() {
             TD.fixJob = job;
             if (job?.status !== 'working') { clearInterval(TD.polling); TD.polling = null; TD.fixOff.clear(); rerender(); return; }
             const bar = $('.tidy-page .progress-bar i'), text = $('.tidy-page .tidy-intro');
-            if (bar) bar.style.width = `${(job.done / job.total) * 100}%`;
+            if (bar) setProgress(bar, job.done / job.total);
             if (text) text.textContent = `Looking up ${plural(job.total, 'song')} on YouTube Music… ${job.done} of ${job.total}`;
         } catch { /* try again next tick */ }
     }, 1000);
@@ -4519,11 +5214,11 @@ function addFilesDialog(initialFiles) {
                 for (const [i, file] of files.entries()) {
                     status.textContent = `Adding ${i + 1} of ${files.length}: ${file.name}`;
                     try {
-                        const { path } = await uploadFile(file, how === 'album' ? album : '', (fraction) => { bar.style.width = `${((sent + fraction * file.size) / total) * 100}%`; });
+                        const { path } = await uploadFile(file, how === 'album' ? album : '', (fraction) => { setProgress(bar, (sent + fraction * file.size) / total); });
                         paths.push(path);
                     } catch (error) { failed.push(`${file.name}: ${error.message}`); }
                     sent += file.size;
-                    bar.style.width = `${(sent / total) * 100}%`;
+                    setProgress(bar, sent / total);
                 }
                 try {
                     if (how === 'album' && paths.length) {
@@ -4652,14 +5347,14 @@ function sendToDeviceDialog(trackIds, label, collection) {
                 const progress = $('#sendProgress', modal), bar = $('.progress-bar i', progress), status = $('#sendStatus', modal);
                 progress.hidden = false;
                 while (job.status === 'copying') {
-                    bar.style.width = `${(job.done / job.total) * 100}%`;
+                    setProgress(bar, job.done / job.total);
                     status.textContent = job.current ? `${body.format === 'mp3' ? 'Converting and copying' : 'Copying'} ${job.done + 1} of ${job.total}: ${job.current}` : `Copying ${job.done} of ${job.total}`;
                     await new Promise((r) => setTimeout(r, 500));
                     try { job = await api(`/export/${job.id}`); } catch { /* keep polling */ }
                 }
                 $('#sendCancel', modal).textContent = 'Close';
                 if (job.status === 'done') {
-                    bar.style.width = '100%';
+                    setProgress(bar, 1);
                     const copied = job.total - job.skipped;
                     status.textContent = `Done: ${plural(copied, 'song')} copied to ${name}${job.skipped ? `, ${job.skipped} already there` : ''}. Eject the device before unplugging it.`;
                     toast(`Sent ${plural(copied, 'song')} to ${name}`);
@@ -4715,14 +5410,14 @@ function appleMusicDialog(trackIds, label, collection, isPlaylist) {
                 const progress = $('#appleProgress', modal), bar = $('.progress-bar i', progress), status = $('#appleStatus', modal);
                 progress.hidden = false;
                 while (job.status === 'working') {
-                    bar.style.width = `${(job.done / job.total) * 100}%`;
+                    setProgress(bar, job.done / job.total);
                     status.textContent = job.step || '';
                     await new Promise((r) => setTimeout(r, 500));
                     try { job = await api(`/apple-music/${job.id}`); } catch { /* keep polling */ }
                 }
                 $('#appleCancel', modal).textContent = 'Close';
                 if (job.status === 'done') {
-                    bar.style.width = '100%';
+                    setProgress(bar, 1);
                     const parts = [`Added ${plural(job.added, 'song')} to Apple Music`];
                     if (job.verified) parts.push(`${job.verified} as Apple Lossless, every sample checked`);
                     if (job.skipped) parts.push(`${job.skipped} already there`);
@@ -4807,7 +5502,7 @@ function abxUpdatePlayer() {
 function abxTick() {
     const bar = $('#abxBar i');
     if (!bar || !AB.buffers.A) { AB.raf = 0; return; }
-    bar.style.width = `${(abxPosition() / AB.buffers.A.duration) * 100}%`;
+    setProgress(bar, abxPosition() / AB.buffers.A.duration);
     $('#abxTime').textContent = `${fmtTime(abxPosition())} / ${fmtTime(AB.buffers.A.duration)}`;
     AB.raf = requestAnimationFrame(abxTick);
 }

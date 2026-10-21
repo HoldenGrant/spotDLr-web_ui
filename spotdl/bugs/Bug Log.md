@@ -2,6 +2,21 @@
 
 Started Oct 15, 2026 from a full code read. Each entry says how it was checked. Related: [[Backend]] · [[Frontend]] · [[How It Works]]
 
+## Fixed Oct 21, 2026
+
+### Every download failed with HTTP 403: server started outside the .venv
+
+Every song in every job failed with `ERROR: unable to download video data: HTTP Error 403: Forbidden`. Search and album/playlist listings still worked. The server on :8000 had been restarted at 03:18 by Claude during v2.4.1 release prep, with a bare system `python3 app.py` (its environment showed `__PYVENV_LAUNCHER__=/Library/Frameworks/…/bin/python3`). That loaded the system Python's packages: **yt-dlp 2025.12.08 and no `yt-dlp-ejs`**, instead of the `.venv`'s 2026.08.19 with 0.8.0. **The cause was yt-dlp's age, not the missing package.** yt-dlp carries its own solver (`yt_dlp/extractor/youtube/jsc/_builtin/vendor`: 0.3.2 in the old copy, 0.8.0 now). It only uses the `yt-dlp-ejs` package when the major.minor matches. Two isolated checks proved it: the old yt-dlp with Node still got 403, and the new yt-dlp with `yt_dlp_ejs` hidden downloaded fine.
+
+Checked: the same video IDs downloaded fine from the `.venv` (CLI and `download_track`). After restarting with `.venv/bin/python app.py`, a throwaway server on :8010 completed "twenty one pilots - Ode to Sleep" (`1 new`, 5 MB m4a). **Prevention:**
+- `installer/update_ytdlp.py` upgrades yt-dlp and installs the `yt-dlp-ejs` major.minor matching yt-dlp's built-in solver. Tested on a throwaway venv: 2025.12.08 with no package became 2026.08.19 with 0.8.0.
+- `installer/build_mac.sh` and the Windows workflow run it before PyInstaller, because a package freezes yt-dlp at build time.
+- `run.sh` and `launcher/windows/server.ps1` run it once a week (stamp `.venv/.ytdlp-updated`). Tested: the first run updated, the second skipped.
+- A 403 that survives all three tries goes through `ytmusic.youtube_refused`. When yt-dlp is ≥ 90 days old, it explains the age and the fix: a newer spotDLr for packages, or starting from spotDLr.app/run.sh when not in a venv. 90 rather than 60 because the newest release was already 63 days old.
+- A first draft that checked only for `yt_dlp_ejs` was replaced, because it blocked working setups and missed old yt-dlp.
+
+See [[Launchers & Setup]].
+
 ## Fixed Oct 20, 2026
 
 ### Lyrics download: Method Not Allowed from an older running server

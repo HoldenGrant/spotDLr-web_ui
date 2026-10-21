@@ -43,7 +43,7 @@ Reviewed against the working tree on **2026-10-19**; native Mac wrapper and exis
 | `python-dotenv` | 1.0.0 | `.env` |
 | `python-multipart` | 0.0.6 | Unused |
 
-External: **FFmpeg** (bundled, on PATH, or `~/.spotdl/ffmpeg`) and a **JavaScript runtime** for YouTube extraction. `yt-dlp-ejs==0.8.0` is explicitly pinned in `requirements.txt`; `ytmusicapi`, `yt_dlp`, `mutagen`, and `requests` are also imported and supplied through the dependency tree. See [[Search and Downloads]].
+External: **FFmpeg** (bundled, on PATH, or `~/.spotdl/ffmpeg`) and a **JavaScript runtime** for YouTube extraction. `yt-dlp-ejs==0.8.0` is pinned in `requirements.txt`, but `installer/update_ytdlp.py` replaces it with the major.minor matching yt-dlp's built-in solver when it upgrades yt-dlp. That runs before each build and weekly from `run.sh`/`server.ps1`, because an old yt-dlp gets HTTP 403 from YouTube; `ytmusicapi`, `yt_dlp`, `mutagen`, and `requests` are also imported and supplied through the dependency tree. See [[Search and Downloads]].
 
 ## `library.py`
 

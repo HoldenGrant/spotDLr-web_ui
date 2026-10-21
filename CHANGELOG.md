@@ -6,6 +6,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-10-21
+
+### Added
+- **Cassette visualizer.** Pick **Cassette** from the visualizer menu and Now Playing becomes a working tape deck. On phones it's a portable stereo that fills the screen (shown sideways with the phone upright; turn the phone and it stands up), with the song title handwritten on the cassette. On computers it's a hi-fi deck with the cover, the song and a progress bar you can drag. On both:
+  - The reels turn like real ones: tape winds from one reel to the other as the song plays, and the thin reel spins faster than the full one.
+  - **PLAY**, **PAUSE** and **STOP** work, and the one that matches what the deck is doing lights up. A quick press of **REWIND** or **FAST-FORWARD** goes to the previous or next song; hold it to wind through the song, faster the longer you hold.
+  - **VOL** (a slider on the portable, a knob on the deck) sets the volume, and **POWER** closes Now Playing.
+  - ♥, shuffle and repeat move to the top bar.
+- **Equalizer, reverb and balance** in **Settings → Playback → Sound**:
+  - **Equalizer:** 6 bands (60 Hz to 15 kHz, ±12 dB), shown as a curve you drag, or set with the arrow keys. The curve passes through every dot and is exactly what you hear (measured within 0.05 dB). 14 presets, from Bass booster and Vocal booster to Small speakers and Spoken word, plus Reset. Boosting turns everything down by the same amount first, so a boost can't distort (Settings says by how much).
+  - **Reverb** adds the echo of a Small room, Studio, Concert hall or Cathedral, with an amount slider. The loudness stays about the same.
+  - **Balance** shifts the sound left or right.
+  - All three work on computers and Android, apply during crossfades too, and are remembered on each device. On iPhone and iPad, Safari would stop the music when the screen locks, so the section explains that instead.
+- **The hi-fi deck's VU meters** show the left and right channels separately, with needles that swing like real ones, and its **BALANCE** knob shifts the sound left or right. Balance is remembered. Knobs turn by dragging, the scroll wheel or the arrow keys. On iPhone and iPad, Safari doesn't allow volume or balance changes, so those controls explain that instead, and the meters follow a generated pattern like the other visualizers.
+
+### Fixed
+- **Downloads failing with "HTTP Error 403: Forbidden"** on every song. YouTube had changed, and the copy of yt-dlp (the YouTube downloader) in use was 10 months old. It got picked up because spotDLr had been started with a plain `python3 app.py` instead of spotDLr.app or `run.sh`. To keep yt-dlp current:
+  - spotDLr.app, `run.sh` and the Windows launcher now update yt-dlp once a week when started.
+  - The Mac and Windows builds update it before packaging.
+  - When YouTube still refuses a song and yt-dlp is over 90 days old, the error says so and how to fix it.
+
 ### Changed
 - The website's Mac buttons, README and setup guide now download the **v2.4.1** Mac DMG, attached to the v2.4.1 release with its checksum.
 
@@ -159,7 +180,8 @@ The original spotDLr: a web page for downloading with spotDL. These versions wer
 - Reading `.env` in `run.bat`.
 - Playlist and album folder names on macOS (Jan 6, 2026).
 
-[Unreleased]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.4.1...HEAD
+[Unreleased]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.4.1...v2.5.0
 [2.4.1]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.3.0...v2.3.1

@@ -72,6 +72,17 @@ else
 fi
 echo ""
 
+# YouTube keeps changing and an old yt-dlp gets HTTP 403 on every song, so refresh it once a week
+if [ -z "$(find .venv/.ytdlp-updated -mtime -7 2>/dev/null)" ]; then
+    echo "Updating the YouTube downloader (yt-dlp)..."
+    if "$VENV_PYTHON" installer/update_ytdlp.py; then
+        touch .venv/.ytdlp-updated
+    else
+        echo "Warning: couldn't update yt-dlp (offline?). Trying again next start."
+    fi
+fi
+echo ""
+
 # FFmpeg: use the system one, or the copy spotDL downloads to ~/.spotdl
 echo "Checking FFmpeg installation for SpotDL..."
 if command -v ffmpeg &> /dev/null || [ -x "$HOME/.spotdl/ffmpeg" ]; then

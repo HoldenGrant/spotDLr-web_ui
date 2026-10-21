@@ -55,6 +55,15 @@ if (-not (Test-Path $Stamp) -or (Get-Item $Requirements).LastWriteTime -gt (Get-
     Say "Dependencies installed"
 }
 
+# YouTube keeps changing and an old yt-dlp gets HTTP 403 on every song, so refresh it once a week
+$YtdlpStamp = Join-Path $Repo ".venv\.ytdlp-updated"
+if (-not (Test-Path $YtdlpStamp) -or (Get-Item $YtdlpStamp).LastWriteTime -lt (Get-Date).AddDays(-7)) {
+    Say "Updating the YouTube downloader (yt-dlp)..."
+    & $VenvPython (Join-Path $Repo "installer\update_ytdlp.py") 2>&1 | ForEach-Object { "$_" }
+    if ($LASTEXITCODE -eq 0) { New-Item -ItemType File -Force -Path $YtdlpStamp | Out-Null }
+    else { Say "Warning: couldn't update yt-dlp (offline?). Trying again next start." }
+}
+
 # ---------- FFmpeg: on PATH, or spotDL's own copy in %USERPROFILE%\.spotdl ----------
 $SpotdlFfmpeg = Join-Path $env:USERPROFILE ".spotdl\ffmpeg.exe"
 if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue) -and -not (Test-Path $SpotdlFfmpeg)) {
