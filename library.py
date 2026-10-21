@@ -7,6 +7,7 @@ so a rescan of ~250 files costs a few milliseconds after the first one.
 """
 
 import hashlib
+import json
 import os
 import re
 import threading
@@ -32,6 +33,7 @@ YOUTUBE_ID = re.compile(r"(?:[?&]v=|youtu\.be/)([\w-]{11})")
 # Written by the downloader into a playlist/album folder: every song in order, including songs that
 # were already in the library and so live in another folder. Standard m3u8, so VLC etc. read it too.
 PLAYLIST_FILE = "playlist.m3u8"
+ALBUM_FILE = ".album.json"  # preserves an album's identity when it includes songs stored elsewhere
 
 JUNK_FOLDER_NAME = re.compile(r"^(https?open|album_\d|playlist_\d|artist_\d)")
 
@@ -43,6 +45,7 @@ class Library:
         self._cache = {}  # relative path -> (mtime, size, track dict)
         self._tracks_by_id = {}
         self._playlists = {}  # folder -> [relative track paths] from its playlist.m3u8
+        self._albums = {}  # folder -> album identity saved by "Add to album"
         self._covers = OrderedDict()  # (track id, mtime) -> (bytes, mime), LRU
 
     # ---------- scanning ----------
@@ -50,8 +53,16 @@ class Library:
     def scan(self):
         """Return every track, refreshing tags only for files that changed."""
         with self._lock:
-            seen, playlists = {}, {}
+            seen, playlists, albums = {}, {}, {}
             for path in self.root.rglob("*"):
+                if path.name == ALBUM_FILE and path.parent.parent == self.root:
+                    try:
+                        info = json.loads(path.read_text(encoding="utf-8"))
+                        if isinstance(info, dict) and isinstance(info.get("name"), str) and isinstance(info.get("artist"), str):
+                            albums[path.parent.name] = info
+                    except (OSError, ValueError):
+                        pass
+                    continue
                 if path.name == PLAYLIST_FILE and path.parent.parent == self.root:
                     playlists[path.parent.name] = (_read_playlist(path, self.root), path.stat().st_mtime)
                     continue
@@ -72,12 +83,13 @@ class Library:
             tracks = sorted(seen.values(), key=lambda t: t["added"], reverse=True)
             self._tracks_by_id = {t["id"]: t for t in tracks}
             self._playlists = playlists
+            self._albums = albums
             return tracks
 
     def snapshot(self):
         """Library payload for the frontend: tracks plus folder-based collections."""
         tracks = self.scan()
-        return {"tracks": tracks, "collections": _collections(tracks, self._playlists)}
+        return {"tracks": tracks, "collections": _collections(tracks, self._playlists, self._albums)}
 
     def spotify_index(self):
         """{spotify track id: local track id} for marking search results as owned."""
@@ -260,14 +272,16 @@ def _read_playlist(path: Path, root: Path):
     return out
 
 
-def _collections(tracks, playlists=None):
+def _collections(tracks, playlists=None, album_overrides=None):
     """One collection per top-level folder: an album if every track shares an album tag, else a playlist.
 
     A folder's playlist.m3u8 (when there is one) sets the order and can pull in songs from other folders.
-    A folder with an m3u8 and no audio of its own is a playlist you made: always a playlist, listed even
-    while empty, and "editable" (songs can be added and removed; deleting it never touches the songs).
+    A folder with an m3u8 and no audio of its own is a playlist you made, unless .album.json preserves
+    its album identity. Your playlists stay listed while empty and are "editable" (songs can be added
+    and removed; deleting the playlist never touches the songs).
     """
     playlists = playlists or {}
+    album_overrides = album_overrides or {}
     folders, by_path = {}, {t["path"]: t for t in tracks}
     for track in tracks:
         if track["folder"]:
@@ -277,16 +291,19 @@ def _collections(tracks, playlists=None):
     for folder in set(folders) | set(playlists):
         own = sorted(folders.get(folder, []), key=lambda t: t["path"])
         entries, listed_at = playlists.get(folder, ([], 0))
-        editable = folder in playlists and not own
+        album_info = album_overrides.get(folder)
+        editable = folder in playlists and not own and not album_info
         listed = list({t["id"]: t for t in (by_path.get(r) for r in entries) if t}.values())
         listed_ids = {t["id"] for t in listed}
         items = listed + [t for t in own if t["id"] not in listed_ids]  # files not in the m3u8 go last
         if not items and not editable:
             continue
         albums = Counter(t["album"] for t in items)
-        is_album = len(albums) == 1 and not editable
+        is_album = bool(album_info) or len(albums) == 1 and not editable
         name = folder
-        if editable:
+        if album_info:
+            name = album_info["name"]
+        elif editable:
             pass  # your name, even if every song happens to be from one album
         elif is_album and (JUNK_FOLDER_NAME.match(folder) or len(items) > 1):
             name = items[0]["album"]
@@ -305,8 +322,8 @@ def _collections(tracks, playlists=None):
             "key": folder,
             "name": name,
             "kind": "album" if is_album else "playlist",
-            "artist": items[0]["album_artist"] if is_album else None,
-            "year": items[0]["year"] if is_album else None,
+            "artist": album_info["artist"] if album_info else items[0]["album_artist"] if is_album else None,
+            "year": album_info.get("year") if album_info else items[0]["year"] if is_album else None,
             "track_ids": [t["id"] for t in items],
             "cover_ids": covers[:1] if is_album else covers,
             "duration": round(sum(t["duration"] for t in items)),

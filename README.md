@@ -88,11 +88,12 @@ Music and settings live outside the installed app, so replacing the app preserve
 | Find a song or paste a link | Use the top search bar; press `/` or `⌘K` to focus it. |
 | Add your own audio files | **Your Library → + → Add music files**. |
 | Make a playlist | **Your Library → + → New playlist**. Add songs from their **⋯** menus. |
+| Group a song under an album | **⋯ → Add to album**, then choose an existing album. This groups it in spotDLr while keeping its music file and tags unchanged. |
 | Queue the next track | **⋯ → Play next** or **Add to queue**. Open the queue with **Q**. |
 | Open fullscreen Now Playing | Open Now Playing, then press **F** or use its fullscreen button; **Esc** exits fullscreen. |
 | Pair your phone | **Settings → Phone access**. Scan the QR code. |
 | Change formats, lyrics, or playback | Open **Settings**, using the sliders icon at the top right. |
-| Change appearance | **Settings → Appearance**. Light, Dark or System, plus six accent colors. Saved automatically on each device. |
+| Change appearance | **Settings → Appearance**. Light, Dark, System, or an adjustable day/night schedule in either direction. Pick one of six accent colors or name and save a custom color. Saved on each device. |
 | Find a setting | Use the **Appearance, Playback, Downloads, Spotify, Phone access, and About** tabs. |
 | Open a music folder | A song's **⋯ → Show in Finder** (Mac) or **Open containing folder**. Albums and playlists have **Open folder**; Downloads has **Open music folder**. |
 
@@ -167,6 +168,7 @@ Before tagging, commit all implementation changes, update `version.py` and [CHAN
 | [Local deployment](DEPLOYMENT.md) | Server startup, ports, desktop behavior, updates, and phone access. |
 | [Mac packaging](installer/MAC.md) | Build and verify a self-contained Apple Silicon app and DMG. |
 | [Changelog](CHANGELOG.md) | Features and fixes by version. |
+| [To-do](TODO.md) | Ideas being considered for future versions. |
 | [Issues](https://github.com/HoldenGrant/spotDLr-web_ui/issues) | Report a reproducible problem or suggest an improvement. |
 
 ## Made possible by

@@ -23,7 +23,7 @@ import uuid
 from pathlib import Path
 
 from downloader import safe_folder_name, write_playlist
-from library import AUDIO_EXTENSIONS, PLAYLIST_FILE
+from library import ALBUM_FILE, AUDIO_EXTENSIONS, PLAYLIST_FILE
 
 MAX_UPLOAD = 2 * 1024**3   # 2 GB per file: anything bigger isn't a song
 MP3_BITRATES = (128, 192, 256, 320)
@@ -107,7 +107,7 @@ def open_location(music_dir: Path, path: Path):
 
 def is_user_playlist(folder: Path):
     """Made in spotDLr: a playlist.m3u8 and no audio files of its own."""
-    if not (folder / PLAYLIST_FILE).exists():
+    if not (folder / PLAYLIST_FILE).exists() or (folder / ALBUM_FILE).exists():
         return False
     return not any(p.suffix.lower() in AUDIO_EXTENSIONS for p in folder.iterdir() if p.is_file())
 
@@ -154,6 +154,18 @@ def delete_playlist(music_dir: Path, key):
         folder.rmdir()
     except OSError:
         pass  # something else (a cover image, .DS_Store) is in there: leave the folder
+
+
+def add_to_album(music_dir: Path, collection, paths):
+    """Group existing files under an album without moving audio or rewriting its tags."""
+    folder = music_dir / collection["key"]
+    if folder.parent != music_dir or folder.resolve().parent != music_dir.resolve() or not folder.is_dir():
+        raise OrganizeError("This album is outside your music folder", 403)
+    if any(not path.is_file() or not path.resolve().is_relative_to(music_dir.resolve()) for path in paths):
+        raise OrganizeError("A song is missing or outside your music folder. Refresh and try again.", 400)
+    info = {key: collection[key] for key in ("name", "artist", "year")}
+    _atomic_json(folder / ALBUM_FILE, info)
+    write_playlist(folder, paths)
 
 
 # ---------- adding files ----------

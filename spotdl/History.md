@@ -11,6 +11,11 @@ Jump to: [[#2026]] · [[#2025]]
 
 ## 2026
 
+### Oct 23, 2026
+- **Cassette flip** (uncommitted): double-tap the phone deck to put its buttons on the left. Holden's idea.
+- **Phone mini player** (uncommitted): Previous back, ♥ hidden.
+- **Swipe left to like** (uncommitted): phones, any song list; heart panel follows the finger, pops on release, row springs back, and liked rows now show their ♥. Holden's idea. See [[Frontend]].
+
 ### Oct 21, 2026
 - **v2.5.0 released**: Cassette visualizer, equalizer/reverb/balance, transform-based progress bars, and the yt-dlp freshness fix (weekly update + update before builds). Windows installer built by CI from the tag (its new update step logged yt-dlp 2026.08.19, solver 0.8.0). Mac DMG built locally with `installer/build_mac.sh` (relocation test passed; bundles yt-dlp 2026.08.19 + yt_dlp_ejs 0.8.0), uploaded with its checksum, and the website/README/SETUP/MAC links bumped.
 - **Downloads 403 fix** (uncommitted): Claude had restarted :8000 with the system `python3`, whose 10-month-old yt-dlp got 403 on every song. Restarted it from `.venv`, then added `installer/update_ytdlp.py`. It runs before both builds and weekly from `run.sh`/`server.ps1`. A lasting 403 with an old yt-dlp now explains itself. See [[Bug Log]].

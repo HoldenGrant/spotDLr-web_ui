@@ -6,7 +6,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+- **Day/night appearance schedules** in Settings → Appearance: light by day and dark at night, or the reverse, with adjustable start times using this device's local clock. **Custom colors** can be picked or entered as hex, named, and saved beside the six presets; matching light/dark variants keep controls readable.
+- **Add to album** in a song's menu lets you group it under an existing album in spotDLr. The original file, tags, likes and playlists stay unchanged; albums keep their name and artist when songs are added.
+- **Swipe left to like (phones).** Swipe a song left in any song list and let go to save it to Liked Songs. A green panel with a heart follows your finger, the heart pops when you let go, and the row springs back. Swipe a liked song the same way to remove it. A short swipe springs back without changing anything, and scrolling up and down works as before.
+- **Liked songs show their ♥ on phones**, next to ⋯, so you can see what you've liked at a glance.
+- **Cassette on phones:** double-tap the deck to turn it round, so its buttons are on the left instead of the right (handy for your left hand). Double-tap again to turn it back; your phone remembers which way you like it.
+
+### Fixed
+- **Light theme system bars:** the native Mac title bar and the phone's browser or installed-app status area now follow spotDLr's resolved light or dark theme, including System and day/night schedules.
+- **Phone playback** now recovers when a mobile browser leaves a song's Wi-Fi stream stalled without reporting an error. After eight seconds without progress, spotDLr reconnects at the same position; a stall at the final frame advances the shuffled queue.
+- If Add to album is opened while an older server is still running, the error now explains that the spotDLr server needs restarting instead of only saying “Not Found”.
+
 ### Changed
+- **Phones:** the mini player at the bottom shows **Previous** again, instead of the ♥. Like a song from Now Playing, or by swiping it left in a list.
+- Download cards keep album and playlist artwork aligned with the top of expanded details. Completed collections now have a play button on the far right.
+- On desktop, the library sidebar can collapse to a cover-only rail and expand again. The toggle remembers your choice, and hovering over a cover shows its name.
+- On phones, inner pages now show a visible Back button in the top bar. Album and playlist download buttons use an icon with an accessible label; desktop buttons keep their text.
 - The website's Mac buttons, README and setup guide now download the **v2.5.0** Mac DMG, attached to the v2.5.0 release with its checksum.
 
 ## [2.5.0] - 2026-10-21

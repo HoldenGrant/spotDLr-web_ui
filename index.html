@@ -49,9 +49,10 @@
             </div>
         </header>
 
-        <aside class="sidebar panel" aria-label="Your Library">
+        <aside class="sidebar panel" id="librarySidebar" aria-label="Your Library">
             <div class="sidebar-head">
-                <a class="sidebar-title" href="#/songs" id="libraryTitle"></a>
+                <a class="sidebar-title" href="#/songs" id="libraryTitle" aria-label="Your Library" title="Your Library"></a>
+                <button class="icon-btn" id="sidebarToggle" aria-label="Collapse sidebar" aria-expanded="true" aria-controls="librarySidebar" title="Collapse sidebar"></button>
                 <button class="icon-btn" id="createBtn" aria-label="Create playlist or add music files" aria-haspopup="menu" title="Create"></button>
             </div>
             <div class="chips" id="libraryChips" role="group" aria-label="Filter library"></div>

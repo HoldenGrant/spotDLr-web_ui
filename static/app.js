@@ -47,6 +47,8 @@ const ICONS = {
     spotify: '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M6.5 9c3.8-1.3 7.6-.9 11 1M7.2 12c3.3-1.1 6.8-.7 9.6.9M8 15c2.5-.8 5.1-.5 7.4.7" stroke="var(--panel)" stroke-width="1.5"/>',
     home: '<path d="M3 10.2 12 3l9 7.2V20a1 1 0 0 1-1 1h-5.5v-6.5h-5V21H4a1 1 0 0 1-1-1z"/>',
     library: '<path d="M4 3.5v17"/><path d="M9 3.5v17"/><path d="m13.6 4.3 6 16.2"/>',
+    sidebarCollapse: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16m7-11-3 3 3 3"/>',
+    sidebarExpand: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16m4-11 3 3-3 3"/>',
     download: '<circle cx="12" cy="12" r="9.5"/><path d="M12 7v9"/><path d="m8.2 12.4 3.8 3.8 3.8-3.8"/>',
     downloadPlain: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 20.5h14"/>',
     check: '<circle fill="currentColor" stroke="none" cx="12" cy="12" r="10"/><path stroke="#000" stroke-width="2.4" d="m7.5 12.3 3 3 6-6.3"/>',
@@ -463,6 +465,7 @@ function restoreSession() {
 function loadAndPlay() {
     const t = currentTrack();
     if (!t) return;
+    resetPlaybackRecovery(t.id);
     if (!XF.switching) endFade(); // you skipped: drop any crossfade in progress
     setTrackGain(t.id);
     startListen(t.id);
@@ -480,7 +483,7 @@ function togglePlay() {
         if (S.tracks.length) playContext(S.tracks.map((t) => t.id), null, { key: 'songs', label: 'All songs', href: '#/songs' });
         return;
     }
-    if (P.audio.paused) P.audio.play(); else P.audio.pause();
+    if (P.audio.paused) { resetPlaybackRecovery(currentTrack().id); P.audio.play(); } else P.audio.pause();
 }
 
 function next(auto = false) {
@@ -631,6 +634,68 @@ function endFade() {
     XF.out = 1;
     P.fadeIn = 1;
     applyVolume();
+}
+
+// ---------- mobile stream recovery ----------
+// Mobile browsers occasionally leave a Wi-Fi audio request waiting forever without raising `error`.
+// A manual pause/play works because it opens a new Range request. Do that automatically after eight
+// seconds with no progress; if the browser got stuck at the final frame, advance the queue instead.
+const RECOVERY_WAIT_MS = 8000;
+const playbackRecovery = { timer: null, trackId: null, time: 0, attempts: 0, serial: 0 };
+
+function playbackRecoveryAction({ paused, ended, sameTrack, advanced, currentTime, duration, attempts }) {
+    if (paused || ended || !sameTrack || advanced) return null;
+    if (Number.isFinite(duration) && duration > 0 && duration - currentTime <= 1) return 'next';
+    return attempts < 3 ? 'retry' : 'wait';
+}
+
+function resetPlaybackRecovery(trackId = null) {
+    clearTimeout(playbackRecovery.timer);
+    playbackRecovery.timer = null;
+    playbackRecovery.trackId = trackId;
+    playbackRecovery.time = P.audio.currentTime || 0;
+    playbackRecovery.attempts = 0;
+}
+
+function armPlaybackRecovery() {
+    const t = currentTrack();
+    if (!t || P.audio.paused || P.audio.ended || playbackRecovery.timer) return;
+    if (playbackRecovery.trackId !== t.id) resetPlaybackRecovery(t.id);
+    const trackId = t.id, stalledAt = P.audio.currentTime || 0;
+    playbackRecovery.time = stalledAt;
+    playbackRecovery.timer = setTimeout(() => {
+        playbackRecovery.timer = null;
+        const current = currentTrack();
+        const action = playbackRecoveryAction({
+            paused: P.audio.paused, ended: P.audio.ended, sameTrack: current?.id === trackId,
+            advanced: (P.audio.currentTime || 0) > stalledAt + 0.25,
+            currentTime: P.audio.currentTime || 0, duration: P.audio.duration,
+            attempts: playbackRecovery.attempts,
+        });
+        if (action === 'next') { next(true); return; }
+        if (action === 'wait') { toast('Playback is still waiting for the connection. Tap pause, then play to retry.', 'error'); return; }
+        if (action !== 'retry') return;
+
+        playbackRecovery.attempts++;
+        playbackRecovery.serial++;
+        endFade();
+        const resumeAt = stalledAt;
+        P.audio.src = `/api/stream/${encodeURIComponent(trackId)}?retry=${playbackRecovery.serial}`;
+        P.audio.addEventListener('loadedmetadata', () => {
+            if (currentTrack()?.id === trackId && resumeAt < P.audio.duration - 1) P.audio.currentTime = resumeAt;
+        }, { once: true });
+        P.audio.play().catch((error) => {
+            if (error.name !== 'AbortError' && error.name !== 'NotAllowedError') toast(`Couldn't resume "${current?.title || 'song'}"`, 'error');
+        });
+    }, RECOVERY_WAIT_MS);
+}
+
+function notePlaybackProgress() {
+    if (!playbackRecovery.timer) return;
+    if ((P.audio.currentTime || 0) <= playbackRecovery.time + 0.25) return;
+    clearTimeout(playbackRecovery.timer);
+    playbackRecovery.timer = null;
+    playbackRecovery.attempts = 0;
 }
 
 // ---------- sound: equalizer, reverb, balance ----------
@@ -1876,7 +1941,7 @@ const DECK_BUTTONS = {
 };
 const DECK_LOCKED = { volume: 'On iPhone and iPad, use the volume buttons on the side', balance: "Balance isn't available on iPhone and iPad" };
 const CS = {
-    kind: null, stage: null, deck: null, el: null, scale: 1, turn: false, ui: {},
+    kind: null, stage: null, deck: null, el: null, scale: 1, turn: false, flip: store.get('cassetteFlip', false), ui: {},
     radius: [0, 0], angle: [0, 0], needle: [0, 0], swing: [0, 0], leds: [], wind: null, held: false, holdTimer: 0,
 };
 
@@ -1978,7 +2043,18 @@ function fitCassette() {
     CS.turn = kind === 'portable' && h > w;
     const [across, down] = CS.turn ? [d.h, d.w] : [d.w, d.h];
     CS.scale = Math.min(w / across, h / down, d.maxScale || Infinity);
-    deck.style.transform = `translate(-50%, -50%)${CS.turn ? ' rotate(90deg)' : ''} scale(${CS.scale})`;
+    // Turned a quarter clockwise its buttons face right; flipped (double-tap, flipCassette), a quarter the other way: left
+    deck.style.transform = `translate(-50%, -50%)${CS.turn ? ` rotate(${CS.flip ? -90 : 90}deg)` : ''} scale(${CS.scale})`;
+}
+
+// Double-tap the portable (phone upright) to turn it round, buttons on the left instead of the right. Remembered.
+function flipCassette() {
+    if (!CS.turn) return; // sideways phone: the deck is already level
+    CS.flip = !CS.flip;
+    store.set('cassetteFlip', CS.flip);
+    CS.deck.classList.add('cs-flipping');
+    fitCassette();
+    setTimeout(() => CS.deck?.classList.remove('cs-flipping'), 600);
 }
 
 function showCassetteSong(t) {
@@ -2091,7 +2167,7 @@ function setDeckControl(name, value) {
 function toDeck(e) {
     const r = CS.deck.getBoundingClientRect(), d = DECKS[CS.kind];
     let x = (e.clientX - (r.left + r.width / 2)) / CS.scale, y = (e.clientY - (r.top + r.height / 2)) / CS.scale;
-    if (CS.turn) [x, y] = [y, -x];
+    if (CS.turn) [x, y] = CS.flip ? [-y, x] : [y, -x]; // undo rotate(∓90deg)
     return { x: x + d.w / 2, y: y + d.h / 2 };
 }
 
@@ -2483,9 +2559,23 @@ function bindNowView() {
     for (const type of ['wheel', 'touchmove', 'pointerdown']) {
         root.addEventListener(type, (e) => { if (e.target.closest('.nv-lyrics')) L.userScrollUntil = Date.now() + 3000; }, { passive: true });
     }
+    // Cassette, phone upright: a double-tap on the deck itself (not a button, knob or slider) turns it round.
+    // Two taps: each a press and release that hardly moved, within 350 ms and 40 px of each other.
+    root.addEventListener('pointerup', (e) => {
+        const down = CS.down, last = CS.lastTap;
+        CS.down = null;
+        if (!down || !CS.turn || !e.target.closest('.cs') || e.target.closest('[data-cs], [data-cs-control]')
+            || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 12) { CS.lastTap = null; return; }
+        CS.lastTap = { t: e.timeStamp, x: e.clientX, y: e.clientY };
+        if (last && e.timeStamp - last.t < 350 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 40) {
+            CS.lastTap = null;
+            flipCassette();
+        }
+    });
     // Cassette: drag a knob or the slider; hold REW or FF to wind (a quick press is previous or next)
     root.addEventListener('pointerdown', (e) => {
         if (!e.isPrimary || e.button !== 0) return;
+        CS.down = { x: e.clientX, y: e.clientY };
         const until = (ev) => ev.pointerId === e.pointerId;
         const control = e.target.closest('[data-cs-control]');
         if (control) {
@@ -2622,6 +2712,7 @@ function bindPlayer() {
     showVolume();
 
     P.audio.addEventListener('timeupdate', () => {
+        notePlaybackProgress();
         if (!P.audio.paused && listen.id) {
             const now = P.audio.currentTime;
             if (listen.last !== null && now > listen.last && now - listen.last < 1.5) listen.seconds += now - listen.last;
@@ -2637,7 +2728,13 @@ function bindPlayer() {
     });
     P.audio.addEventListener('loadedmetadata', () => { $('#timeTotal').textContent = fmtTime(P.audio.duration); });
     P.audio.addEventListener('play', updateControls);
-    P.audio.addEventListener('pause', updateControls);
+    P.audio.addEventListener('pause', () => {
+        clearTimeout(playbackRecovery.timer);
+        playbackRecovery.timer = null;
+        updateControls();
+    });
+    P.audio.addEventListener('waiting', armPlaybackRecovery);
+    P.audio.addEventListener('stalled', armPlaybackRecovery);
     P.audio.addEventListener('ended', () => { // report before moving on (or stopping)
         flushListen();
         if (SL.endOfSong) { stopForSleep(); return; }
@@ -2772,8 +2869,20 @@ const loadQr = () => qrLoading || (qrLoading = new Promise((resolve, reject) => 
     document.head.append(script);
 }));
 
+function updateThemeScheduleStatus() {
+    const panel = $('#themeSchedule');
+    if (!panel) return;
+    panel.hidden = !Theme.scheduled;
+    $('#themeScheduleStatus').textContent = `Now: ${document.documentElement.dataset.mode === 'light' ? 'Light' : 'Dark'}. Uses this device's local time.`;
+}
+
 function openSettings(focus = 'appearance') {
     const s = S.settings;
+    const colorChoices = () => html`<legend class="sr-only">Theme color</legend>${Theme.colors.map((theme) => html`<label class="theme-choice">
+        <input class="sr-only" type="radio" name="themeColor" value="${theme.id}" ${theme.id === Theme.current ? new Safe('checked') : ''}>
+        <span class="theme-dot" style="--swatch:${theme.color};--swatch-ink:${theme.ink || '#000000'}" aria-hidden="true">${icon('checkPlain', 16)}</span>
+        <span>${theme.name}</span></label>`)}`;
+    const currentColor = Theme.colors.find((c) => c.id === Theme.current).color;
     const lossless = (f) => f === 'flac' || f === 'wav';
     const tabs = [['appearance', 'Appearance'], ['playback', 'Playback'], ['downloads', 'Downloads'],
         ['spotify', 'Spotify'], ...(!S.init.on_phone ? [['phone', 'Phone access']] : []), ['about', 'About']];
@@ -2793,18 +2902,35 @@ function openSettings(focus = 'appearance') {
                     <div class="field">
                         <label for="setThemeMode">Theme</label>
                         <select id="setThemeMode">
-                            ${[['dark', 'Dark'], ['light', 'Light'], ['system', 'System — follow device settings']].map(([value, label]) => html`<option value="${value}" ${value === Theme.mode ? new Safe('selected') : ''}>${label}</option>`)}
+                            ${[['dark', 'Dark'], ['light', 'Light'], ['system', 'System — follow device settings'],
+                                ['daylight', 'Light by day, dark at night'], ['nightlight', 'Dark by day, light at night']].map(([value, label]) => html`<option value="${value}" ${value === Theme.mode ? new Safe('selected') : ''}>${label}</option>`)}
                         </select>
                     </div>
-                    <fieldset class="theme-picker" aria-describedby="themeNote">
-                        <legend class="sr-only">Theme color</legend>
-                        ${Theme.colors.map((theme) => html`<label class="theme-choice">
-                            <input class="sr-only" type="radio" name="themeColor" value="${theme.id}" ${theme.id === Theme.current ? new Safe('checked') : ''}>
-                            <span class="theme-dot" style="--swatch:${theme.color}" aria-hidden="true">${icon('checkPlain', 16)}</span>
-                            <span>${theme.name}</span>
-                        </label>`)}
-                    </fieldset>
+                    <div id="themeSchedule" ${Theme.scheduled ? '' : new Safe('hidden')}>
+                        <div class="theme-schedule-times">
+                            <label class="field"><span>Day starts</span><input class="field-input plain" id="themeDayStart" type="time" value="${Theme.schedule.day}" required></label>
+                            <label class="field"><span>Night starts</span><input class="field-input plain" id="themeNightStart" type="time" value="${Theme.schedule.night}" required></label>
+                        </div>
+                        <p class="field-note" id="themeScheduleStatus" role="status"></p>
+                        <p class="form-error" id="themeScheduleError" role="alert" hidden></p>
+                    </div>
+                    <fieldset class="theme-picker" id="themeChoices" aria-describedby="themeNote">${colorChoices()}</fieldset>
                     <p class="field-note" id="themeNote">Changes buttons, highlights and charts. Saved automatically on this device.</p>
+                    <details class="custom-theme">
+                        <summary>Custom color</summary>
+                        <form id="customColorForm">
+                            <div class="custom-color-fields">
+                                <div class="field"><label for="customColorHex">Color</label><div class="custom-color-entry">
+                                    <input type="color" id="customColorPicker" value="${currentColor}" aria-label="Pick a custom color">
+                                    <input class="field-input plain" id="customColorHex" aria-label="Hex color" value="${currentColor}" pattern="#[a-fA-F0-9]{6}" maxlength="7" spellcheck="false" autocapitalize="off" required>
+                                </div></div>
+                                <label class="field"><span>Color name</span><input class="field-input plain" id="customColorName" placeholder="e.g. Sunset" maxlength="32" required></label>
+                            </div>
+                            <p class="field-note">Save a named color to add it to the choices above. Light and dark variants keep controls readable.</p>
+                            <p class="form-error" id="customColorError" role="alert" hidden></p>
+                            <div class="custom-color-save"><span class="field-note" id="customColorStatus" role="status"></span><button class="pill-btn primary" type="submit">Save new color</button></div>
+                        </form>
+                    </details>
                 </section>
 
                 <section class="modal-section" role="tabpanel" id="settings-panel-spotify" aria-labelledby="settings-tab-spotify" ${initialTab === 'spotify' ? '' : new Safe('hidden')}>
@@ -2934,10 +3060,34 @@ function openSettings(focus = 'appearance') {
         });
     });
 
-    $$('input[name="themeColor"]', backdrop).forEach((input) => {
-        input.addEventListener('change', () => { if (input.checked) Theme.set(input.value); });
+    backdrop.addEventListener('change', (event) => {
+        if (event.target.name === 'themeColor' && event.target.checked) Theme.set(event.target.value);
     });
     $('#setThemeMode', backdrop).addEventListener('change', (event) => Theme.setMode(event.target.value));
+    updateThemeScheduleStatus();
+    $('#themeSchedule', backdrop).addEventListener('change', () => {
+        const err = $('#themeScheduleError', backdrop);
+        try {
+            Theme.setSchedule($('#themeDayStart', backdrop).value, $('#themeNightStart', backdrop).value);
+            err.hidden = true;
+        } catch (error) { err.textContent = error.message; err.hidden = false; }
+    });
+    const picker = $('#customColorPicker', backdrop), hex = $('#customColorHex', backdrop);
+    picker.addEventListener('input', () => { hex.value = picker.value; });
+    hex.addEventListener('input', () => { if (/^#[a-f\d]{6}$/i.test(hex.value)) picker.value = hex.value; });
+    $('#customColorForm', backdrop).addEventListener('submit', (event) => {
+        event.preventDefault();
+        const err = $('#customColorError', backdrop), status = $('#customColorStatus', backdrop);
+        status.textContent = '';
+        try {
+            const theme = Theme.saveCustom($('#customColorName', backdrop).value, hex.value);
+            $('#themeChoices', backdrop).innerHTML = colorChoices().s;
+            err.hidden = true;
+            status.textContent = `Saved ${theme.name}.`;
+            $('#customColorName', backdrop).value = '';
+            event.submitter?.scrollIntoView({ block: 'nearest' });
+        } catch (error) { err.textContent = error.message; err.hidden = false; }
+    });
 
     const lyricsButton = $('#saveLibraryLyrics');
     const lyricsStatus = $('#lyricsSaveStatus');
@@ -3148,6 +3298,16 @@ function openSettings(focus = 'appearance') {
 
 // ---------- sidebar ----------
 
+function setSidebarCollapsed(collapsed) {
+    $('.app').classList.toggle('sidebar-collapsed', collapsed);
+    const button = $('#sidebarToggle');
+    button.innerHTML = icon(collapsed ? 'sidebarExpand' : 'sidebarCollapse', 20).s;
+    button.setAttribute('aria-expanded', String(!collapsed));
+    button.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+    button.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+    store.set('sidebarCollapsed', collapsed);
+}
+
 // Your Library: drawn into the sidebar, and into the Library page (#/library, the phone's "Your Library" tab)
 // when it's open. Same filter, search and sort state for both.
 function renderSidebar() {
@@ -3169,11 +3329,11 @@ function renderLibraryInto(prefix) {
     const pinned = []; // Liked Songs and All songs stay on top, as Spotify keeps Liked Songs
     const entries = []; // { key, name, creator, added, html }: sorted below
     if ((S.libFilter === 'all' || S.libFilter === 'playlist') && match('Liked Songs')) {
-        pinned.push(html`<li class="lib-item" data-href="#/liked" data-key="liked">${likedArt()}
+        pinned.push(html`<li class="lib-item" title="Liked Songs" data-href="#/liked" data-key="liked">${likedArt()}
             <div class="lib-item-text"><div class="lib-item-name">Liked Songs</div><div class="lib-item-sub">Playlist • ${plural(S.liked.size, 'song')}</div></div></li>`);
     }
     if (S.libFilter === 'all' && match('All songs')) {
-        pinned.push(html`<li class="lib-item" data-href="#/songs" data-key="songs">${allSongsArt()}
+        pinned.push(html`<li class="lib-item" title="All songs" data-href="#/songs" data-key="songs">${allSongsArt()}
             <div class="lib-item-text"><div class="lib-item-name">All songs</div><div class="lib-item-sub">Playlist • ${plural(S.tracks.length, 'song')}</div></div></li>`);
     }
     if (S.libFilter !== 'artist') {
@@ -3182,7 +3342,7 @@ function renderLibraryInto(prefix) {
             if (!match(c.name)) continue;
             const sub = c.kind === 'album' ? `Album • ${c.artist}` : `Playlist • ${plural(c.track_ids.length, 'song')}`;
             entries.push({ key: `collection:${c.key}`, name: c.name, creator: c.artist || '', added: c.added,
-                html: html`<li class="lib-item" data-href="#/collection/${encodeURIComponent(c.key)}" data-key="collection:${c.key}">${collectionArt(c)}
+                html: html`<li class="lib-item" title="${c.name} — ${sub}" data-href="#/collection/${encodeURIComponent(c.key)}" data-key="collection:${c.key}">${collectionArt(c)}
                     <div class="lib-item-text"><div class="lib-item-name">${c.name}</div><div class="lib-item-sub">${sub}</div></div></li>` });
         }
     }
@@ -3192,7 +3352,7 @@ function renderLibraryInto(prefix) {
             if (!match(a.name)) continue;
             entries.push({ key: `artist:${a.name}`, name: a.name, creator: a.name,
                 added: Math.max(0, ...a.trackIds.map((id) => S.byId.get(id)?.added || 0)),
-                html: html`<li class="lib-item" data-href="${artistHref(a.name)}" data-key="artist:${a.name}">${artistArt(a)}
+                html: html`<li class="lib-item" title="${a.name} — Artist" data-href="${artistHref(a.name)}" data-key="artist:${a.name}">${artistArt(a)}
                     <div class="lib-item-text"><div class="lib-item-name">${a.name}</div><div class="lib-item-sub">Artist</div></div></li>` });
         }
     }
@@ -3846,10 +4006,12 @@ async function viewRemote(source, kind, id) {
     const duration = tracks.reduce((sum, t) => sum + t.duration_ms, 0) / 1000;
     const context = { key: `${source}-${kind}:${id}`, label: data.name, href: location.hash };
     const job = jobFor(data.url);
+    const downloadLabel = job ? (job.status === 'queued' ? 'Queued' : 'Downloading…')
+        : ownedIds.length ? `Download ${tracks.length - ownedIds.length} missing` : `Download ${kind}`;
     const downloadBtn = allOwned
         ? html`<span class="text-btn" style="color:var(--green)">${icon('check', 24)} In your library</span>`
-        : html`<button class="pill-btn primary" data-action="download" data-download-url="${data.url}" data-type="${kind}" data-title="${data.name}" data-image="${data.image || ''}" data-total="${data.total_tracks || ''}" ${job ? new Safe('disabled') : ''}>
-            ${job ? html`${icon('loader', 18, 'spinning')} ${job.status === 'queued' ? 'Queued' : 'Downloading…'}` : html`${icon('downloadPlain', 18)} ${ownedIds.length ? `Download ${tracks.length - ownedIds.length} missing` : `Download ${kind}`}`}</button>`;
+        : html`<button class="pill-btn primary remote-download" aria-label="${downloadLabel} — ${data.name}" title="${downloadLabel}" data-action="download" data-download-url="${data.url}" data-type="${kind}" data-title="${data.name}" data-image="${data.image || ''}" data-total="${data.total_tracks || ''}" ${job ? new Safe('disabled') : ''}>
+            ${job ? icon('loader', 18, 'spinning') : icon('downloadPlain', 18)}<span class="remote-download-label">${downloadLabel}</span></button>`;
     const meta = kind === 'album'
         ? html`<strong>${spotifyArtistLinks(data.artists, source)}</strong>${data.year ? html`<span class="dot">${data.year}</span>` : ''}<span class="dot">${plural(data.total_tracks || tracks.length, 'song')}, ${fmtLong(duration)}</span>`
         : html`<strong>${data.owner || 'Spotify'}</strong><span class="dot">${plural(data.total_tracks || tracks.length, 'song')}${tracks.length < (data.total_tracks || 0) ? ` (first ${tracks.length} shown)` : ''}</span>
@@ -3882,10 +4044,11 @@ async function viewRemote(source, kind, id) {
 function jobRow(job) {
     const pct = job.total ? Math.min(100, Math.round((job.done / job.total) * 100)) : 0;
     const active = ACTIVE.has(job.status);
+    const collection = downloadCollectionForJob(job);
     return html`
     <li class="job">
         ${job.image ? imageArt(job.image) : html`<div class="art">${icon(job.kind === 'track' ? 'note' : 'disc', 24)}</div>`}
-        <div style="min-width:0">
+        <div class="job-body">
             <div class="job-title">${job.title}</div>
             <div class="job-meta"><span class="state ${job.status}">${job.status}</span>
                 <span>${job.kind[0].toUpperCase() + job.kind.slice(1)}</span>
@@ -3894,12 +4057,20 @@ function jobRow(job) {
             ${active ? html`<div class="job-bar ${job.status === 'queued' || !job.total ? 'indeterminate' : ''}"><i style="--progress:${pct / 100}"></i></div>` : ''}
             ${job.note ? html`<div class="job-meta">${job.note}</div>` : ''}
             ${job.error ? html`<div class="job-error">${job.error}</div>` : ''}
-            ${job.log && job.log.length && job.status !== 'queued' ? html`<details><summary>${job.source === 'spotify' ? 'spotDL output' : 'Details'}</summary><pre>${job.log.join('\n')}</pre></details>` : ''}
         </div>
-        <div>${active ? html`<button class="pill-btn" data-action="cancel-job" data-job-id="${job.id}">Cancel</button>`
+        <div class="job-actions">${active ? html`<button class="pill-btn" data-action="cancel-job" data-job-id="${job.id}">Cancel</button>`
             : (job.status === 'failed' || (job.error && job.status === 'completed'))
-                ? html`<button class="pill-btn" data-action="download" data-download-url="${job.query}" data-type="${job.kind}" data-title="${job.title}" data-image="${job.image || ''}" title="Songs you already have are skipped">Retry</button>` : ''}</div>
+                ? html`<button class="pill-btn" data-action="download" data-download-url="${job.query}" data-type="${job.kind}" data-title="${job.title}" data-image="${job.image || ''}" title="Songs you already have are skipped">Retry</button>`
+                : collection ? html`<button class="play-big job-play" data-action="play-download" data-collection-key="${collection.key}" aria-label="Play ${collection.name}" title="Play ${collection.name}">${icon('play', 20)}</button>` : ''}</div>
+        ${job.log && job.log.length && job.status !== 'queued' ? html`<details class="job-details"><summary>${job.source === 'spotify' ? 'spotDL output' : 'Details'}</summary><pre>${job.log.join('\n')}</pre></details>` : ''}
     </li>`;
+}
+
+function downloadCollectionForJob(job, collections = S.collections) {
+    if (job.status !== 'completed' || !['album', 'playlist'].includes(job.kind)) return null;
+    const title = String(job.title || '').trim().toLocaleLowerCase();
+    const matches = collections.filter((c) => c.track_ids?.length && c.name.trim().toLocaleLowerCase() === title);
+    return matches.find((c) => c.kind === job.kind) || matches[0] || null;
 }
 
 function renderJobsList() {
@@ -4406,6 +4577,7 @@ let renderSeq = 0;
 async function render({ keepScroll = false } = {}) {
     const seq = ++renderSeq;
     const r = route();
+    document.body.classList.toggle('has-back-button', r.name !== 'home');
     // A background refresh (a download finishing, genres arriving) must not wipe a listening test in progress
     if (keepScroll && r.name === 'abx' && $('#abxRoot')?.dataset.track === r.id) return;
     const main = $('#main');
@@ -4520,6 +4692,10 @@ function bindEvents() {
                 actionEl.setAttribute('aria-pressed', P.shuffle);
             } else if (action === 'cancel-job') {
                 api(`/jobs/${encodeURIComponent(actionEl.dataset.jobId)}`, { method: 'DELETE' }).then(() => schedulePoll(200)).catch((err) => toast(err.message, 'error'));
+            } else if (action === 'play-download') {
+                const c = S.collections.find((item) => item.key === actionEl.dataset.collectionKey);
+                if (!c?.track_ids.length) { toast('This download is no longer in your library.', 'error'); return; }
+                playContext(c.track_ids, null, { key: `collection:${c.key}`, label: c.name, href: `#/collection/${encodeURIComponent(c.key)}` });
             } else if (action === 'toggle-table') {
                 const card = actionEl.closest('.chart-card');
                 const on = card.classList.toggle('show-table');
@@ -4657,7 +4833,10 @@ function bindEvents() {
     $('#searchClear').addEventListener('click', (e) => { e.preventDefault(); input.value = ''; input.focus(); history.replaceState(null, '', '#/search'); render(); });
 
     $('#libraryFilterInput').addEventListener('input', (e) => { S.libQuery = e.target.value; renderSidebar(); });
-    $('#navBack').addEventListener('click', () => history.back());
+    $('#navBack').addEventListener('click', () => {
+        if (history.length > 1) history.back();
+        else location.hash = route().name === 'remote' ? '#/search' : '#/';
+    });
     $('#navForward').addEventListener('click', () => history.forward());
     $('#settingsBtn').addEventListener('click', () => openSettings());
     window.addEventListener('hashchange', () => render());
@@ -4684,6 +4863,7 @@ function bindImageFallback() {
 }
 
 function paintChrome() {
+    document.addEventListener('themechange', updateThemeScheduleStatus);
     $('#brandMark').innerHTML = icon('spotDLr', 32).s;
     $('#navBack').innerHTML = icon('back', 18).s;
     $('#navForward').innerHTML = icon('forward', 18).s;
@@ -4698,6 +4878,8 @@ function paintChrome() {
     $('#createBtn').addEventListener('click', (e) => createMenu(e.currentTarget));
     $('#librarySort').addEventListener('click', (e) => librarySortMenu(e.currentTarget));
     $('#libraryTitle').innerHTML = html`${icon('library', 22)}<span>Your Library</span>`.s;
+    setSidebarCollapsed(store.get('sidebarCollapsed', false) === true);
+    $('#sidebarToggle').addEventListener('click', () => setSidebarCollapsed(!$('.app').classList.contains('sidebar-collapsed')));
     $('#libraryFilter').insertAdjacentHTML('afterbegin', icon('search', 14).s);
 }
 
@@ -4794,6 +4976,7 @@ function rowMenu(row, position) {
         '-',
         { label: S.liked.has(t.id) ? 'Remove from Liked Songs' : 'Save to Liked Songs', icon: S.liked.has(t.id) ? 'heartFilled' : 'heart', run: () => toggleLike(t.id) },
         { label: 'Add to playlist', icon: 'listAdd', run: () => addToPlaylistDialog([t.id], t.title) },
+        { label: 'Add to album', icon: 'disc', run: () => addToAlbumDialog([t.id], t.title) },
         ...(playlist ? [{ label: `Remove from ${playlist.name}`, icon: 'trash', run: () => removeFromPlaylist(playlist, [t.id], t.title) }] : []),
         { label: 'Send to device', icon: 'usb', run: () => sendToDeviceDialog([t.id], t.title, null) },
         { label: savingLyrics.has(t.id) ? 'Downloading lyrics…' : 'Download lyrics', icon: 'downloadPlain', disabled: savingLyrics.has(t.id), run: () => saveTrackLyrics(t) },
@@ -4850,7 +5033,7 @@ function openModal({ title, body, wide = false, onOpen }) {
     backdrop.addEventListener('click', (e) => { if (e.target === backdrop || e.target.closest('button[data-close]')) close(); });
     backdrop.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } });
     if (onOpen) onOpen(modal, close);
-    ($('[autofocus]', modal) || $('input:not(.sr-only), select, button:not([data-close])', modal) || modal).focus();
+    ($('[autofocus]', modal) || $('input:not(.sr-only), select, button:not([data-close]):not(:disabled)', modal) || $('button[data-close]', modal) || modal).focus();
     return close;
 }
 
@@ -4912,6 +5095,53 @@ function addToPlaylistDialog(trackIds, label) {
                     toast(count === before ? `Already in ${key}` : `Added to ${key}`);
                     await refreshLibrary();
                 } catch (error) { toast(error.message, 'error'); }
+            });
+        },
+    });
+}
+
+function addToAlbumDialog(trackIds, label) {
+    const albums = S.collections.filter((c) => c.kind === 'album');
+    openModal({
+        title: 'Add to album',
+        body: html`<p class="dialog-note">${trackIds.length === 1 ? label : plural(trackIds.length, 'song')}</p>
+            <p class="dialog-note">Groups the song in spotDLr. Your music file and album tags stay unchanged.</p>
+            <div class="pick-list album-pick-list">${albums.map((c) => {
+                const already = trackIds.every((id) => c.track_ids.includes(id));
+                return html`<button class="pick-row" data-album-key="${c.key}" data-in-album="${String(already)}" ${already ? 'disabled' : ''}>
+                    ${collectionArt(c, 'pick-art')}<div><div class="pick-name">${c.name}</div>
+                    <div class="pick-sub">${c.artist} · ${plural(c.track_ids.length, 'song')}${already ? ' · Already in album' : ''}</div></div></button>`;
+            })}</div>
+            ${albums.length ? '' : html`<p class="dialog-note">No albums yet. Use <strong>Add music files → A new album</strong> to create one.</p>
+                <button class="pill-btn" data-add-music>Add music files</button>`}
+            <p class="form-error" id="albumAddError" role="alert" hidden></p>`,
+        onOpen: (modal, close) => {
+            modal.addEventListener('click', async (e) => {
+                if (e.target.closest('[data-add-music]')) { close(); addFilesDialog([]); return; }
+                const row = e.target.closest('[data-album-key]');
+                if (!row || row.disabled) return;
+                const album = albums.find((c) => c.key === row.dataset.albumKey);
+                const rows = $$('[data-album-key]', modal), err = $('#albumAddError', modal);
+                const sub = $('.pick-sub', row), before = sub.textContent;
+                rows.forEach((button) => { button.disabled = true; });
+                row.setAttribute('aria-busy', 'true');
+                sub.textContent = 'Adding…';
+                err.hidden = true;
+                try {
+                    const { count } = await api(`/albums/${encodeURIComponent(album.key)}/tracks`, { method: 'POST', body: JSON.stringify({ track_ids: trackIds }) });
+                    if (modal.isConnected) close();
+                    await refreshLibrary();
+                    toast(count === album.track_ids.length ? `Already in ${album.name}` : `Added to ${album.name}`);
+                } catch (error) {
+                    err.textContent = error.message === 'Not Found'
+                        ? 'Restart the spotDLr server on your computer, then try again. It has not loaded Add to album yet.'
+                        : error.message;
+                    err.hidden = false;
+                } finally {
+                    rows.forEach((button) => { button.disabled = button.dataset.inAlbum === 'true'; });
+                    row.removeAttribute('aria-busy');
+                    sub.textContent = before;
+                }
             });
         },
     });
@@ -5084,6 +5314,90 @@ async function toggleLike(id) {
     apply(liked); // instant; undone if the server says no
     try { await api(`/likes/${encodeURIComponent(id)}`, { method: 'POST', body: JSON.stringify({ liked }) }); }
     catch (error) { apply(!liked); toast(`Couldn't save that: ${error.message}`, 'error'); }
+}
+
+// Phones: swipe a song left to like it (rows there have no ♥ button); on a liked song the same swipe removes it.
+// The row's content follows the finger and a panel grows from the right edge into the space it leaves, showing what
+// letting go will do. Past SWIPE_LIKE px it's armed; on release the heart pops, the row springs back and the row's
+// small ♥ pops in. Not from the screen's right edge, which Safari uses for Forward.
+// Touch events, not pointer events: iOS Safari starts its own scroll once a sideways swipe drifts ~10 px up or down,
+// and from then on cancels the page's pointer events, so the row snapped back mid-swipe (Holden's iPhone, Oct 23).
+// Once the swipe is ours, preventDefault() on each touchmove stops that scroll from starting. Until the direction is
+// decided nothing is prevented, so up/down still scrolls; the rows' touch-action: pan-y keeps sideways pans off.
+const SWIPE_LIKE = 80;
+function bindSwipeToLike() {
+    let swipe = null;
+    const point = (e) => e.touches[0] || e.changedTouches[0];
+    document.addEventListener('touchstart', (e) => {
+        swipe = null;
+        if (e.touches.length !== 1 || !matchMedia('(max-width: 600px)').matches) return;
+        const row = e.target.closest('.tracks .track[data-id]');
+        if (!row || !S.byId.has(row.dataset.id) || row.classList.contains('settling') || e.target.closest('.drag-handle')) return;
+        const { clientX: x, clientY: y } = point(e);
+        if (x > innerWidth - 24) return;
+        swipe = { row, id: row.dataset.id, liking: !S.liked.has(row.dataset.id), x, y, swiping: false, armed: false, panel: null };
+    }, { passive: true });
+    // Not passive: preventDefault() is what keeps Safari from taking the gesture over
+    document.addEventListener('touchmove', (e) => {
+        if (!swipe) return;
+        if (e.touches.length !== 1) return finish(false);   // a second finger: pinch, not a swipe
+        const { row } = swipe, { clientX, clientY } = point(e);
+        const dx = clientX - swipe.x, dy = clientY - swipe.y;
+        if (!swipe.swiping) {
+            if (dx > 10 || Math.abs(dy) > 10) { swipe = null; return; }      // rightwards or a scroll: not ours
+            if (dx > -10 || Math.abs(dx) < Math.abs(dy) * 1.5) return;       // not decided yet
+            swipe.swiping = true;
+            swipe.panel = document.createElement('span');
+            swipe.panel.className = `swipe-panel ${swipe.liking ? 'like' : 'unlike'}`;
+            swipe.panel.innerHTML = icon('heart', 22).s;
+            row.append(swipe.panel);
+            row.classList.add('swiping');
+        }
+        if (e.cancelable) e.preventDefault();
+        const pull = Math.max(0, -dx);
+        const shown = pull <= SWIPE_LIKE ? pull : SWIPE_LIKE + (pull - SWIPE_LIKE) * 0.35; // past it: rubber band
+        row.style.setProperty('--swipe', `${-shown}px`);
+        row.style.setProperty('--swipe-p', Math.min(1, pull / SWIPE_LIKE));
+        if (swipe.armed !== pull >= SWIPE_LIKE) {
+            swipe.armed = !swipe.armed;
+            swipe.panel.classList.toggle('armed', swipe.armed);
+            swipe.panel.innerHTML = icon(swipe.armed === swipe.liking ? 'heartFilled' : 'heart', 22).s; // armed shows the result
+            if (swipe.armed) navigator.vibrate?.(8);                                                     // a tick on Android
+        }
+    }, { passive: false });
+    document.addEventListener('touchend', () => finish(true));
+    document.addEventListener('touchcancel', () => finish(false));
+
+    function finish(released) {
+        const current = swipe;
+        swipe = null;
+        if (!current?.swiping) return;
+        const { row, id, liking, panel } = current;
+        // The lifted finger can still count as a tap on the row, which would play the song
+        const swallow = (c) => { c.stopPropagation(); c.preventDefault(); };
+        window.addEventListener('click', swallow, { capture: true, once: true });
+        setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 400);
+        const commit = released && current.armed;
+        if (commit) {
+            panel.classList.add('pop');
+            toggleLike(id); // redraws the row's ♥ at once
+            if (liking) row.querySelector('.like-btn')?.classList.add('pop');
+        }
+        const settle = (px, then, ms) => {
+            row.classList.add('settling');
+            row.style.setProperty('--swipe', `${px}px`);
+            setTimeout(then, ms);
+        };
+        const done = () => {
+            row.classList.remove('swiping', 'settling');
+            row.style.removeProperty('--swipe');
+            row.style.removeProperty('--swipe-p');
+            panel.remove();
+        };
+        const back = () => { row.style.setProperty('--swipe-p', 0); settle(0, done, 340); };
+        if (commit) settle(-SWIPE_LIKE, back, 300); // hold open while the heart pops, then spring back
+        else back();
+    }
 }
 
 // ---------- adding files ----------
@@ -5728,6 +6042,7 @@ function bindWindowCheckIn() {
     bindChartTooltip();
     bindPlayer();
     bindNowView();
+    bindSwipeToLike();
     bindEvents();
     try { S.init = await api('/status/init'); } catch { S.init = { initialized: false, message: 'Server not reachable' }; }
     try { await loadLibrary(); } catch (err) { toast(`Couldn't load your library: ${err.message}`, 'error'); }

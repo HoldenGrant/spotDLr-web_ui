@@ -3,7 +3,7 @@ import WebKit
 
 // Native window for both source and self-contained builds. A packaged app owns its
 // backend; source builds keep the original background server behavior.
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     private var window: NSWindow!
     private var webView: WKWebView!
     private var status: NSTextField!
@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let configuration = WKWebViewConfiguration()
         configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.preferences.isElementFullscreenEnabled = true
+        configuration.userContentController.add(self, name: "theme")
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -65,6 +66,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         checkServer()
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "theme", let mode = message.body as? String, mode == "light" || mode == "dark" else { return }
+        let light = mode == "light"
+        window.appearance = NSAppearance(named: light ? .aqua : .darkAqua)
+        window.backgroundColor = light ? NSColor(calibratedWhite: 0.95, alpha: 1) : NSColor(calibratedWhite: 0.07, alpha: 1)
     }
 
     private func makeMenu() {

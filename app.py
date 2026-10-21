@@ -159,6 +159,10 @@ class PlaylistTracksRequest(BaseModel):
     action: str  # add | remove | order (track_ids = the same songs in their new order)
 
 
+class AlbumTracksRequest(BaseModel):
+    track_ids: list[str]
+
+
 class RenameRequest(BaseModel):
     name: str
 
@@ -421,6 +425,18 @@ def change_playlist(key: str, request: PlaylistTracksRequest):
 @app.post("/api/playlists/{key}/rename")
 def rename_playlist(key: str, request: RenameRequest):
     return {"key": organize.rename_playlist(DOWNLOAD_DIR, key, request.name)}
+
+
+@app.post("/api/albums/{key}/tracks")
+def add_album_tracks(key: str, request: AlbumTracksRequest):
+    collection = next((c for c in library.snapshot()["collections"] if c["key"] == key), None)
+    if not collection:
+        raise OrganizeError("This album is no longer in your library. Refresh and try again.", 404)
+    if collection["kind"] != "album":
+        raise OrganizeError("Choose an album to add songs to", 403)
+    ids = list(dict.fromkeys(collection["track_ids"] + request.track_ids))
+    organize.add_to_album(DOWNLOAD_DIR, collection, _paths_for(ids))
+    return {"count": len(ids)}
 
 
 @app.delete("/api/playlists/{key}")
