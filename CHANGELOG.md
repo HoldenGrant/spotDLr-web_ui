@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+- The website's Mac buttons, README and setup guide now download the **v2.4.1** Mac DMG, attached to the v2.4.1 release with its checksum.
+
 ## [2.4.1] - 2026-10-21
 
 ### Fixed

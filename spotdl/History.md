@@ -12,7 +12,7 @@ Jump to: [[#2026]] · [[#2025]]
 ## 2026
 
 ### Oct 21, 2026
-- **v2.4.1 released** (bug fixes): the Mac app's volume slider after Now Playing (WebKit ignores `audio.volume` once audio goes through Web Audio; volume is now a GainNode), and full-width Particles/Retro controls on phones. See [[Bug Log]]. Committed, tagged and pushed from this session as HoldenGrant; Windows installer built by CI.
+- **v2.4.1 released** (bug fixes): the Mac app's volume slider after Now Playing (WebKit ignores `audio.volume` once audio goes through Web Audio; volume is now a GainNode), and full-width Particles/Retro controls on phones. See [[Bug Log]]. Committed, tagged and pushed from this session as HoldenGrant; Windows installer built by CI. Mac DMG built with `installer/build_mac.sh` (relocation test passed), checked (checksum, version 2.4.1, signature, both fixes inside the bundle), uploaded to the release; website/README/SETUP/MAC.md links moved from 2.4.0 to 2.4.1.
 - **v2.4.0 released** (tag pushed by Holden; Windows installer built by CI). Mac DMG built locally with `installer/build_mac.sh` (its relocation test passed), checked (version 2.4.0, signature, checksum, new code inside), uploaded to the release, and the website/README/SETUP/MAC.md links moved from 2.3.1 to 2.4.0. **The Mac DMG is never built by CI**: every release needs this by hand.
 - Fixed `.venv` scripts still pointing at `~/Downloads/spotDLr-web_ui` (29 files: `activate`, `pip`, …), which made VS Code report "Unable to handle .venv/bin/python".
 
