@@ -1338,3 +1338,12 @@ button.nv-upnext:hover { background: rgba(var(--fg-rgb), .08); color: var(--text
     padding: 10px 12px 10px 16px; border-radius: 28px; background: var(--surface-modal); box-shadow: 0 12px 32px rgba(0,0,0,.6); font-size: 14px; white-space: nowrap; max-width: calc(100vw - 24px); }
 .tap-to-play span { display: flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; }
 .phone-funnel { margin-top: 8px; }
+
+/* Phones: on Particles and Retro the song info's dark backing spans the full width (on wider screens it hugs
+   the text beside the cover), and the controls fill it */
+@media (max-width: 600px) {
+    .nv[data-viz="retro"] .nv-info, .nv[data-viz="particles"] .nv-info {
+        justify-self: stretch; width: auto; max-width: none; margin-left: 0; padding: 20px 16px;
+    }
+    .nv-controls { width: 100%; }
+}

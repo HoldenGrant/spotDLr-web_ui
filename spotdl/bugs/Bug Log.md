@@ -51,6 +51,14 @@ Everything Windows-side was checked on the Mac only (portable PowerShell 7.4.6: 
 
 ## Fixed
 
+### Mac app: volume slider did nothing after opening Now Playing (Oct 21)
+
+**Cause:** the visualizer calls `createMediaElementSource(P.audio)`, and from then on **WebKit ignores `audio.volume`** (the native Mac app is WKWebView since 2.3.1). Measured with a test tone through Web Audio: Chrome 20% volume → ×0.20; WebKit → ×1.00, though `audio.volume` read back 0.2. "Sometimes" = only after Now Playing had built the graph (it lasts until reload). It also broke even volume, crossfade, sleep fade and schedule fade-in there. **Fix:** `graphVolume`, a GainNode after the analyser (`source → analyser → graphVolume → destination`; the bars no longer shrink with volume); `applyVolume()` sets the element to 1 and the gain to the level (`setTargetAtTime`, 15 ms, no clicks), mute → 0; without a graph (iOS, before Now Playing) it's `audio.volume` as before. `graphVolume` is declared before `applyVolume` (it runs at load, before `const V`, which would throw). **Checked** with the real app and a steady tone, in a WKWebView probe (Swift, 1×1 on-screen window, else WebKit throttles timers) and Chrome: 50% → 0.50, 20% → 0.20, mute → 0, in both.
+
+### Phones: Particles/Retro info card only two-thirds wide (Oct 21)
+
+The dark backing on those two modes is `width: max-content` (hug the text beside the cover on wide screens); with the new controls capped at 420 px it stopped at ~270 px on a 390 px phone. **Fix:** ≤600 px: stretch to the full width, controls 100%. **Checked** at 390 px: Bars/Particles/Retro all 16–374 px; desktop still hugs the text.
+
 ### The Mac couldn't open its own phone-access addresses (Oct 19)
 
 Opening `https://…ts.net:8443` (or the Wi-Fi name) on the Mac itself showed "Scan the QR code": requests through Tailscale count as phones. **Fix:** `PhoneAccess.is_remote()` treats a client whose address is one of this computer's own (Tailscale IPs + Wi-Fi IP, cached 60 s) as local, and the host check accepts the phone-access host names for local clients. **Why it's safe:** through `tailscale serve` the client address comes from X-Forwarded-For, and uvicorn 0.23 takes the last entry, which Tailscale adds: sending `X-Forwarded-For: 100.79.20.11` or `127.0.0.1` through the real address still logged the Mac's true 100.84.170.72. On the Wi-Fi listener the address is the TCP peer (XFF isn't trusted there). **Checked:** Mac → Tailscale address 200, → Wi-Fi name 200, unknown Host 403.

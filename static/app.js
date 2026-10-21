@@ -302,8 +302,18 @@ P.wakeGain = 1;    // a scheduled play's fade-in
 const XF = { el: new Audio(), active: false, prepared: null, out: 1, outGain: 1, timer: null, switching: false };
 XF.el.preload = 'auto';
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
+let graphVolume = null; // a GainNode once the visualizer routes the music through Web Audio (ensureAudioGraph)
 function applyVolume() {
-    P.audio.volume = clamp01(P.userVolume * P.trackGain * P.fadeIn * P.sleepGain * P.wakeGain);
+    const level = clamp01(P.userVolume * P.trackGain * P.fadeIn * P.sleepGain * P.wakeGain);
+    if (graphVolume) {
+        // The visualizer routes the music through Web Audio, and WebKit (the Mac app, Safari) then ignores
+        // audio.volume: measured, 20% sounded exactly like 100%. So the level goes on a gain node instead,
+        // after the analyser (the bars don't shrink with the volume), and the element stays at full volume.
+        P.audio.volume = 1;
+        graphVolume.gain.setTargetAtTime(P.audio.muted ? 0 : level, graphVolume.context.currentTime, 0.015); // 15 ms: no clicks
+    } else {
+        P.audio.volume = level;
+    }
     XF.el.volume = clamp01(P.userVolume * XF.outGain * XF.out * P.sleepGain);
     XF.el.muted = P.audio.muted;
 }
@@ -1159,7 +1169,10 @@ function ensureAudioGraph() {
         V.analyser.fftSize = 2048;               // 1024 frequency bins, each sampleRate/2048 ≈ 21.5 Hz wide
         V.analyser.smoothingTimeConstant = 0.8;  // blend 80% of the last frame in, so bars fall smoothly
         source.connect(V.analyser);
-        V.analyser.connect(V.ctx.destination);   // forget this and the music goes silent
+        graphVolume = V.ctx.createGain();          // the volume, from here on (see applyVolume)
+        V.analyser.connect(graphVolume);
+        graphVolume.connect(V.ctx.destination);    // forget this and the music goes silent
+        applyVolume();
         V.freq = new Uint8Array(V.analyser.frequencyBinCount);
         V.wave = new Uint8Array(V.analyser.fftSize);
         P.audio.addEventListener('play', () => V.ctx.state === 'suspended' && V.ctx.resume());

@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-10-21
+
+### Fixed
+- **Mac app:** the volume slider stopped working after Now Playing had been opened (and with it even volume, crossfade and the sleep timer's fade). With a visualizer on, the volume is now applied inside the audio engine, so it works in every browser and in the Mac app.
+- **Phones:** on the Particles and Retro visualizers, the song info and controls only filled two-thirds of the screen.
+
 ### Changed
 - The website's Mac buttons, README and setup guide now download the **v2.4.0** Mac DMG, attached to the v2.4.0 release with its checksum.
 
@@ -150,7 +156,8 @@ The original spotDLr: a web page for downloading with spotDL. These versions wer
 - Reading `.env` in `run.bat`.
 - Playlist and album folder names on macOS (Jan 6, 2026).
 
-[Unreleased]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.4.1...HEAD
+[2.4.1]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.2.0...v2.3.0
