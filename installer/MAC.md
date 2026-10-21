@@ -19,7 +19,7 @@ Outputs:
 - `dist-mac/spotDLr-<version>-mac-arm64.dmg`
 - `dist-mac/spotDLr-<version>-mac-arm64.dmg.sha256`
 
-The v2.4.1 DMG is available on [GitHub Releases](https://github.com/HoldenGrant/spotDLr-web_ui/releases/tag/v2.4.1) and linked from the website. The build does not upload automatically: verify the app, upload the DMG and checksum, then update the website's pinned Mac URLs.
+The v2.5.0 DMG is available on [GitHub Releases](https://github.com/HoldenGrant/spotDLr-web_ui/releases/tag/v2.5.0) and linked from the website. The build does not upload automatically: verify the app, upload the DMG and checksum, then update the website's pinned Mac URLs.
 
 Open the DMG and drag the app onto Applications. The build does not replace the
 currently installed source launcher or move its music. See [SETUP.md](../SETUP.md#mac-personal-standalone-installer)
