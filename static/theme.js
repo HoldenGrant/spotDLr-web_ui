@@ -41,6 +41,9 @@ const Theme = (() => {
     let current = 'green';
     let mode = read('mode', 'dark');
     if (!modes.includes(mode)) mode = 'dark';
+    let glass = read('glass', false) === true;
+    let transparency = Number(read('transparency', 35));
+    if (!Number.isFinite(transparency) || transparency < 10 || transparency > 70) transparency = 35;
     const savedSchedule = read('themeSchedule', {});
     let schedule = validTime(savedSchedule?.day) && validTime(savedSchedule?.night) && savedSchedule.day !== savedSchedule.night
         ? { day: savedSchedule.day, night: savedSchedule.night } : { day: '07:00', night: '19:00' };
@@ -64,6 +67,8 @@ const Theme = (() => {
         const rgb = rgbOf(accent);
         root.dataset.theme = current;
         root.dataset.mode = light ? 'light' : 'dark';
+        root.dataset.glass = String(glass);
+        root.style.setProperty('--glass-alpha', String(1 - transparency / 100));
         root.style.setProperty('--green', accent);
         root.style.setProperty('--green-hover', light ? theme.light : theme.hover);
         root.style.setProperty('--accent-fill', theme.fill || theme.color);
@@ -78,7 +83,9 @@ const Theme = (() => {
         root.style.setProperty('--chart-accent', accent);
         document.querySelector('meta[name="theme-color"]')?.setAttribute('content', light ? '#f2f3f5' : '#121212');
         document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.setAttribute('content', light ? 'default' : 'black');
-        window.webkit?.messageHandlers?.theme?.postMessage(light ? 'light' : 'dark');
+        window.webkit?.messageHandlers?.theme?.postMessage({
+            mode: light ? 'light' : 'dark', glass, accent, alpha: 1 - transparency / 100,
+        });
         document.dispatchEvent(new Event('themechange'));
         return theme;
     }
@@ -106,6 +113,8 @@ const Theme = (() => {
         get colors() { return colors(); },
         get current() { return current; },
         get mode() { return mode; },
+        get glass() { return glass; },
+        get transparency() { return transparency; },
         get schedule() { return { ...schedule }; },
         get scheduled() { return scheduled(); },
         setSchedule(day, night) {
@@ -119,6 +128,17 @@ const Theme = (() => {
             mode = modes.includes(value) ? value : 'dark';
             update();
             try { write('mode', mode); } catch { /* private mode */ }
+        },
+        setGlass(value) {
+            glass = Boolean(value);
+            apply(current);
+            try { write('glass', glass); } catch { /* private mode */ }
+        },
+        setTransparency(value) {
+            const next = Math.round(Number(value));
+            transparency = Number.isFinite(next) ? Math.min(70, Math.max(10, next)) : 35;
+            apply(current);
+            try { write('transparency', transparency); } catch { /* private mode */ }
         },
         set(id) {
             const theme = apply(id);

@@ -67,7 +67,7 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 EXTRA_HOSTS = {h.strip() for h in os.getenv("SPOTDLR_HOSTS", "").split(",") if h.strip()}
 ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]"} | EXTRA_HOSTS
 phones = phone.PhoneAccess(DATA_DIR / "phone.json", app)
-LOCAL_ONLY_PATHS = ("/api/phone", "/api/credentials", "/api/reveal")  # computer-only actions
+LOCAL_ONLY_PATHS = ("/api/phone", "/api/credentials", "/api/reveal", "/api/remote/source")  # computer-only actions
 # What a phone's browser fetches without cookies (home-screen icon, manifest, service worker): nothing private
 PUBLIC_PATHS = {"/static/manifest.webmanifest", "/sw.js", "/static/icons/icon-192.png", "/static/icons/icon-512.png",
                 "/static/icons/apple-touch-icon.png", "/static/icons/icon.svg"}
@@ -231,6 +231,17 @@ class PlayRequest(BaseModel):
     seconds: float
 
 
+class RemoteSourceRequest(BaseModel):
+    device_id: str
+    device_name: str
+    state: dict
+
+
+class RemoteCommandRequest(BaseModel):
+    action: str
+    value: Optional[object] = None
+
+
 class DownloadRequest(BaseModel):
     query: str                      # Spotify or YouTube Music URL, or free text for a single track
     type: Optional[str] = None      # track | album | playlist | artist (detected from the URL when omitted)
@@ -343,6 +354,75 @@ def record_play(request: PlayRequest):
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
     return {"recorded": plays.record(dict(track, genre=genres.genre_for(track)), request.seconds)}
+
+
+# ---------- remote playback ----------
+# A paired phone never talks directly to the desktop browser. The local server holds the latest player
+# snapshot and a short command queue; the desktop checks both while it is open. Nothing is persisted.
+class RemotePlayback:
+    ACTIONS = {"play", "pause", "toggle", "next", "previous", "seek", "volume", "mute",
+               "shuffle", "repeat", "play_context", "queue_add", "queue_remove", "queue_clear",
+               "queue_play", "queue_move"}
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.source = None
+        self.commands = []
+
+    def publish(self, device_id, device_name, state):
+        now = time.time()
+        device_id = device_id[:64]
+        with self.lock:
+            current = self.source
+            stale = not current or now - current["seen"] > 5
+            takeover = current and bool(state.get("playing")) and not bool(current["state"].get("playing"))
+            if stale or current["device_id"] == device_id or takeover:
+                self.source = {"device_id": device_id, "device_name": device_name[:80],
+                               "state": state, "seen": now}
+                commands, self.commands = self.commands, []
+            else:
+                commands = []
+        return {"commands": commands}
+
+    def status(self):
+        with self.lock:
+            source = dict(self.source) if self.source else None
+        if not source or time.time() - source["seen"] > 5:
+            return {"online": False, "source": None, "state": None}
+        return {"online": True, "source": {"id": source["device_id"], "name": source["device_name"]},
+                "state": source["state"]}
+
+    def command(self, action, value):
+        if action not in self.ACTIONS:
+            raise ValueError("Unknown remote command")
+        if not self.status()["online"]:
+            raise RuntimeError("The computer player is not available")
+        with self.lock:
+            self.commands.append({"action": action, "value": value})
+
+
+remote_playback = RemotePlayback()
+
+
+@app.post("/api/remote/source")
+def remote_source(request: RemoteSourceRequest):
+    return remote_playback.publish(request.device_id, request.device_name, request.state)
+
+
+@app.get("/api/remote/status")
+def remote_status():
+    return remote_playback.status()
+
+
+@app.post("/api/remote/command")
+def remote_command(request: RemoteCommandRequest):
+    try:
+        remote_playback.command(request.action, request.value)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error))
+    return {"ok": True}
 
 
 # ---------- organizing: likes, your playlists, adding files, sending to a device (organize.py) ----------

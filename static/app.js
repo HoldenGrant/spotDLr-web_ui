@@ -94,6 +94,8 @@ const ICONS = {
     loader: '<path d="M21 12a9 9 0 1 1-6.2-8.56"/>',
     link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
     speaker: '<path fill="currentColor" stroke="none" d="M11 4.7 6.3 8.5H3v7h3.3l4.7 3.8z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/>',
+    phone: '<rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10 18.5h4"/>',
+    computer: '<rect x="2.5" y="3.5" width="19" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17.5V21"/>',
     warn: '<path d="M12 3 2 20.5h20z"/><path d="M12 10v4.5"/><path d="M12 17.5v.01"/>',
     chart: '<path d="M3 20.5h18"/><path d="M6 17V11"/><path d="M11 17V5"/><path d="M16 17v-8"/><path d="M21 17v-4"/>',
     spotDLr: '<path fill="currentColor" stroke="none" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 5h2v6.6l2.3-2.3 1.4 1.4L12 17.4l-4.7-4.7 1.4-1.4 2.3 2.3z"/>',
@@ -285,6 +287,24 @@ const P = {
 };
 P.audio.preload = 'auto';
 
+const R = {
+    mode: store.get('playbackDevice', 'local'), // local | remote (phones only)
+    online: false,
+    source: null,
+    state: null,
+    timer: 0,
+    publishing: false,
+};
+const remoteActive = () => !!S.init.on_phone && R.mode === 'remote';
+const playbackIsPlaying = () => remoteActive() ? !!R.state?.playing : (!P.audio.paused && !!currentTrack());
+
+function remoteCommand(action, value = null) {
+    if (!remoteActive()) return false;
+    api('/remote/command', { method: 'POST', body: JSON.stringify({ action, value }) })
+        .catch((error) => toast(error.message, 'error'));
+    return true;
+}
+
 // iPhone/iPad Safari (and every iOS browser, which are all Safari inside) has two rules that matter here:
 // - it suspends Web Audio when the screen locks, so music routed through it (for the visualizer) goes silent;
 // - audio.volume is read-only (always 1): pages can't turn music down, only the phone's buttons can.
@@ -381,6 +401,7 @@ function buildOrder(startIndex) {
 function playContext(trackIds, startIndex, context) {
     const ids = trackIds.filter((id) => S.byId.has(id));
     if (!ids.length) return;
+    if (remoteCommand('play_context', { track_ids: ids, start_index: startIndex, context })) return;
     const start = startIndex === null || startIndex === undefined ? (P.shuffle ? -1 : 0) : ids.indexOf(trackIds[startIndex]);
     P.queue = ids;
     P.context = context;
@@ -479,6 +500,7 @@ function loadAndPlay() {
 }
 
 function togglePlay() {
+    if (remoteCommand('toggle')) return;
     if (!currentTrack()) {
         if (S.tracks.length) playContext(S.tracks.map((t) => t.id), null, { key: 'songs', label: 'All songs', href: '#/songs' });
         return;
@@ -487,6 +509,7 @@ function togglePlay() {
 }
 
 function next(auto = false) {
+    if (!auto && remoteCommand('next')) return;
     if (!currentTrack()) return;
     if (auto && P.repeat === 'one') { startListen(currentTrack().id); P.audio.currentTime = 0; P.audio.play(); return; }
     // Songs you queued come first; P.pos stays put, so the context carries on where it was afterwards
@@ -499,6 +522,7 @@ function next(auto = false) {
 }
 
 function prev() {
+    if (remoteCommand('previous')) return;
     if (!currentTrack()) return;
     if (P.audio.currentTime > 3 || (!P.queued && P.pos === 0 && P.repeat === 'off')) { P.audio.currentTime = 0; return; }
     if (P.queued) { P.queued = null; loadAndPlay(); return; } // back to the context song before the queued one
@@ -507,6 +531,7 @@ function prev() {
 }
 
 function toggleShuffle() {
+    if (remoteCommand('shuffle')) return;
     P.shuffle = !P.shuffle;
     store.set('shuffle', P.shuffle);
     const cur = P.order[P.pos];
@@ -517,13 +542,14 @@ function toggleShuffle() {
 }
 
 function cycleRepeat() {
+    if (remoteCommand('repeat')) return;
     P.repeat = { off: 'all', all: 'one', one: 'off' }[P.repeat];
     store.set('repeat', P.repeat);
     updateControls();
     renderNowView();
 }
 
-const isContextPlaying = (key) => P.context && P.context.key === key && !P.audio.paused;
+const isContextPlaying = (key) => P.context && P.context.key === key && playbackIsPlaying();
 
 function updateNowPlaying() {
     const t = currentTrack();
@@ -549,7 +575,7 @@ function updateNowPlaying() {
 }
 
 function updateControls() {
-    const playing = !P.audio.paused && !!currentTrack();
+    const playing = playbackIsPlaying();
     $('#playBtn').innerHTML = icon(playing ? 'pause' : 'play', 16).s;
     $('#playBtn').setAttribute('aria-label', playing ? 'Pause' : 'Play');
     const shuffle = $('#shuffleBtn');
@@ -569,6 +595,130 @@ function updateControls() {
         btn.setAttribute('aria-label', on ? 'Pause' : 'Play');
     });
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
+}
+
+function remoteSnapshot() {
+    const track = currentTrack();
+    return {
+        track_id: track?.id || null,
+        queue: P.queue, order: P.order, pos: P.pos, context: P.context,
+        up_next: P.upNext, queued: P.queued,
+        playing: !P.audio.paused && !!track,
+        time: P.audio.currentTime || 0, duration: P.audio.duration || track?.duration || 0,
+        shuffle: P.shuffle, repeat: P.repeat,
+        volume: P.audio.muted ? 0 : P.userVolume, muted: P.audio.muted,
+    };
+}
+
+function runRemoteCommand(command) {
+    const value = command.value;
+    if (command.action === 'play') { if (P.audio.paused) togglePlay(); }
+    else if (command.action === 'pause') { if (!P.audio.paused) togglePlay(); }
+    else if (command.action === 'toggle') togglePlay();
+    else if (command.action === 'next') next();
+    else if (command.action === 'previous') prev();
+    else if (command.action === 'seek' && Number.isFinite(+value) && P.audio.duration) P.audio.currentTime = Math.max(0, Math.min(P.audio.duration, +value));
+    else if (command.action === 'volume' && Number.isFinite(+value)) {
+        P.audio.muted = false;
+        P.userVolume = clamp01(+value);
+        store.set('volume', P.userVolume);
+        applyVolume();
+    } else if (command.action === 'mute') { P.audio.muted = !P.audio.muted; applyVolume(); }
+    else if (command.action === 'shuffle') toggleShuffle();
+    else if (command.action === 'repeat') cycleRepeat();
+    else if (command.action === 'play_context' && Array.isArray(value?.track_ids)) {
+        playContext(value.track_ids, value.start_index, value.context || null);
+    } else if (command.action === 'queue_add' && Array.isArray(value?.track_ids)) {
+        addToQueue(value.track_ids, { next: !!value.next });
+    } else if (command.action === 'queue_remove' && Number.isInteger(+value)) {
+        P.upNext.splice(+value, 1); queueChanged();
+    } else if (command.action === 'queue_clear') {
+        P.upNext = []; queueChanged();
+    } else if (command.action === 'queue_play' && value && Number.isInteger(+value.index)) {
+        if (value.kind === 'user') P.queued = P.upNext.splice(+value.index, 1)[0];
+        else { P.pos = +value.index; P.queued = null; }
+        loadAndPlay();
+    } else if (command.action === 'queue_move' && value && Number.isInteger(+value.from) && Number.isInteger(+value.to)) {
+        P.upNext.splice(+value.to, 0, ...P.upNext.splice(+value.from, 1)); queueChanged();
+    }
+}
+
+function applyRemoteState(status) {
+    R.online = !!status.online;
+    R.source = status.source || null;
+    if (!status.online || !status.state) {
+        R.state = null;
+        updateControls();
+        setRemoteDeviceStatus('Computer unavailable. Keep spotDLr open on it.', false);
+        return;
+    }
+    const state = status.state;
+    const before = currentTrack()?.id;
+    R.state = state;
+    P.queue = Array.isArray(state.queue) ? state.queue.filter((id) => S.byId.has(id)) : [];
+    P.order = Array.isArray(state.order) ? state.order.filter((i) => Number.isInteger(i) && i >= 0 && i < P.queue.length) : [];
+    P.pos = Number.isInteger(state.pos) ? state.pos : -1;
+    P.context = state.context || null;
+    P.upNext = Array.isArray(state.up_next) ? state.up_next.filter((id) => S.byId.has(id)) : [];
+    P.queued = S.byId.has(state.queued) ? state.queued : null;
+    P.shuffle = !!state.shuffle;
+    P.repeat = ['off', 'all', 'one'].includes(state.repeat) ? state.repeat : 'off';
+    const track = currentTrack();
+    if (track && track.id !== before) updateNowPlaying();
+    else markPlaying();
+    const seek = $('#seekBar'), duration = +state.duration || track?.duration || 0;
+    if (seek && !P.seeking) {
+        seek.value = duration ? Math.round(((+state.time || 0) / duration) * 1000) : 0;
+        setRangeFill(seek);
+        $('#timeCurrent').textContent = fmtTime(state.time);
+        $('#timeTotal').textContent = fmtTime(duration);
+        updateNowProgress();
+    }
+    updateControls();
+    setRemoteDeviceStatus(`Connected to ${R.source?.name || 'the computer'}`, true);
+}
+
+function setRemoteDeviceStatus(message, connected) {
+    const status = $('#remoteDeviceStatus');
+    if (!status) return;
+    const copy = $('span', status);
+    if (copy) copy.textContent = message;
+    status.classList.toggle('connected', !!connected);
+}
+
+async function remoteSyncTick() {
+    clearTimeout(R.timer);
+    try {
+        if (S.init.on_phone) {
+            if (remoteActive()) applyRemoteState(await api('/remote/status'));
+        } else if (!R.publishing) {
+            R.publishing = true;
+            const result = await api('/remote/source', { method: 'POST', body: JSON.stringify({
+                device_id: DEVICE_ID, device_name: DEVICE_NAME, state: remoteSnapshot(),
+            }) });
+            for (const command of result.commands || []) runRemoteCommand(command);
+        }
+    } catch {
+        if (remoteActive()) applyRemoteState({ online: false });
+    } finally {
+        R.publishing = false;
+        R.timer = setTimeout(remoteSyncTick, remoteActive() ? 750 : 1000);
+    }
+}
+
+function setPlaybackDevice(mode) {
+    R.mode = mode === 'remote' ? 'remote' : 'local';
+    store.set('playbackDevice', R.mode);
+    if (R.mode === 'remote') {
+        P.audio.pause();
+        remoteSyncTick();
+    } else {
+        R.state = null;
+        R.online = false;
+        restoreSession();
+        updateNowPlaying();
+        updateControls();
+    }
 }
 
 function markPlaying() {
@@ -1252,6 +1402,7 @@ const QUEUE_SHOWN = 60; // rows of "Next from …": the rest of a 900-song shuff
 function addToQueue(ids, { next = false } = {}) {
     ids = ids.filter((id) => S.byId.has(id));
     if (!ids.length) return;
+    if (remoteCommand('queue_add', { track_ids: ids, next })) return;
     if (!currentTrack()) { // nothing playing: start with these
         playContext(ids, 0, { key: 'queue', label: 'Your queue', href: location.hash || '#/' });
         return;
@@ -1280,6 +1431,7 @@ function toggleQueue(open = !Q.open) {
 
 function playFromQueue(row) {
     const i = +row.dataset.sortIndex;
+    if (remoteCommand('queue_play', { kind: row.dataset.queueKind, index: i })) return;
     if (row.dataset.queueKind === 'user') { P.queued = P.upNext.splice(i, 1)[0]; }
     else { P.pos = i; P.queued = null; }
     loadAndPlay();
@@ -1320,7 +1472,10 @@ function renderQueue() {
     </aside>`.s;
     const panel = $('.queue-panel', root);
     panel.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); toggleQueue(false); } });
-    makeSortable('#queueMine', (a, b) => { P.upNext.splice(b, 0, ...P.upNext.splice(a, 1)); queueChanged(); });
+    makeSortable('#queueMine', (a, b) => {
+        if (remoteCommand('queue_move', { from: a, to: b })) return;
+        P.upNext.splice(b, 0, ...P.upNext.splice(a, 1)); queueChanged();
+    });
     if (hadFocus && !root.contains(document.activeElement)) panel.focus();
     markPlaying();
 }
@@ -1992,7 +2147,7 @@ function cassetteDeck(kind) {
             <div class="cs-lcd" style="${px([468, 765, 985, 125])}">
                 <span class="cs-note">${icon('note', 34)}</span>
                 <b data-cs-name></b><span class="cs-artist" data-cs-artist></span><span class="cs-time" data-cs-time></span>
-                <span class="cs-progress"><i data-cs-progress></i></span>
+                <input type="range" class="bar cs-portable-seek" data-nv-seek min="0" max="1000" step="1" value="0" aria-label="Seek">
                 <span class="cs-leds">${Array.from({ length: 6 }, () => html`<span>${Array.from({ length: 8 }, () => html`<i></i>`)}</span>`)}</span>
             </div>
             <div class="cs-slider" data-cs-control="volume" role="slider" tabindex="0" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-disabled="${String(!VOLUME_WORKS)}" style="${px([1560, 160, 66, 270])}"><img class="cs-thumb" src="${deckFile('portable-thumb.webp')}" alt="" draggable="false"></div>`
@@ -2328,10 +2483,12 @@ function renderNowView() {
 // shuffle · previous · play · next · repeat (plus volume where pages can set it). Drawn with the current state;
 // updateNowControls() keeps them in step, like updateControls() does for the player bar.
 function nowControls() {
-    const playing = !P.audio.paused, d = P.audio.duration || 0;
+    const playing = playbackIsPlaying();
+    const d = remoteActive() ? (+R.state?.duration || 0) : (P.audio.duration || 0);
+    const at = remoteActive() ? (+R.state?.time || 0) : (P.audio.currentTime || 0);
     return html`<div class="nv-controls">
-        <div class="nv-seek"><span data-nv-time>${fmtTime(P.audio.currentTime || 0)}</span>
-            <input type="range" class="bar" data-nv-seek min="0" max="1000" step="1" value="${d ? Math.round((P.audio.currentTime / d) * 1000) : 0}" aria-label="Seek">
+        <div class="nv-seek"><span data-nv-time>${fmtTime(at)}</span>
+            <input type="range" class="bar" data-nv-seek min="0" max="1000" step="1" value="${d ? Math.round((at / d) * 1000) : 0}" aria-label="Seek">
             <span data-nv-dur>${fmtTime(d)}</span></div>
         <div class="nv-buttons">
             <button type="button" class="toggle-btn ${P.shuffle ? 'on' : ''}" data-nv-ctl="shuffle" aria-label="Shuffle" aria-pressed="${String(P.shuffle)}">${icon('shuffle', 20)}</button>
@@ -2348,7 +2505,7 @@ function nowControls() {
 function updateNowControls() {
     const root = NV.open && $('#nowRoot .nv-controls');
     if (!root) return;
-    const playing = !P.audio.paused && !!currentTrack();
+    const playing = playbackIsPlaying();
     const play = $('[data-nv-ctl="play"]', root);
     if (play.dataset.state !== String(playing)) {
         play.dataset.state = String(playing);
@@ -2369,10 +2526,12 @@ function updateNowControls() {
 function updateNowProgress() {
     const root = NV.open && $('#nowRoot .nv-controls');
     if (!root) return;
-    const seek = $('[data-nv-seek]', root), d = P.audio.duration || 0;
+    const seek = $('[data-nv-seek]', root);
+    const d = remoteActive() ? (+R.state?.duration || 0) : (P.audio.duration || 0);
+    const at = remoteActive() ? (+R.state?.time || 0) : (P.audio.currentTime || 0);
     if (!NV.seeking) {
-        seek.value = d ? Math.round((P.audio.currentTime / d) * 1000) : 0;
-        $('[data-nv-time]', root).textContent = fmtTime(P.audio.currentTime || 0);
+        seek.value = d ? Math.round((at / d) * 1000) : 0;
+        $('[data-nv-time]', root).textContent = fmtTime(at);
     }
     setRangeFill(seek);
     $('[data-nv-dur]', root).textContent = fmtTime(d);
@@ -2526,8 +2685,13 @@ function bindNowView() {
         if (e.target.matches('[data-nv-seek]')) {
             NV.seeking = true;
             setRangeFill(e.target);
-            $('#nowRoot [data-nv-time]').textContent = fmtTime((e.target.value / 1000) * (P.audio.duration || 0));
+            const duration = remoteActive() ? (+R.state?.duration || 0) : (P.audio.duration || 0);
+            const current = fmtTime((e.target.value / 1000) * duration);
+            const time = $('#nowRoot [data-nv-time]');
+            if (time) time.textContent = current;
+            else if (CS.el.time) CS.el.time.textContent = `${current} / ${fmtTime(duration)}`;
         } else if (e.target.matches('[data-nv-volume]')) {
+            if (remoteCommand('volume', e.target.value / 100)) { setRangeFill(e.target); return; }
             P.audio.muted = false;
             P.userVolume = e.target.value / 100;
             store.set('volume', P.userVolume);
@@ -2539,7 +2703,11 @@ function bindNowView() {
     });
     root.addEventListener('change', (e) => {
         if (!e.target.matches('[data-nv-seek]')) return;
-        if (P.audio.duration) P.audio.currentTime = (e.target.value / 1000) * P.audio.duration;
+        const duration = remoteActive() ? (+R.state?.duration || 0) : (P.audio.duration || 0);
+        if (duration) {
+            const time = (e.target.value / 1000) * duration;
+            if (!remoteCommand('seek', time)) P.audio.currentTime = time;
+        }
         NV.seeking = false;
     });
     // One song per scroll gesture: a trackpad fires dozens of small wheel events, so add them up and then pause
@@ -2564,7 +2732,7 @@ function bindNowView() {
     root.addEventListener('pointerup', (e) => {
         const down = CS.down, last = CS.lastTap;
         CS.down = null;
-        if (!down || !CS.turn || !e.target.closest('.cs') || e.target.closest('[data-cs], [data-cs-control]')
+        if (!down || !CS.turn || !e.target.closest('.cs') || e.target.closest('[data-cs], [data-cs-control], [data-nv-seek]')
             || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 12) { CS.lastTap = null; return; }
         CS.lastTap = { t: e.timeStamp, x: e.clientX, y: e.clientY };
         if (last && e.timeStamp - last.t < 350 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 40) {
@@ -2685,30 +2853,40 @@ function bindPlayer() {
     seek.addEventListener('input', () => {
         P.seeking = true;
         setRangeFill(seek);
-        $('#timeCurrent').textContent = fmtTime((seek.value / 1000) * (P.audio.duration || 0));
+        $('#timeCurrent').textContent = fmtTime((seek.value / 1000) * (remoteActive() ? (+R.state?.duration || 0) : (P.audio.duration || 0)));
     });
     seek.addEventListener('change', () => {
-        if (P.audio.duration) P.audio.currentTime = (seek.value / 1000) * P.audio.duration;
+        const duration = remoteActive() ? (+R.state?.duration || 0) : (P.audio.duration || 0);
+        if (duration) {
+            const time = (seek.value / 1000) * duration;
+            if (!remoteCommand('seek', time)) P.audio.currentTime = time;
+        }
         P.seeking = false;
     });
 
     const volume = $('#volumeBar');
     const mute = $('#muteBtn');
     const showVolume = () => {
-        volume.value = P.audio.muted ? 0 : Math.round(P.userVolume * 100);
+        const muted = remoteActive() ? !!R.state?.muted : P.audio.muted;
+        const level = remoteActive() ? (+R.state?.volume || 0) : P.userVolume;
+        volume.value = muted ? 0 : Math.round(level * 100);
         setRangeFill(volume);
-        const v = P.audio.muted ? 0 : P.userVolume;
+        const v = muted ? 0 : level;
         mute.innerHTML = icon(v === 0 ? 'mute' : v < 0.5 ? 'volumeLow' : 'volume', 16).s;
-        mute.setAttribute('aria-label', P.audio.muted ? 'Unmute' : 'Mute');
+        mute.setAttribute('aria-label', muted ? 'Unmute' : 'Mute');
     };
     volume.addEventListener('input', () => {
+        if (remoteCommand('volume', volume.value / 100)) { showVolume(); return; }
         P.audio.muted = false;
         P.userVolume = volume.value / 100;
         store.set('volume', P.userVolume);
         applyVolume();
         showVolume();
     });
-    mute.addEventListener('click', () => { P.audio.muted = !P.audio.muted; applyVolume(); showVolume(); });
+    mute.addEventListener('click', () => {
+        if (remoteCommand('mute')) return;
+        P.audio.muted = !P.audio.muted; applyVolume(); showVolume();
+    });
     showVolume();
 
     P.audio.addEventListener('timeupdate', () => {
@@ -2916,6 +3094,14 @@ function openSettings(focus = 'appearance') {
                     </div>
                     <fieldset class="theme-picker" id="themeChoices" aria-describedby="themeNote">${colorChoices()}</fieldset>
                     <p class="field-note" id="themeNote">Changes buttons, highlights and charts. Saved automatically on this device.</p>
+                    <div class="appearance-effects">
+                        <label class="check"><input id="setGlass" type="checkbox" ${Theme.glass ? new Safe('checked') : ''}>Use transparent glass surfaces</label>
+                        <div class="glass-transparency" id="glassTransparencyField" ${Theme.glass ? '' : new Safe('hidden')}>
+                            <div class="glass-transparency-label"><label for="glassTransparency">Transparency</label><output id="glassTransparencyValue" for="glassTransparency">${Theme.transparency}%</output></div>
+                            <input class="bar" id="glassTransparency" type="range" min="10" max="70" step="1" value="${Theme.transparency}" aria-describedby="glassTransparencyNote">
+                            <p class="field-note" id="glassTransparencyNote">Higher values reveal more of the background while keeping text readable.</p>
+                        </div>
+                    </div>
                     <details class="custom-theme">
                         <summary>Custom color</summary>
                         <form id="customColorForm">
@@ -2974,6 +3160,16 @@ function openSettings(focus = 'appearance') {
 
                 <section class="modal-section" role="tabpanel" id="settings-panel-playback" aria-labelledby="settings-tab-playback" ${initialTab === 'playback' ? '' : new Safe('hidden')}>
                     <h3 id="pbTitle">Playback</h3>
+                    ${S.init.on_phone ? html`<fieldset class="remote-device" id="remoteDevice">
+                        <legend>Play on</legend>
+                        <div class="remote-device-options">
+                            <label class="remote-device-card"><input class="sr-only" type="radio" name="playbackDevice" value="local" ${R.mode === 'local' ? new Safe('checked') : ''}>
+                                <span class="remote-device-icon">${icon('phone', 22)}</span><span class="remote-device-copy"><strong>This phone</strong><small>Play through this device</small></span><span class="remote-device-check">${icon('checkPlain', 16)}</span></label>
+                            <label class="remote-device-card"><input class="sr-only" type="radio" name="playbackDevice" value="remote" ${R.mode === 'remote' ? new Safe('checked') : ''}>
+                                <span class="remote-device-icon">${icon('computer', 22)}</span><span class="remote-device-copy"><strong>${R.source?.name || 'This computer'}</strong><small>Use this phone as the remote</small></span><span class="remote-device-check">${icon('checkPlain', 16)}</span></label>
+                        </div>
+                        <small class="remote-device-status ${R.mode === 'local' || R.online ? 'connected' : ''}" id="remoteDeviceStatus" role="status"><i aria-hidden="true"></i><span>${R.mode === 'remote' ? (R.online ? `Connected to ${R.source?.name || 'the computer'}` : 'Looking for the computer player…') : 'Playing on this phone'}</span></small>
+                    </fieldset>` : ''}
                     <div class="field">
                         ${VOLUME_WORKS ? '' : html`<p class="field-note">On iPhone and iPad, Safari doesn't let web pages change the volume, so these two only work on a computer or Android.</p>`}
                         <label class="check"><input type="checkbox" id="setNormalize" ${PB.normalize ? new Safe('checked') : ''} ${VOLUME_WORKS ? '' : new Safe('disabled')}> Even out volume</label>
@@ -3062,8 +3258,24 @@ function openSettings(focus = 'appearance') {
 
     backdrop.addEventListener('change', (event) => {
         if (event.target.name === 'themeColor' && event.target.checked) Theme.set(event.target.value);
+        if (event.target.name === 'playbackDevice' && event.target.checked) {
+            setPlaybackDevice(event.target.value);
+            setRemoteDeviceStatus(event.target.value === 'remote' ? 'Connecting to the computer player…' : 'Playing on this phone', event.target.value === 'local');
+        }
     });
     $('#setThemeMode', backdrop).addEventListener('change', (event) => Theme.setMode(event.target.value));
+    const glassToggle = $('#setGlass', backdrop), glassField = $('#glassTransparencyField', backdrop);
+    const glassRange = $('#glassTransparency', backdrop), glassValue = $('#glassTransparencyValue', backdrop);
+    setRangeFill(glassRange);
+    glassToggle.addEventListener('change', () => {
+        Theme.setGlass(glassToggle.checked);
+        glassField.hidden = !glassToggle.checked;
+    });
+    glassRange.addEventListener('input', () => {
+        Theme.setTransparency(glassRange.value);
+        glassValue.textContent = `${Theme.transparency}%`;
+        setRangeFill(glassRange);
+    });
     updateThemeScheduleStatus();
     $('#themeSchedule', backdrop).addEventListener('change', () => {
         const err = $('#themeScheduleError', backdrop);
@@ -4058,7 +4270,7 @@ function jobRow(job) {
             ${job.note ? html`<div class="job-meta">${job.note}</div>` : ''}
             ${job.error ? html`<div class="job-error">${job.error}</div>` : ''}
         </div>
-        <div class="job-actions">${active ? html`<button class="pill-btn" data-action="cancel-job" data-job-id="${job.id}">Cancel</button>`
+        <div class="job-actions">${active ? html`<button class="pill-btn job-cancel" data-action="cancel-job" data-job-id="${job.id}" aria-label="Cancel download" title="Cancel download">${icon('close', 18)}<span>Cancel</span></button>`
             : (job.status === 'failed' || (job.error && job.status === 'completed'))
                 ? html`<button class="pill-btn" data-action="download" data-download-url="${job.query}" data-type="${job.kind}" data-title="${job.title}" data-image="${job.image || ''}" title="Songs you already have are skipped">Retry</button>`
                 : collection ? html`<button class="play-big job-play" data-action="play-download" data-collection-key="${collection.key}" aria-label="Play ${collection.name}" title="Play ${collection.name}">${icon('play', 20)}</button>` : ''}</div>
@@ -4091,9 +4303,12 @@ function viewDownloads() {
         <h1 class="greeting" style="margin-top:8px">Downloads</h1>
         <form class="paste-row" id="pasteForm">
             <input class="text-input" id="pasteInput" placeholder="Paste a Spotify or YouTube link" autocomplete="off" aria-label="Spotify or YouTube link">
-            <button class="pill-btn primary" type="submit" style="height:48px;padding:0 24px">${icon('downloadPlain', 16)} Download</button>
+            <button class="pill-btn primary paste-submit" type="submit" aria-label="Download" title="Download">${icon('downloadPlain', 16)}<span>Download</span></button>
         </form>
-        <p class="settings-line">Saving as ${label}${quality}${s.lyrics ? ', with lyrics' : ''}. <button type="button" data-action="settings">Change</button>${S.init.on_phone ? '' : html` · <button type="button" data-action="open-music-folder">Open music folder</button>`}</p>
+        <p class="settings-line"><span>Saving as ${label}${quality}${s.lyrics ? ', with lyrics' : ''}.</span><span class="download-quick-actions">
+            <button type="button" data-action="settings" aria-label="Change download settings" title="Change download settings">${icon('settings', 16)}<span>Change</span></button>
+            ${S.init.on_phone ? '' : html`<button type="button" data-action="open-music-folder" aria-label="Open music folder" title="Open music folder">${icon('folder', 16)}<span>Open music folder</span></button>`}
+        </span></p>
         <ul class="jobs" id="jobsList"></ul>
     </div>`;
 }
@@ -4717,8 +4932,13 @@ function bindEvents() {
             else if (action === 'queue-open') toggleQueue(true);
             else if (action === 'queue-close') toggleQueue(false);
             else if (action === 'queue-play') playFromQueue(actionEl.closest('[data-queue-kind]'));
-            else if (action === 'queue-remove') { P.upNext.splice(+actionEl.closest('[data-sort-index]').dataset.sortIndex, 1); queueChanged(); }
-            else if (action === 'queue-clear') { P.upNext = []; queueChanged(); }
+            else if (action === 'queue-remove') {
+                const index = +actionEl.closest('[data-sort-index]').dataset.sortIndex;
+                if (!remoteCommand('queue_remove', index)) { P.upNext.splice(index, 1); queueChanged(); }
+            }
+            else if (action === 'queue-clear') {
+                if (!remoteCommand('queue_clear')) { P.upNext = []; queueChanged(); }
+            }
             else if (action === 'tidy-tab') { TD.tab = actionEl.dataset.tab; rerender(); }
             else if (action === 'tidy-merge') tidyMerge(actionEl.dataset.group);
             else if (action === 'tidy-merge-all') tidyMergeAll();
@@ -6053,5 +6273,6 @@ function bindWindowCheckIn() {
     await render();
     pollJobs();
     pollGenres();
+    remoteSyncTick();
     startScheduler(); // after the library loads: a due schedule needs its songs
 })();

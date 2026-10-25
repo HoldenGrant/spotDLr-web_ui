@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private var webView: WKWebView!
     private var status: NSTextField!
     private var loading: NSStackView!
+    private var titlebarEffect: NSVisualEffectView?
     private var backend: Process?
     private var backendLog: FileHandle?
     private var ready = false
@@ -69,10 +70,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == "theme", let mode = message.body as? String, mode == "light" || mode == "dark" else { return }
+        guard message.name == "theme" else { return }
+        let payload = message.body as? [String: Any]
+        let mode = payload?["mode"] as? String ?? message.body as? String ?? "dark"
+        guard mode == "light" || mode == "dark" else { return }
         let light = mode == "light"
+        let glass = payload?["glass"] as? Bool ?? false
+        let alpha = min(0.9, max(0.3, payload?["alpha"] as? Double ?? 0.65))
+        let accent = color(hex: payload?["accent"] as? String) ?? (light ? .white : .black)
         window.appearance = NSAppearance(named: light ? .aqua : .darkAqua)
         window.backgroundColor = light ? NSColor(calibratedWhite: 0.95, alpha: 1) : NSColor(calibratedWhite: 0.07, alpha: 1)
+        window.titlebarAppearsTransparent = glass
+
+        titlebarEffect?.removeFromSuperview()
+        titlebarEffect = nil
+        guard glass, let titlebar = window.standardWindowButton(.closeButton)?.superview else { return }
+        let effect = NSVisualEffectView()
+        effect.translatesAutoresizingMaskIntoConstraints = false
+        effect.material = .headerView
+        effect.blendingMode = .withinWindow
+        effect.state = .active
+        titlebar.addSubview(effect, positioned: .below, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            effect.leadingAnchor.constraint(equalTo: titlebar.leadingAnchor),
+            effect.trailingAnchor.constraint(equalTo: titlebar.trailingAnchor),
+            effect.topAnchor.constraint(equalTo: titlebar.topAnchor),
+            effect.bottomAnchor.constraint(equalTo: titlebar.bottomAnchor),
+        ])
+        let tint = NSView()
+        tint.translatesAutoresizingMaskIntoConstraints = false
+        tint.wantsLayer = true
+        tint.layer?.backgroundColor = accent.withAlphaComponent(light ? 0.12 + alpha * 0.18 : 0.22 + alpha * 0.32).cgColor
+        effect.addSubview(tint)
+        NSLayoutConstraint.activate([
+            tint.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
+            tint.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
+            tint.topAnchor.constraint(equalTo: effect.topAnchor),
+            tint.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
+        ])
+        titlebarEffect = effect
+    }
+
+    private func color(hex: String?) -> NSColor? {
+        guard let hex, hex.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil,
+              let value = Int(hex.dropFirst(), radix: 16) else { return nil }
+        return NSColor(red: CGFloat((value >> 16) & 255) / 255,
+                       green: CGFloat((value >> 8) & 255) / 255,
+                       blue: CGFloat(value & 255) / 255, alpha: 1)
     }
 
     private func makeMenu() {

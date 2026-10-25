@@ -55,7 +55,7 @@ No Spotify account is required. Search uses **YouTube Music** by default; connec
 | **Find your next favorite** | Search YouTube Music or connect Spotify. Paste supported song, album, playlist, and artist links; spotDLr marks what you already have and can download missing tracks. |
 | **Keep the good copy** | Find duplicates, keep the copy you choose, and carry its likes and playlists forward. Fix album metadata with an undo option. |
 | **See your listening habits** | Explore top songs, artists, genres, listening time, and activity by hour. Compare calendar periods or switch charts to table views. |
-| **Take it to your phone** | Pair with a QR code on Wi-Fi, or use Tailscale for access away from home. Add the interface to your phone's home screen. |
+| **Take it to your phone** | Pair with a QR code on Wi-Fi, or use Tailscale for access away from home. Play on the phone or use it as a remote for the computer player. Add the interface to your phone's home screen. |
 
 ### Your files stay yours
 
@@ -75,7 +75,7 @@ Music and settings live outside the installed app, so replacing the app preserve
 - **Audio formats:** M4A/AAC, MP3, Opus, FLAC, and WAV. **Auto** keeps the source quality; converting to a higher bitrate or a lossless format cannot restore detail absent from the source.
 - **Spotify links:** without API access, the public embed supplies the track list, then songs are matched on YouTube Music. Public-playlist lookup is limited to the first 100 songs. See [optional Spotify setup](SETUP.md#optional-connect-spotify) for API requirements.
 - **Lyrics:** existing `.lrc` files are preserved. Save one song from its **⋯** menu, or run a library pass in **Settings → Downloads**.
-- **Phone playback:** music plays on the phone. On iPhone/iPad, crossfade and volume normalization are disabled; visualizers use a generated pattern so playback can continue with the screen locked.
+- **Phone playback:** choose **Settings → Playback → This phone** to stream music to the phone, or **Control this computer** to use the phone as a remote. Keep spotDLr open on the source computer. On iPhone/iPad, crossfade and volume normalization are disabled for playback on the phone; visualizers use a generated pattern so playback can continue with the screen locked.
 - **Scheduled plays:** keep the designated app or browser running. On iPhone, it needs to remain on screen.
 - **Quitting:** the Windows installer stops its backend after the last client window closes. In the Mac DMG build, closing the window keeps the app running; **⌘Q** stops its backend. The smaller source-dependent Mac launcher leaves the source server running after quitting.
 
