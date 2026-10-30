@@ -24,9 +24,24 @@ async function api(path, options = {}) {
     return data;
 }
 
+let preferenceSyncTimer;
+function syncClientPreferences() {
+    clearTimeout(preferenceSyncTimer);
+    preferenceSyncTimer = setTimeout(() => {
+        const values = {};
+        for (let index = 0; index < localStorage.length; index += 1) {
+            const fullKey = localStorage.key(index);
+            if (!fullKey?.startsWith('spotdlr.') || fullKey === 'spotdlr.preferencesRestored') continue;
+            try { values[fullKey.slice(8)] = JSON.parse(localStorage.getItem(fullKey)); } catch { /* skip corrupt values */ }
+        }
+        fetch('/api/preferences/client', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) })
+            .catch(() => {});
+    }, 150);
+}
+
 const store = {
     get(key, fallback) { try { const v = localStorage.getItem('spotdlr.' + key); return v === null ? fallback : JSON.parse(v); } catch { return fallback; } },
-    set(key, value) { try { localStorage.setItem('spotdlr.' + key, JSON.stringify(value)); } catch { /* private mode */ } },
+    set(key, value) { try { localStorage.setItem('spotdlr.' + key, JSON.stringify(value)); syncClientPreferences(); } catch { /* private mode */ } },
 };
 
 // ---------- icons (24×24) ----------
@@ -288,7 +303,7 @@ const P = {
 P.audio.preload = 'auto';
 
 const R = {
-    mode: store.get('playbackDevice', 'local'), // local | remote (phones only)
+    mode: ['local', 'listen', 'remote'].includes(store.get('playbackDevice', 'local')) ? store.get('playbackDevice', 'local') : 'local',
     online: false,
     source: null,
     state: null,
@@ -301,6 +316,7 @@ const playbackIsPlaying = () => remoteActive() ? !!R.state?.playing : (!P.audio.
 function remoteCommand(action, value = null) {
     if (!remoteActive()) return false;
     api('/remote/command', { method: 'POST', body: JSON.stringify({ action, value }) })
+        .then(() => { clearTimeout(R.timer); R.timer = setTimeout(remoteSyncTick, 100); })
         .catch((error) => toast(error.message, 'error'));
     return true;
 }
@@ -451,7 +467,8 @@ function flushListen(useBeacon = false) {
 function saveSession() {
     const t = currentTrack();
     if (!t) return;
-    store.set('session', {
+    const key = S.init.on_phone && R.mode === 'listen' ? 'transferSession' : 'session';
+    store.set(key, {
         queue: P.queue, order: P.order, pos: P.pos, context: P.context,
         trackId: contextTrackId(), queued: P.queued, upNext: P.upNext, time: Math.floor(P.audio.currentTime || 0),
     });
@@ -459,13 +476,13 @@ function saveSession() {
 
 const RESUMABLE_PAGE = /^#\/(songs$|liked$|collection\/|artist\/|genre\/)/; // library pages only: a search page would re-run a YouTube search
 
-function restoreSession() {
-    const saved = store.get('session', null);
-    if (!saved || !Array.isArray(saved.queue)) return null;
+function restoreSession(key = 'session') {
+    const saved = store.get(key, null);
+    if (!saved || !Array.isArray(saved.queue)) return false;
     // Songs deleted since are dropped; rebuild the order around what's left
     const queue = saved.queue.filter((id) => S.byId.has(id));
     const start = queue.indexOf(saved.trackId);
-    if (start < 0) return null;
+    if (start < 0) return false;
     const oldToNew = new Map(saved.queue.map((id, i) => [i, queue.indexOf(id)]));
     const order = (saved.order || []).map((i) => oldToNew.get(i)).filter((i) => i !== undefined && i >= 0);
     P.queue = queue;
@@ -491,12 +508,14 @@ function loadAndPlay() {
     setTrackGain(t.id);
     startListen(t.id);
     P.audio.src = `/api/stream/${encodeURIComponent(t.id)}`;
-    P.audio.play().catch((err) => {
+    const started = P.audio.play().then(() => true).catch((err) => {
         if (err.name === 'NotAllowedError') showTapToPlay(P.context?.label || t.title); // no click on this page yet
         else if (err.name !== 'AbortError') toast(`Couldn't play "${t.title}"`, 'error');
+        return false;
     });
     updateNowPlaying();
     saveSession();
+    return started;
 }
 
 function togglePlay() {
@@ -513,12 +532,12 @@ function next(auto = false) {
     if (!currentTrack()) return;
     if (auto && P.repeat === 'one') { startListen(currentTrack().id); P.audio.currentTime = 0; P.audio.play(); return; }
     // Songs you queued come first; P.pos stays put, so the context carries on where it was afterwards
-    if (P.upNext.length) { P.queued = P.upNext.shift(); loadAndPlay(); return; }
+    if (P.upNext.length) { P.queued = P.upNext.shift(); return loadAndPlay(); }
     if (P.pos < P.order.length - 1) P.pos++;
     else if (P.repeat !== 'off') { if (P.shuffle) buildOrder(-1); else P.pos = 0; }
     else { if (auto) { P.audio.pause(); P.audio.currentTime = 0; } return; }
     P.queued = null;
-    loadAndPlay();
+    return loadAndPlay();
 }
 
 function prev() {
@@ -587,6 +606,8 @@ function updateControls() {
     repeat.setAttribute('aria-pressed', P.repeat !== 'off');
     repeat.setAttribute('aria-label', { off: 'Repeat', all: 'Repeat all', one: 'Repeat one' }[P.repeat]);
     document.body.classList.toggle('is-playing', playing);
+    document.body.classList.toggle('remote-playback', remoteActive());
+    refreshVolumeControls();
     updateNowControls();
     // Big play buttons in the view reflect whether their context is the one playing
     $$('[data-play-context]').forEach((btn) => {
@@ -607,7 +628,62 @@ function remoteSnapshot() {
         time: P.audio.currentTime || 0, duration: P.audio.duration || track?.duration || 0,
         shuffle: P.shuffle, repeat: P.repeat,
         volume: P.audio.muted ? 0 : P.userVolume, muted: P.audio.muted,
+        captured_at: Date.now(),
     };
+}
+
+function prepareListenHere(state) {
+    if (!S.init.on_phone || !state?.track_id || !S.byId.has(state.track_id)) return;
+    const source = `/api/stream/${encodeURIComponent(state.track_id)}`;
+    if (P.audio.getAttribute('src') === source) return;
+    P.audio.pause();
+    P.audio.src = source;
+    P.audio.load();
+}
+
+function adoptPlaybackState(state) {
+    if (!state || !S.byId.has(state.track_id)) return false;
+    P.audio.pause();
+    P.queue = Array.isArray(state.queue) ? state.queue.filter((id) => S.byId.has(id)) : [];
+    P.order = Array.isArray(state.order) ? state.order.filter((i) => Number.isInteger(i) && i >= 0 && i < P.queue.length) : [];
+    P.pos = Number.isInteger(state.pos) ? state.pos : -1;
+    P.context = state.context || null;
+    P.upNext = Array.isArray(state.up_next) ? state.up_next.filter((id) => S.byId.has(id)) : [];
+    P.queued = S.byId.has(state.queued) ? state.queued : null;
+    P.shuffle = !!state.shuffle;
+    P.repeat = ['off', 'all', 'one'].includes(state.repeat) ? state.repeat : 'off';
+    store.set('shuffle', P.shuffle);
+    store.set('repeat', P.repeat);
+
+    if (currentTrack()?.id !== state.track_id) {
+        const queueIndex = P.queue.indexOf(state.track_id);
+        const orderPosition = P.order.indexOf(queueIndex);
+        if (orderPosition >= 0) { P.pos = orderPosition; P.queued = null; }
+        else P.queued = state.track_id;
+    }
+
+    const track = currentTrack();
+    if (!track) return false;
+    const elapsed = state.playing && Number.isFinite(+state.captured_at)
+        ? Math.max(0, (Date.now() - +state.captured_at) / 1000) : 0;
+    const end = +state.duration || track.duration || Infinity;
+    const resumeAt = Math.max(0, Math.min(end, (+state.time || 0) + elapsed));
+    startListen(track.id);
+    setTrackGain(track.id);
+    const source = `/api/stream/${encodeURIComponent(track.id)}`;
+    if (P.audio.getAttribute('src') !== source) P.audio.src = source;
+    try { P.audio.currentTime = resumeAt; } catch { /* applied again when metadata is ready */ }
+    P.audio.addEventListener('loadedmetadata', () => {
+        if (currentTrack()?.id === track.id && resumeAt < P.audio.duration) P.audio.currentTime = resumeAt;
+    }, { once: true });
+    if (state.playing) P.audio.play().catch((error) => {
+        if (error.name === 'NotAllowedError') showTapToPlay(P.context?.label || track.title);
+        else if (error.name !== 'AbortError') toast(`Couldn't continue playing "${track.title}"`, 'error');
+    });
+    updateNowPlaying();
+    updateControls();
+    saveSession();
+    return true;
 }
 
 function runRemoteCommand(command) {
@@ -624,6 +700,7 @@ function runRemoteCommand(command) {
         store.set('volume', P.userVolume);
         applyVolume();
     } else if (command.action === 'mute') { P.audio.muted = !P.audio.muted; applyVolume(); }
+    else if (command.action === 'transfer') adoptPlaybackState(value);
     else if (command.action === 'shuffle') toggleShuffle();
     else if (command.action === 'repeat') cycleRepeat();
     else if (command.action === 'play_context' && Array.isArray(value?.track_ids)) {
@@ -664,6 +741,7 @@ function applyRemoteState(status) {
     P.shuffle = !!state.shuffle;
     P.repeat = ['off', 'all', 'one'].includes(state.repeat) ? state.repeat : 'off';
     const track = currentTrack();
+    prepareListenHere(state);
     if (track && track.id !== before) updateNowPlaying();
     else markPlaying();
     const seek = $('#seekBar'), duration = +state.duration || track?.duration || 0;
@@ -693,7 +771,7 @@ async function remoteSyncTick() {
             if (remoteActive()) applyRemoteState(await api('/remote/status'));
         } else if (!R.publishing) {
             R.publishing = true;
-            const result = await api('/remote/source', { method: 'POST', body: JSON.stringify({
+            const result = await api('/remote/source?wait=1', { method: 'POST', body: JSON.stringify({
                 device_id: DEVICE_ID, device_name: DEVICE_NAME, state: remoteSnapshot(),
             }) });
             for (const command of result.commands || []) runRemoteCommand(command);
@@ -702,20 +780,48 @@ async function remoteSyncTick() {
         if (remoteActive()) applyRemoteState({ online: false });
     } finally {
         R.publishing = false;
-        R.timer = setTimeout(remoteSyncTick, remoteActive() ? 750 : 1000);
+        const delay = S.init.on_phone
+            ? !remoteActive() ? 10_000 : document.hidden ? 5_000 : R.state?.playing ? 1_000 : 2_000
+            : 50;
+        R.timer = setTimeout(remoteSyncTick, delay);
     }
 }
 
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && S.init.on_phone) { clearTimeout(R.timer); R.timer = setTimeout(remoteSyncTick, 50); }
+});
+
 function setPlaybackDevice(mode) {
-    R.mode = mode === 'remote' ? 'remote' : 'local';
+    const nextMode = ['local', 'listen', 'remote'].includes(mode) ? mode : 'local';
+    if (nextMode === R.mode) return;
+    const previousMode = R.mode;
+    const localState = remoteSnapshot();
+    const remoteState = R.state;
+    P.audio.pause();
+    R.mode = nextMode;
     store.set('playbackDevice', R.mode);
-    if (R.mode === 'remote') {
-        P.audio.pause();
+
+    if (nextMode === 'remote') {
+        if (previousMode === 'listen' && localState.track_id) remoteCommand('transfer', localState);
         remoteSyncTick();
+    } else if (nextMode === 'listen') {
+        const listenHere = (state) => {
+            if (!state?.track_id) { toast('Nothing is playing on the computer', 'error'); return; }
+            api('/remote/command', { method: 'POST', body: JSON.stringify({ action: 'pause', value: null }) }).catch(() => {});
+            adoptPlaybackState(state);
+        };
+        if (remoteState?.track_id) listenHere(remoteState);
+        else api('/remote/status').then((status) => {
+            R.online = !!status.online; R.source = status.source || null; R.state = status.state || null;
+            listenHere(status.state);
+        }).catch((error) => toast(error.message, 'error'));
     } else {
         R.state = null;
         R.online = false;
-        restoreSession();
+        if (restoreSession('session') === false) {
+            P.queue = []; P.order = []; P.pos = -1; P.context = null; P.upNext = []; P.queued = null;
+            P.audio.removeAttribute('src'); P.audio.load();
+        }
         updateNowPlaying();
         updateControls();
     }
@@ -757,17 +863,24 @@ function startFade(secs) {
         flushListen(); // the outgoing song's listening counts now
         P.fadeIn = 0;
         XF.switching = true;
-        next(true);
+        const loadStarted = performance.now();
+        const incoming = next(true);
         XF.switching = false;
-        const t0 = performance.now();
-        clearInterval(XF.timer);
-        XF.timer = setInterval(() => {
-            const x = Math.min(1, (performance.now() - t0) / (secs * 1000));
-            XF.out = Math.cos((x * Math.PI) / 2); // equal power: the sum sounds steady, not dipping in the middle
-            P.fadeIn = Math.sin((x * Math.PI) / 2);
-            applyVolume();
-            if (x >= 1) endFade();
-        }, 50);
+        Promise.resolve(incoming).then((started) => {
+            if (!XF.active) return;
+            if (started === false) { endFade(); return; }
+            const elapsed = (performance.now() - loadStarted) / 1000;
+            const fadeSecs = Math.max(0.25, secs - elapsed);
+            const t0 = performance.now();
+            clearInterval(XF.timer);
+            XF.timer = setInterval(() => {
+                const x = Math.min(1, (performance.now() - t0) / (fadeSecs * 1000));
+                XF.out = Math.cos((x * Math.PI) / 2); // equal power: the sum sounds steady, not dipping in the middle
+                P.fadeIn = Math.sin((x * Math.PI) / 2);
+                applyVolume();
+                if (x >= 1) endFade();
+            }, 50);
+        });
     }).catch(() => endFade());
 }
 
@@ -1664,7 +1777,7 @@ const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const V = {
     mode: store.get('vizMode', reducedMotion.matches ? 'off' : 'bars'),
     ctx: null, analyser: null, freq: null, wave: null,
-    canvas: null, raf: 0, color: [83, 83, 83], bands: {}, last: 0,
+    canvas: null, raf: 0, color: [83, 83, 83], bands: {}, last: 0, drawLast: 0,
     smooth: { bass: 0, treble: 0, level: 0 },
     particles: null, stars: null, rotation: 0, arm: null, ridge: null, cover: null, // per-mode state
 };
@@ -1980,15 +2093,23 @@ const PULSE_MODES = new Set(['bars', 'wave', 'ring', 'particles', 'retro']); // 
 function vizFrame(now) {
     V.raf = 0;
     if (!NV.open || V.mode === 'off' || !V.analyser || document.hidden) return;
+    const frameMs = 1000 / (V.mode === 'cassette' ? 24 : 30);
+    if (V.drawLast && now - V.drawLast < frameMs) { V.raf = requestAnimationFrame(vizFrame); return; }
+    V.drawLast = now;
     const canvas = V.canvas, section = canvas.parentElement;
-    const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth, h = canvas.clientHeight;
-    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+    const drawsCanvas = V.mode !== 'cassette';
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    if (drawsCanvas && (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr))) {
         canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    } else if (!drawsCanvas && (canvas.width !== 1 || canvas.height !== 1)) {
+        canvas.width = canvas.height = 1; // the cassette is DOM-based; release the full-window canvas backing store
     }
-    const g = canvas.getContext('2d');
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.clearRect(0, 0, w, h);
+    const g = drawsCanvas ? canvas.getContext('2d') : null;
+    if (g) {
+        g.setTransform(dpr, 0, 0, dpr, 0, 0);
+        g.clearRect(0, 0, w, h);
+    }
 
     V.analyser.getByteFrequencyData(V.freq);
     const dt = Math.min(0.1, (now - (V.last || now)) / 1000); // seconds since last frame, so speed doesn't depend on refresh rate
@@ -1998,7 +2119,7 @@ function vizFrame(now) {
     V.smooth.treble = lerp(V.smooth.treble, binAverage(140, 460), 0.25);
     V.smooth.level = lerp(V.smooth.level, binAverage(0, 511), 0.2);
 
-    const cardEl = $('.nv-card.current', section);
+    const cardEl = drawsCanvas ? $('.nv-card.current', section) : null;
     let card = null;
     if (cardEl) {
         const a = cardEl.getBoundingClientRect(), b = section.getBoundingClientRect();
@@ -2014,7 +2135,7 @@ function vizFrame(now) {
 function startViz() {
     if (V.raf || !NV.open || V.mode === 'off' || !ensureAudioGraph()) return;
     if (V.ctx.state === 'suspended') V.ctx.resume();
-    V.last = 0;
+    V.last = V.drawLast = 0;
     V.raf = requestAnimationFrame(vizFrame);
 }
 
@@ -2268,8 +2389,12 @@ function cassetteFrame(f) {
         if (el.nvTime && !NV.seeking) el.nvTime.textContent = fmtTime(pos);
         if (el.nvDur) el.nvDur.textContent = fmtTime(dur);
     }
-    if (el.progress) setProgress(el.progress, progress);
-    if (el.seek && !NV.seeking) { el.seek.value = Math.round(progress * 1000); setRangeFill(el.seek); }
+    const tenth = Math.floor(pos * 10);
+    if (CS.ui.tenth !== tenth || CS.ui.dur !== dur) {
+        CS.ui.tenth = tenth;
+        if (el.progress) setProgress(el.progress, progress);
+        if (el.seek && !NV.seeking) { el.seek.value = Math.round(progress * 1000); setRangeFill(el.seek); }
+    }
 
     if (el.needles.length) {
         // A VU needle has weight: it reaches a reading in 300 ms and swings about 1% past it, which is a damped
@@ -2839,6 +2964,8 @@ function setRangeFill(input) {
     input.style.setProperty('--fill', `${pct}%`);
 }
 
+let refreshVolumeControls = () => {};
+
 function bindPlayer() {
     $('#shuffleBtn').innerHTML = icon('shuffle', 16).s;
     $('#prevBtn').innerHTML = icon('prev', 16).s;
@@ -2866,27 +2993,49 @@ function bindPlayer() {
 
     const volume = $('#volumeBar');
     const mute = $('#muteBtn');
+    const mobileVolume = $('#mobileRemoteVolume');
+    const mobileMute = $('#mobileRemoteMute');
     const showVolume = () => {
         const muted = remoteActive() ? !!R.state?.muted : P.audio.muted;
         const level = remoteActive() ? (+R.state?.volume || 0) : P.userVolume;
         volume.value = muted ? 0 : Math.round(level * 100);
         setRangeFill(volume);
         const v = muted ? 0 : level;
-        mute.innerHTML = icon(v === 0 ? 'mute' : v < 0.5 ? 'volumeLow' : 'volume', 16).s;
+        const volumeIcon = v === 0 ? 'mute' : v < 0.5 ? 'volumeLow' : 'volume';
+        mute.innerHTML = icon(volumeIcon, 16).s;
         mute.setAttribute('aria-label', muted ? 'Unmute' : 'Mute');
+        mobileVolume.value = muted ? 0 : Math.round(level * 100);
+        setRangeFill(mobileVolume);
+        mobileMute.innerHTML = icon(volumeIcon, 18).s;
+        mobileMute.setAttribute('aria-label', muted ? 'Unmute computer' : 'Mute computer');
     };
-    volume.addEventListener('input', () => {
-        if (remoteCommand('volume', volume.value / 100)) { showVolume(); return; }
+    refreshVolumeControls = showVolume;
+    const setVolume = (control) => {
+        if (remoteActive()) {
+            R.state = { ...R.state, volume: control.value / 100, muted: false };
+            remoteCommand('volume', control.value / 100);
+            showVolume();
+            return;
+        }
         P.audio.muted = false;
-        P.userVolume = volume.value / 100;
+        P.userVolume = control.value / 100;
         store.set('volume', P.userVolume);
         applyVolume();
         showVolume();
-    });
-    mute.addEventListener('click', () => {
-        if (remoteCommand('mute')) return;
+    };
+    volume.addEventListener('input', () => setVolume(volume));
+    mobileVolume.addEventListener('input', () => setVolume(mobileVolume));
+    const toggleMute = () => {
+        if (remoteActive()) {
+            R.state = { ...R.state, muted: !R.state?.muted };
+            remoteCommand('mute');
+            showVolume();
+            return;
+        }
         P.audio.muted = !P.audio.muted; applyVolume(); showVolume();
-    });
+    };
+    mute.addEventListener('click', toggleMute);
+    mobileMute.addEventListener('click', toggleMute);
     showVolume();
 
     P.audio.addEventListener('timeupdate', () => {
@@ -2945,6 +3094,7 @@ function bindPlayer() {
 
 const ACTIVE = new Set(['queued', 'downloading']);
 let pollTimer = null;
+const celebratedJobs = new Set();
 
 const jobFor = (url) => S.jobs.find((j) => j.query === url && ACTIVE.has(j.status));
 
@@ -2978,7 +3128,10 @@ async function pollJobs() {
         const was = before.get(job.id);
         if (was && ACTIVE.has(was) && !ACTIVE.has(job.status)) {
             finished = true;
-            if (job.status === 'completed') toast(`Downloaded: ${job.title} (${job.message})`);
+            if (job.status === 'completed') {
+                celebratedJobs.add(job.id);
+                toast(`Downloaded: ${job.title} (${job.message}). Added to your library.`);
+            }
             else if (job.status === 'failed') toast(`Download failed: ${job.title}`, 'error');
         }
     }
@@ -2987,6 +3140,7 @@ async function pollJobs() {
     badge.hidden = !active;
     badge.textContent = active;
     $('#downloadsBtn').classList.toggle('busy', !!active);
+    $('#mobileMoreBtn')?.classList.toggle('has-activity', !!active);
     if (finished) { await loadLibrary(); rerender(); }
     else if (route().name === 'downloads') renderJobsList();
     else updateDownloadButtons();
@@ -3034,9 +3188,10 @@ function buildLine(build, ver) {
     return html`<p class="about-build" title="${build}">${parts.join(', ')}</p>`;
 }
 
-// On a phone through Tailscale (HTTPS), a service worker lets "Add to Home Screen" install spotDLr as an
-// app and shows a clear page when the computer can't be reached. Not on this computer: nothing to gain.
-if ('serviceWorker' in navigator && location.hostname.endsWith('.ts.net')) navigator.serviceWorker.register('/sw.js').catch(() => {});
+// Service workers require HTTPS. Tailscale/Funnel phone links qualify; plain home-Wi-Fi HTTP does not.
+function registerPhoneCache() {
+    if (S.init.on_phone && 'serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
 
 let qrLoading = null;
 const loadQr = () => qrLoading || (qrLoading = new Promise((resolve, reject) => {
@@ -3060,7 +3215,9 @@ function openSettings(focus = 'appearance') {
         <input class="sr-only" type="radio" name="themeColor" value="${theme.id}" ${theme.id === Theme.current ? new Safe('checked') : ''}>
         <span class="theme-dot" style="--swatch:${theme.color};--swatch-ink:${theme.ink || '#000000'}" aria-hidden="true">${icon('checkPlain', 16)}</span>
         <span>${theme.name}</span></label>`)}`;
-    const currentColor = Theme.colors.find((c) => c.id === Theme.current).color;
+    const currentTheme = Theme.colors.find((c) => c.id === Theme.current);
+    const currentColor = currentTheme.color;
+    const currentInk = currentTheme.ink || '#000000';
     const lossless = (f) => f === 'flac' || f === 'wav';
     const tabs = [['appearance', 'Appearance'], ['playback', 'Playback'], ['downloads', 'Downloads'],
         ['spotify', 'Spotify'], ...(!S.init.on_phone ? [['phone', 'Phone access']] : []), ['about', 'About']];
@@ -3095,11 +3252,21 @@ function openSettings(focus = 'appearance') {
                     <fieldset class="theme-picker" id="themeChoices" aria-describedby="themeNote">${colorChoices()}</fieldset>
                     <p class="field-note" id="themeNote">Changes buttons, highlights and charts. Saved automatically on this device.</p>
                     <div class="appearance-effects">
-                        <label class="check"><input id="setGlass" type="checkbox" ${Theme.glass ? new Safe('checked') : ''}>Use transparent glass surfaces</label>
+                        <fieldset class="surface-style-picker">
+                            <legend>Surface style</legend>
+                            ${[['solid', 'Solid', 'Clean, flat surfaces'], ['glass', 'Glass', 'Transparent, blurred surfaces'],
+                                ['liquid', 'Liquid Glass', 'Refractive highlights and fluid translucent surfaces'],
+                                ['neumorphism', 'Neumorphism', 'Soft raised and inset surfaces'],
+                                ['skeuomorphism', 'Skeuomorphism', 'Tactile, hardware-inspired controls'],
+                                ['claymorphism', 'Claymorphism', 'Soft, rounded and dimensional surfaces'],
+                                ['minimalism', 'Minimalism', 'Quiet, precise and distraction-free'],
+                                ['neobrutalism', 'Neo-brutalism', 'Bold outlines, hard shadows and contrast']].map(([value, label, note]) => html`
+                                <label class="surface-style-choice"><input class="sr-only" type="radio" name="surfaceStyle" value="${value}" ${Theme.surface === value ? new Safe('checked') : ''}>
+                                    <span><strong>${label}</strong><small>${note}</small></span>${icon('checkPlain', 16)}</label>`)}</fieldset>
                         <div class="glass-transparency" id="glassTransparencyField" ${Theme.glass ? '' : new Safe('hidden')}>
                             <div class="glass-transparency-label"><label for="glassTransparency">Transparency</label><output id="glassTransparencyValue" for="glassTransparency">${Theme.transparency}%</output></div>
-                            <input class="bar" id="glassTransparency" type="range" min="10" max="70" step="1" value="${Theme.transparency}" aria-describedby="glassTransparencyNote">
-                            <p class="field-note" id="glassTransparencyNote">Higher values reveal more of the background while keeping text readable.</p>
+                            <input class="bar" id="glassTransparency" type="range" min="10" max="100" step="1" value="${Theme.transparency}" aria-describedby="glassTransparencyNote">
+                            <p class="field-note" id="glassTransparencyNote">At 100%, the background is fully visible with a subtle contrast tint behind text.</p>
                         </div>
                     </div>
                     <details class="custom-theme">
@@ -3110,9 +3277,13 @@ function openSettings(focus = 'appearance') {
                                     <input type="color" id="customColorPicker" value="${currentColor}" aria-label="Pick a custom color">
                                     <input class="field-input plain" id="customColorHex" aria-label="Hex color" value="${currentColor}" pattern="#[a-fA-F0-9]{6}" maxlength="7" spellcheck="false" autocapitalize="off" required>
                                 </div></div>
+                                <div class="field"><label for="customInkHex">Text and icon color</label><div class="custom-color-entry">
+                                    <input type="color" id="customInkPicker" value="${currentInk}" aria-label="Pick text and icon color">
+                                    <input class="field-input plain" id="customInkHex" aria-label="Text and icon hex color" value="${currentInk}" pattern="#[a-fA-F0-9]{6}" maxlength="7" spellcheck="false" autocapitalize="off" required>
+                                </div></div>
                                 <label class="field"><span>Color name</span><input class="field-input plain" id="customColorName" placeholder="e.g. Sunset" maxlength="32" required></label>
                             </div>
-                            <p class="field-note">Save a named color to add it to the choices above. Light and dark variants keep controls readable.</p>
+                            <p class="field-note">The first color fills selected controls. Pair it with dark or light text and icons for clear contrast.</p>
                             <p class="form-error" id="customColorError" role="alert" hidden></p>
                             <div class="custom-color-save"><span class="field-note" id="customColorStatus" role="status"></span><button class="pill-btn primary" type="submit">Save new color</button></div>
                         </form>
@@ -3162,13 +3333,15 @@ function openSettings(focus = 'appearance') {
                     <h3 id="pbTitle">Playback</h3>
                     ${S.init.on_phone ? html`<fieldset class="remote-device" id="remoteDevice">
                         <legend>Play on</legend>
-                        <div class="remote-device-options">
+                        <div class="remote-device-options three">
                             <label class="remote-device-card"><input class="sr-only" type="radio" name="playbackDevice" value="local" ${R.mode === 'local' ? new Safe('checked') : ''}>
-                                <span class="remote-device-icon">${icon('phone', 22)}</span><span class="remote-device-copy"><strong>This phone</strong><small>Play through this device</small></span><span class="remote-device-check">${icon('checkPlain', 16)}</span></label>
+                                <span class="remote-device-icon">${icon('phone', 22)}</span><span class="remote-device-copy"><strong>This phone</strong><small>${R.mode === 'local' ? 'Playing separately here' : 'Open this phone’s session'}</small></span><span class="remote-device-check">${icon('checkPlain', 16)}</span></label>
+                            <label class="remote-device-card"><input class="sr-only" type="radio" name="playbackDevice" value="listen" ${R.mode === 'listen' ? new Safe('checked') : ''}>
+                                <span class="remote-device-icon">${icon('speaker', 22)}</span><span class="remote-device-copy"><strong>Listen Here</strong><small>${R.mode === 'listen' ? 'Transferred to this phone' : 'Move current listening here'}</small></span><span class="remote-device-check">${icon('checkPlain', 16)}</span></label>
                             <label class="remote-device-card"><input class="sr-only" type="radio" name="playbackDevice" value="remote" ${R.mode === 'remote' ? new Safe('checked') : ''}>
-                                <span class="remote-device-icon">${icon('computer', 22)}</span><span class="remote-device-copy"><strong>${R.source?.name || 'This computer'}</strong><small>Use this phone as the remote</small></span><span class="remote-device-check">${icon('checkPlain', 16)}</span></label>
+                                <span class="remote-device-icon">${icon('computer', 22)}</span><span class="remote-device-copy"><strong>Remote · ${R.source?.name || 'Computer'}</strong><small>${R.mode === 'remote' ? 'Controlling this device' : 'Keep audio on this device'}</small></span><span class="remote-device-check">${icon('checkPlain', 16)}</span></label>
                         </div>
-                        <small class="remote-device-status ${R.mode === 'local' || R.online ? 'connected' : ''}" id="remoteDeviceStatus" role="status"><i aria-hidden="true"></i><span>${R.mode === 'remote' ? (R.online ? `Connected to ${R.source?.name || 'the computer'}` : 'Looking for the computer player…') : 'Playing on this phone'}</span></small>
+                        <small class="remote-device-status ${R.mode !== 'remote' || R.online ? 'connected' : ''}" id="remoteDeviceStatus" role="status"><i aria-hidden="true"></i><span>${R.mode === 'remote' ? (R.online ? `Connected to ${R.source?.name || 'the computer'}` : 'Looking for the computer player…') : R.mode === 'listen' ? 'Listening transferred to this phone' : 'This phone has its own session'}</span></small>
                     </fieldset>` : ''}
                     <div class="field">
                         ${VOLUME_WORKS ? '' : html`<p class="field-note">On iPhone and iPad, Safari doesn't let web pages change the volume, so these two only work on a computer or Android.</p>`}
@@ -3219,6 +3392,10 @@ function openSettings(focus = 'appearance') {
                 <section class="modal-section about" role="tabpanel" id="settings-panel-about" aria-labelledby="settings-tab-about" ${initialTab === 'about' ? '' : new Safe('hidden')} tabindex="0">
                     <div class="about-name">${icon('spotDLr', 20)}<strong>spotDLr</strong><span class="about-version">${S.init.version ? `Version ${S.init.version}` : ''}</span></div>
                     ${buildLine(S.init.build, S.init.version)}
+                    <div class="field about-update">
+                        <button type="button" class="pill-btn" id="checkForUpdates">Check for updates</button>
+                        <small id="updateStatus" role="status"></small>
+                    </div>
                     <a class="link about-link" href="https://github.com/HoldenGrant/spotDLr-web_ui/blob/main/CHANGELOG.md" target="_blank" rel="noopener">What's new</a>
                     <a class="link about-link" href="#/tidy" data-close>Tidy up your library</a>
                     <a class="link about-link" href="#/schedules" data-close>Scheduled plays</a>
@@ -3234,6 +3411,48 @@ function openSettings(focus = 'appearance') {
     backdrop.addEventListener('click', (e) => { if (e.target.closest('[data-close]') && (e.target === backdrop || e.target.closest('button[data-close], a[data-close]'))) close(); });
     backdrop.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
 
+    const prepareRemoteTransfer = () => {
+        if (!S.init.on_phone) return;
+        api('/remote/status').then((status) => {
+            R.online = !!status.online;
+            R.source = status.source || null;
+            R.state = status.state || null;
+            prepareListenHere(R.state);
+        }).catch(() => {});
+    };
+    if (initialTab === 'playback') prepareRemoteTransfer();
+
+    $('#checkForUpdates', backdrop)?.addEventListener('click', async (event) => {
+        const button = event.currentTarget;
+        const status = $('#updateStatus', backdrop);
+        button.disabled = true;
+        status.textContent = 'Checking…';
+        try {
+            const response = await fetch('https://api.github.com/repos/HoldenGrant/spotDLr-web_ui/releases/latest', {
+                headers: { Accept: 'application/vnd.github+json' }, cache: 'no-store',
+            });
+            if (!response.ok) throw new Error(`GitHub returned ${response.status}`);
+            const release = await response.json();
+            const numbers = (value) => String(value || '').replace(/^v/i, '').split('.').map((part) => parseInt(part, 10) || 0);
+            const compare = (left, right) => {
+                const a = numbers(left), b = numbers(right);
+                for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+                    if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) - (b[i] || 0);
+                }
+                return 0;
+            };
+            if (compare(release.tag_name, S.init.version) > 0) {
+                status.innerHTML = html`<a class="link" href="${release.html_url}" target="_blank" rel="noopener">Version ${String(release.tag_name).replace(/^v/i, '')} is available. Download update</a>`.s;
+            } else {
+                status.textContent = `You have the latest release (${S.init.version}).`;
+            }
+        } catch (_) {
+            status.textContent = 'Could not check right now. Try again when connected to the internet.';
+        } finally {
+            button.disabled = false;
+        }
+    });
+
     const tabButtons = $$('[data-settings-tab]', backdrop);
     const selectTab = (key, focusTab = false) => {
         for (const button of tabButtons) {
@@ -3244,6 +3463,7 @@ function openSettings(focus = 'appearance') {
         }
         $$('[role="tabpanel"]', backdrop).forEach((panel) => { panel.hidden = panel.id !== `settings-panel-${key}`; });
         $('.settings-panels', backdrop).scrollTop = 0;
+        if (key === 'playback') prepareRemoteTransfer();
     };
     tabButtons.forEach((button, index) => {
         button.addEventListener('click', () => selectTab(button.dataset.settingsTab));
@@ -3260,17 +3480,25 @@ function openSettings(focus = 'appearance') {
         if (event.target.name === 'themeColor' && event.target.checked) Theme.set(event.target.value);
         if (event.target.name === 'playbackDevice' && event.target.checked) {
             setPlaybackDevice(event.target.value);
-            setRemoteDeviceStatus(event.target.value === 'remote' ? 'Connecting to the computer player…' : 'Playing on this phone', event.target.value === 'local');
+            const phoneCopy = $('input[value="local"]', backdrop)?.closest('.remote-device-card')?.querySelector('small');
+            const listenCopy = $('input[value="listen"]', backdrop)?.closest('.remote-device-card')?.querySelector('small');
+            const computerCopy = $('input[value="remote"]', backdrop)?.closest('.remote-device-card')?.querySelector('small');
+            if (phoneCopy) phoneCopy.textContent = R.mode === 'local' ? 'Playing separately here' : 'Open this phone’s session';
+            if (listenCopy) listenCopy.textContent = R.mode === 'listen' ? 'Transferred to this phone' : 'Move current listening here';
+            if (computerCopy) computerCopy.textContent = R.mode === 'remote' ? 'Controlling this device' : 'Keep audio on this device';
+            const messages = { local: 'This phone has its own session', listen: 'Transferring listening to this phone…', remote: 'Connecting to the computer player…' };
+            setRemoteDeviceStatus(messages[event.target.value], event.target.value !== 'remote');
         }
     });
     $('#setThemeMode', backdrop).addEventListener('change', (event) => Theme.setMode(event.target.value));
-    const glassToggle = $('#setGlass', backdrop), glassField = $('#glassTransparencyField', backdrop);
+    const glassField = $('#glassTransparencyField', backdrop);
     const glassRange = $('#glassTransparency', backdrop), glassValue = $('#glassTransparencyValue', backdrop);
     setRangeFill(glassRange);
-    glassToggle.addEventListener('change', () => {
-        Theme.setGlass(glassToggle.checked);
-        glassField.hidden = !glassToggle.checked;
-    });
+    $$('input[name="surfaceStyle"]', backdrop).forEach((choice) => choice.addEventListener('change', () => {
+        if (!choice.checked) return;
+        Theme.setSurface(choice.value);
+        glassField.hidden = !['glass', 'liquid'].includes(choice.value);
+    }));
     glassRange.addEventListener('input', () => {
         Theme.setTransparency(glassRange.value);
         glassValue.textContent = `${Theme.transparency}%`;
@@ -3285,18 +3513,28 @@ function openSettings(focus = 'appearance') {
         } catch (error) { err.textContent = error.message; err.hidden = false; }
     });
     const picker = $('#customColorPicker', backdrop), hex = $('#customColorHex', backdrop);
-    picker.addEventListener('input', () => { hex.value = picker.value; });
-    hex.addEventListener('input', () => { if (/^#[a-f\d]{6}$/i.test(hex.value)) picker.value = hex.value; });
+    const inkPicker = $('#customInkPicker', backdrop), inkHex = $('#customInkHex', backdrop);
+    const suggestedInk = (color) => Theme.contrastInk(color);
+    let inkWasEdited = false;
+    const updateSuggestedInk = () => {
+        if (inkWasEdited || !/^#[a-f\d]{6}$/i.test(hex.value)) return;
+        inkHex.value = inkPicker.value = suggestedInk(hex.value);
+    };
+    picker.addEventListener('input', () => { hex.value = picker.value; updateSuggestedInk(); });
+    hex.addEventListener('input', () => { if (/^#[a-f\d]{6}$/i.test(hex.value)) { picker.value = hex.value; updateSuggestedInk(); } });
+    inkPicker.addEventListener('input', () => { inkWasEdited = true; inkHex.value = inkPicker.value; });
+    inkHex.addEventListener('input', () => { inkWasEdited = true; if (/^#[a-f\d]{6}$/i.test(inkHex.value)) inkPicker.value = inkHex.value; });
     $('#customColorForm', backdrop).addEventListener('submit', (event) => {
         event.preventDefault();
         const err = $('#customColorError', backdrop), status = $('#customColorStatus', backdrop);
         status.textContent = '';
         try {
-            const theme = Theme.saveCustom($('#customColorName', backdrop).value, hex.value);
+            const theme = Theme.saveCustom($('#customColorName', backdrop).value, hex.value, inkHex.value);
             $('#themeChoices', backdrop).innerHTML = colorChoices().s;
             err.hidden = true;
             status.textContent = `Saved ${theme.name}.`;
             $('#customColorName', backdrop).value = '';
+            inkWasEdited = false;
             event.submitter?.scrollIntoView({ block: 'nearest' });
         } catch (error) { err.textContent = error.message; err.hidden = false; }
     });
@@ -3523,7 +3761,8 @@ function setSidebarCollapsed(collapsed) {
 // Your Library: drawn into the sidebar, and into the Library page (#/library, the phone's "Your Library" tab)
 // when it's open. Same filter, search and sort state for both.
 function renderSidebar() {
-    for (const prefix of ['library', 'pageLibrary']) if ($(`#${prefix}List`)) renderLibraryInto(prefix);
+    const prefixes = matchMedia('(max-width: 600px)').matches ? ['pageLibrary'] : ['library', 'pageLibrary'];
+    for (const prefix of prefixes) if ($(`#${prefix}List`)) renderLibraryInto(prefix);
     highlightSidebar();
     markPlaying();
 }
@@ -3645,7 +3884,7 @@ function localTable(tracks, context, { showAlbum = true, numbered = true, sort =
         ${tracks.map((t, i) => html`
         <div class="track" role="row" data-id="${t.id}" data-ctx="${ctx}" data-index="${i}" ${sortable ? html`data-sort-index="${i}"` : ''}>
             <span class="num"><span class="n">${numbered ? i + 1 : ''}</span>${eq()}<button class="row-play" data-action="play-row" aria-label="Play ${t.title}">${icon('play', 14)}</button></span>
-            <div class="title-cell">${trackArt(t)}<div class="title-text">
+            <div class="title-cell">${trackArt(t)}<span class="mobile-playing-overlay">${eq()}</span><div class="title-text">
                 <div class="title-name">${t.title}</div>
                 <div class="title-sub"><span>${t.artists.map((a, j) => html`${j ? ', ' : ''}<a href="${artistHref(a)}">${a}</a>`)}</span></div>
             </div></div>
@@ -3916,7 +4155,7 @@ function songsBody() {
     const context = { key: 'songs', label: 'All songs', href: '#/songs', variant: `${v.genre || ''}|${v.q.trim()}|${v.sort}|${v.dir}` };
     const sortLabel = SONG_SORTS.find(([k]) => k === v.sort)?.[1] || 'Date added';
     return html`
-    <div class="action-bar">${bigPlay('songs', tracks.map((t) => t.id), context)}${shuffleToggle()}
+    <div class="action-bar songs-action-bar">${bigPlay('songs', tracks.map((t) => t.id), context)}${shuffleToggle()}
         <div class="songs-tools">
             <label class="songs-search">${icon('search', 16)}<span class="sr-only">Search in All songs</span>
                 <input id="songsSearch" type="search" placeholder="Search in All songs" autocomplete="off" value="${v.q}"></label>
@@ -4258,7 +4497,7 @@ function jobRow(job) {
     const active = ACTIVE.has(job.status);
     const collection = downloadCollectionForJob(job);
     return html`
-    <li class="job">
+    <li class="job ${celebratedJobs.has(job.id) ? 'premium-complete' : ''}" data-job-id="${job.id}">
         ${job.image ? imageArt(job.image) : html`<div class="art">${icon(job.kind === 'track' ? 'note' : 'disc', 24)}</div>`}
         <div class="job-body">
             <div class="job-title">${job.title}</div>
@@ -4291,6 +4530,11 @@ function renderJobsList() {
     const open = new Set($$('details[open]', list).map((d) => d.closest('.job') && [...list.children].indexOf(d.closest('.job'))));
     list.innerHTML = S.jobs.length ? html`${S.jobs.map(jobRow)}`.s : html`<li class="empty" style="padding:32px">No downloads yet. Search for something, or paste a link above.</li>`.s;
     [...list.children].forEach((li, i) => { if (open.has(i)) { const d = $('details', li); if (d) d.open = true; } });
+    celebratedJobs.forEach((id) => {
+        const row = [...list.children].find((item) => item.dataset.jobId === String(id));
+        if (!row) return;
+        setTimeout(() => { row.classList.remove('premium-complete'); celebratedJobs.delete(id); }, 900);
+    });
 }
 
 function viewDownloads() {
@@ -4837,6 +5081,11 @@ async function render({ keepScroll = false } = {}) {
     const typingIn = view.contains(document.activeElement) && document.activeElement.matches('input[id]') ? document.activeElement : null;
     const caret = typingIn && [typingIn.selectionStart, typingIn.selectionEnd];
     view.innerHTML = content.s;
+    view.classList.remove('route-enter');
+    if (!keepScroll && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        void view.offsetWidth;
+        view.classList.add('route-enter');
+    }
     if (typingIn && keepScroll) { const again = document.getElementById(typingIn.id); again?.focus(); again?.setSelectionRange(...caret); }
     if (r.name === 'abx') mountAbx(r.id);
     if (r.name === 'library') renderSidebar();
@@ -5059,6 +5308,12 @@ function bindEvents() {
     });
     $('#navForward').addEventListener('click', () => history.forward());
     $('#settingsBtn').addEventListener('click', () => openSettings());
+    $('#mobileMoreBtn').addEventListener('click', (e) => showMenu([
+        { label: 'Downloads', icon: 'downloadPlain', run: () => { location.hash = '#/downloads'; } },
+        { label: 'Listening stats', icon: 'chart', run: () => { location.hash = '#/stats'; } },
+        '-',
+        { label: 'Settings', icon: 'settings', run: () => openSettings() },
+    ], { anchor: e.currentTarget, label: 'More destinations' }));
     window.addEventListener('hashchange', () => render());
     window.addEventListener('popstate', () => render());
 
@@ -5093,6 +5348,7 @@ function paintChrome() {
     $('#downloadsBtn').insertAdjacentHTML('afterbegin', icon('downloadPlain', 20).s);
     $('#settingsBtn').innerHTML = icon('settings', 20).s;
     $('#statsBtn').innerHTML = icon('chart', 20).s;
+    $('#mobileMoreBtn').innerHTML = icon('more', 22).s;
     $$('#tabbar [data-icon]').forEach((el) => { el.innerHTML = icon(el.dataset.icon, 22).s; });
     $('#createBtn').innerHTML = icon('plus', 20).s;
     $('#createBtn').addEventListener('click', (e) => createMenu(e.currentTarget));
@@ -6265,8 +6521,9 @@ function bindWindowCheckIn() {
     bindSwipeToLike();
     bindEvents();
     try { S.init = await api('/status/init'); } catch { S.init = { initialized: false, message: 'Server not reachable' }; }
+    registerPhoneCache();
     try { await loadLibrary(); } catch (err) { toast(`Couldn't load your library: ${err.message}`, 'error'); }
-    const resumePage = restoreSession();
+    const resumePage = restoreSession(S.init.on_phone && R.mode === 'listen' ? 'transferSession' : 'session');
     // Opening or reloading the app on Home (or no page, as the app window opens) shows the last playlist.
     // Reloading any other page (Stats, a search, another playlist) stays on it.
     if (resumePage && ['', '#', '#/'].includes(location.hash)) history.replaceState(null, '', resumePage);

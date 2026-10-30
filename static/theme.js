@@ -16,6 +16,16 @@ const Theme = (() => {
     const minutes = (value) => { const [h, m] = value.split(':').map(Number); return h * 60 + m; };
     const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem('spotdlr.' + key)) ?? fallback; } catch { return fallback; } };
     const write = (key, value) => localStorage.setItem('spotdlr.' + key, JSON.stringify(value));
+    const preferenceKeys = ['theme', 'mode', 'surface', 'glass', 'transparency', 'themeSchedule', 'customColors'];
+    let syncTimer;
+    function syncPreferences() {
+        clearTimeout(syncTimer);
+        syncTimer = setTimeout(() => {
+            const values = Object.fromEntries(preferenceKeys.map((key) => [key, read(key, null)]));
+            const options = { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) };
+            Promise.allSettled([fetch('/api/preferences/theme', options), fetch('/api/preferences/client', options)]);
+        }, 80);
+    }
     const rgbOf = (hex) => hex.match(/[a-f\d]{2}/gi).map((value) => parseInt(value, 16));
     const mix = (from, to, amount) => '#' + rgbOf(from).map((v, i) => Math.round(v + (rgbOf(to)[i] - v) * amount).toString(16).padStart(2, '0')).join('');
     const luminance = (hex) => rgbOf(hex).map((v) => v / 255).map((v) => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4)
@@ -28,11 +38,11 @@ const Theme = (() => {
         }
         return toward;
     }
-    function customTheme({ id, name, color }) {
+    function customTheme({ id, name, color, ink }) {
         const dark = readable(color, '#282828', '#ffffff', .12);
-        const fill = readable(color, '#000000', '#ffffff');
-        return { id, name, color, dark, fill, hover: mix(dark, '#ffffff', .2), fillHover: mix(fill, '#ffffff', .2),
-            light: readable(color, '#f2f3f5', '#000000', .12), ink: contrast(color, '#000000') >= 4.5 ? '#000000' : '#ffffff' };
+        const accentInk = validColor(ink) ? ink.toLowerCase() : contrast(color, '#000000') >= 4.5 ? '#000000' : '#ffffff';
+        return { id, name, color, dark, fill: color, hover: mix(dark, '#ffffff', .2), fillHover: mix(color, accentInk, .16),
+            light: readable(color, '#f2f3f5', '#000000', .12), ink: accentInk };
     }
     const savedColors = read('customColors', []);
     let customColors = (Array.isArray(savedColors) ? savedColors : []).filter((c) => c && /^custom-[a-z0-9-]+$/.test(c.id)
@@ -41,9 +51,11 @@ const Theme = (() => {
     let current = 'green';
     let mode = read('mode', 'dark');
     if (!modes.includes(mode)) mode = 'dark';
-    let glass = read('glass', false) === true;
+    const savedSurface = read('surface', read('glass', false) === true ? 'glass' : 'solid');
+    const surfaces = ['solid', 'glass', 'liquid', 'neumorphism', 'skeuomorphism', 'claymorphism', 'minimalism', 'neobrutalism'];
+    let surface = surfaces.includes(savedSurface) ? savedSurface : 'solid';
     let transparency = Number(read('transparency', 35));
-    if (!Number.isFinite(transparency) || transparency < 10 || transparency > 70) transparency = 35;
+    if (!Number.isFinite(transparency) || transparency < 10 || transparency > 100) transparency = 35;
     const savedSchedule = read('themeSchedule', {});
     let schedule = validTime(savedSchedule?.day) && validTime(savedSchedule?.night) && savedSchedule.day !== savedSchedule.night
         ? { day: savedSchedule.day, night: savedSchedule.night } : { day: '07:00', night: '19:00' };
@@ -67,12 +79,22 @@ const Theme = (() => {
         const rgb = rgbOf(accent);
         root.dataset.theme = current;
         root.dataset.mode = light ? 'light' : 'dark';
-        root.dataset.glass = String(glass);
-        root.style.setProperty('--glass-alpha', String(1 - transparency / 100));
+        root.dataset.glass = String(surface === 'glass');
+        root.dataset.liquid = String(surface === 'liquid');
+        root.dataset.neumorphism = String(surface === 'neumorphism');
+        root.dataset.skeuomorphism = String(surface === 'skeuomorphism');
+        root.dataset.claymorphism = String(surface === 'claymorphism');
+        root.dataset.minimalism = String(surface === 'minimalism');
+        root.dataset.neobrutalism = String(surface === 'neobrutalism');
+        const glassAlpha = 1 - transparency / 100;
+        const readableGlassAlpha = Math.max(.14, glassAlpha);
+        root.style.setProperty('--glass-alpha', String(glassAlpha));
+        root.style.setProperty('--glass-readable-alpha', String(readableGlassAlpha));
         root.style.setProperty('--green', accent);
         root.style.setProperty('--green-hover', light ? theme.light : theme.hover);
         root.style.setProperty('--accent-fill', theme.fill || theme.color);
         root.style.setProperty('--accent-fill-hover', theme.fillHover || theme.hover);
+        root.style.setProperty('--accent-ink', theme.ink || '#000000');
         root.style.setProperty('--accent-rgb', rgb.join(', '));
         // Keep the existing green chart ramp; other accents use five increasing lightness steps.
         const base = light ? 255 : 18;
@@ -84,7 +106,7 @@ const Theme = (() => {
         document.querySelector('meta[name="theme-color"]')?.setAttribute('content', light ? '#f2f3f5' : '#121212');
         document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.setAttribute('content', light ? 'default' : 'black');
         window.webkit?.messageHandlers?.theme?.postMessage({
-            mode: light ? 'light' : 'dark', glass, accent, alpha: 1 - transparency / 100,
+            mode: light ? 'light' : 'dark', glass: surface === 'glass' || surface === 'liquid', surface, accent, alpha: readableGlassAlpha,
         });
         document.dispatchEvent(new Event('themechange'));
         return theme;
@@ -105,15 +127,28 @@ const Theme = (() => {
     }
     current = read('theme', 'green');
     update();
+    fetch('/api/preferences/client').then((response) => response.ok ? response.json() : {}).then((saved) => {
+        if (!read('preferencesRestored', false) && saved && Object.keys(saved).length) {
+            Object.entries(saved).forEach(([key, value]) => { if (value !== undefined && value !== null) write(key, value); });
+            write('preferencesRestored', true);
+            location.reload();
+        } else {
+            syncPreferences();
+        }
+    }).catch(() => {});
     system.addEventListener('change', () => { if (mode === 'system') update(); });
     document.addEventListener('visibilitychange', () => { if (!document.hidden) update(); });
     window.addEventListener('focus', update);
 
     return {
+        contrastInk(color) {
+            return validColor(color) && contrast(color, '#000000') >= 4.5 ? '#000000' : '#ffffff';
+        },
         get colors() { return colors(); },
         get current() { return current; },
         get mode() { return mode; },
-        get glass() { return glass; },
+        get glass() { return surface === 'glass' || surface === 'liquid'; },
+        get surface() { return surface; },
         get transparency() { return transparency; },
         get schedule() { return { ...schedule }; },
         get scheduled() { return scheduled(); },
@@ -122,40 +157,55 @@ const Theme = (() => {
             if (day === night) throw new Error('Day and night must start at different times.');
             schedule = { day, night };
             try { write('themeSchedule', schedule); } catch { /* private mode */ }
+            syncPreferences();
             update();
         },
         setMode(value) {
             mode = modes.includes(value) ? value : 'dark';
             update();
             try { write('mode', mode); } catch { /* private mode */ }
+            syncPreferences();
         },
         setGlass(value) {
-            glass = Boolean(value);
+            surface = value ? 'glass' : surface === 'glass' || surface === 'liquid' ? 'solid' : surface;
             apply(current);
-            try { write('glass', glass); } catch { /* private mode */ }
+            try { write('surface', surface); write('glass', surface === 'glass'); } catch { /* private mode */ }
+            syncPreferences();
+        },
+        setSurface(value) {
+            surface = surfaces.includes(value) ? value : 'solid';
+            apply(current);
+            try { write('surface', surface); write('glass', surface === 'glass'); } catch { /* private mode */ }
+            syncPreferences();
         },
         setTransparency(value) {
             const next = Math.round(Number(value));
-            transparency = Number.isFinite(next) ? Math.min(70, Math.max(10, next)) : 35;
+            transparency = Number.isFinite(next) ? Math.min(100, Math.max(10, next)) : 35;
             apply(current);
             try { write('transparency', transparency); } catch { /* private mode */ }
+            syncPreferences();
         },
         set(id) {
             const theme = apply(id);
             try { write('theme', theme.id); } catch { /* private mode */ }
+            syncPreferences();
         },
-        saveCustom(name, color) {
+        saveCustom(name, color, ink) {
             name = name.trim();
             if (!name || name.length > 32) throw new Error('Give this color a name of up to 32 characters.');
             if (!validColor(color)) throw new Error('Enter a six-digit hex color, like #ff8844.');
+            if (ink === undefined) ink = contrast(color, '#000000') >= 4.5 ? '#000000' : '#ffffff';
+            if (!validColor(ink)) throw new Error('Enter a six-digit text color, like #ffffff.');
+            if (contrast(color, ink) < 4.5) throw new Error('Choose a text color with more contrast against the button color.');
             if (colors().some((c) => c.name.toLowerCase() === name.toLowerCase())) throw new Error('A color already uses that name. Choose a different name.');
-            const theme = customTheme({ id: `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, name, color: color.toLowerCase() });
+            const theme = customTheme({ id: `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, name, color: color.toLowerCase(), ink: ink.toLowerCase() });
             const next = [...customColors, theme];
-            try { write('customColors', next.map(({ id, name, color }) => ({ id, name, color }))); }
+            try { write('customColors', next.map(({ id, name, color, ink }) => ({ id, name, color, ink }))); }
             catch { throw new Error('Could not save this color. Allow site storage or free some browser storage, then try again.'); }
             customColors = next;
             apply(theme.id);
             try { write('theme', theme.id); } catch { /* private mode */ }
+            syncPreferences();
             return theme;
         },
     };

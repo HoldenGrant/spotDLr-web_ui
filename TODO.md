@@ -15,3 +15,15 @@ Ideas being considered for future versions of spotDLr. An unchecked item is a no
   - Support play, pause, previous, next, seek, volume, shuffle, repeat, queue management, and selecting music.
   - Keep the current song, progress, queue, and playback state synchronized between devices.
   - The source computer must remain awake with spotDLr running and connected through home Wi-Fi or Tailscale.
+- [x] **Transfer playback:** move the current song, timestamp, queue, shuffle, and repeat state between the phone and source computer.
+
+## Phone offline listening
+
+- [ ] **Download to this phone:** add offline-download actions to songs, albums, and playlists.
+- [ ] **Offline downloads:** provide one place to browse and remove music saved on the phone.
+- [ ] **Storage usage:** show space used, available space when the browser exposes it, and the number of saved tracks.
+- [ ] **Automatic cleanup:** optionally remove older downloads while keeping favorites and explicitly pinned music.
+- [ ] **Download states:** clearly mark downloaded, downloading, failed, and unavailable tracks.
+- [ ] **Offline playback:** keep downloaded music, its queue, and playback position usable after leaving the computer’s network.
+
+The first caching layer is now in place for the phone interface and up to 150 recently viewed album artworks. Music files and library data still require the computer until offline downloads are implemented.

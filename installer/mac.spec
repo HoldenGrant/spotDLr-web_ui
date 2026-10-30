@@ -6,6 +6,8 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 root = Path(SPECPATH).parent
 tools = Path(os.environ["SPOTDLR_MAC_TOOLS"])
 datas = [(str(root / "index.html"), "."), (str(root / "static"), "static")]
+if os.environ.get("SPOTDLR_LEGACY_MANIFEST"):
+    datas.append((os.environ["SPOTDLR_LEGACY_MANIFEST"], "."))
 binaries = [(str(tools / tool), "bin") for tool in ("ffmpeg", "ffprobe", "node")]
 hiddenimports = collect_submodules("uvicorn")
 for package in ("ytmusicapi", "yt_dlp_ejs", "yt_dlp"):

@@ -19,6 +19,9 @@ for tool in ffmpeg ffprobe node; do
     cp -L "$SOURCE" "$WORK/tools/$tool"
 done
 export SPOTDLR_MAC_TOOLS="$WORK/tools"
+LEGACY_MANIFEST="$WORK/source-migration.json"
+"$PYTHON" -c 'import json,sys; from pathlib import Path; repo=Path(sys.argv[1]); Path(sys.argv[2]).write_text(json.dumps({"music_dir": str(repo / "downloads"), "data_dir": str(repo)}))' "$REPO" "$LEGACY_MANIFEST"
+export SPOTDLR_LEGACY_MANIFEST="$LEGACY_MANIFEST"
 "$PYTHON" -m PyInstaller installer/mac.spec --noconfirm --distpath "$WORK/frozen" --workpath "$WORK/pyinstaller"
 
 APP="$OUT/spotDLr.app"

@@ -15,8 +15,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <script src="/static/theme.js"></script>
-    <link rel="stylesheet" href="/static/app.css">
+    <script src="/static/theme.js?v=surfaces-32"></script>
+    <link rel="stylesheet" href="/static/app.css?v=surfaces-32">
 </head>
 <body>
     <div class="app">
@@ -46,6 +46,7 @@
                     <span class="badge" id="downloadsBadge" hidden>0</span>
                 </a>
                 <button class="icon-btn big" id="settingsBtn" aria-label="Settings" title="Settings"></button>
+                <button class="icon-btn big mobile-more" id="mobileMoreBtn" aria-label="More destinations" aria-haspopup="menu" title="More"></button>
             </div>
         </header>
 
@@ -99,6 +100,10 @@
                 <button class="icon-btn vol" id="muteBtn" aria-label="Mute"></button>
                 <input class="bar volume" id="volumeBar" type="range" min="0" max="100" value="80" aria-label="Volume">
             </div>
+            <div class="mobile-remote-volume" aria-label="Computer volume">
+                <button class="icon-btn" id="mobileRemoteMute" aria-label="Mute computer"></button>
+                <input class="bar" id="mobileRemoteVolume" type="range" min="0" max="100" value="80" aria-label="Computer volume">
+            </div>
         </footer>
 
         <nav class="tabbar" id="tabbar" aria-label="Main">
@@ -115,6 +120,6 @@
     <div id="menuRoot"></div>
     <div class="drop-overlay" id="dropOverlay" hidden><div>Drop music files to add them to spotDLr</div></div>
 
-    <script src="/static/app.js?v=remote-mode-2"></script>
+    <script src="/static/app.js?v=surfaces-32"></script>
 </body>
 </html>

@@ -1,3 +1,4 @@
+import threading
 import time
 import unittest
 
@@ -33,6 +34,38 @@ class RemotePlaybackTests(unittest.TestCase):
         self.assertEqual(self.remote.publish("browser", "Browser", {"playing": False})["commands"], [])
         self.assertEqual(self.remote.status()["source"]["id"], "app")
         self.assertEqual(self.remote.publish("app", "Mac app", {"playing": True})["commands"][0]["action"], "next")
+
+    def test_waiting_source_wakes_as_soon_as_a_command_arrives(self):
+        state = {"playing": True, "volume": 1}
+        self.remote.publish("mac", "Mac", state)
+        result = {}
+        waiting = threading.Event()
+
+        def publish_and_wait():
+            waiting.set()
+            result.update(self.remote.publish("mac", "Mac", state, wait=1))
+
+        thread = threading.Thread(target=publish_and_wait)
+        thread.start()
+        waiting.wait(timeout=0.5)
+        time.sleep(0.02)
+        started = time.monotonic()
+        self.remote.command("volume", 0.35)
+        thread.join(timeout=0.5)
+
+        self.assertFalse(thread.is_alive())
+        self.assertLess(time.monotonic() - started, 0.5)
+        self.assertEqual(result["commands"], [{"action": "volume", "value": 0.35}])
+
+    def test_transfer_delivers_the_complete_playback_snapshot(self):
+        self.remote.publish("mac", "Mac", {"playing": False})
+        snapshot = {"track_id": "song-1", "time": 42, "playing": True,
+                    "queue": ["song-1", "song-2"], "shuffle": True, "repeat": "all"}
+        self.remote.command("transfer", snapshot)
+
+        result = self.remote.publish("mac", "Mac", {"playing": False})
+
+        self.assertEqual(result["commands"], [{"action": "transfer", "value": snapshot}])
 
 
 if __name__ == "__main__":

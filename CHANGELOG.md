@@ -6,7 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-10-31
+
 ### Added
+- **Remote playback and Listen Here.** A connected phone can play independently, control the Mac or PC running spotDLr, or transfer the current song, timestamp, queue, shuffle and repeat state between devices. Remote controls include play/pause, previous/next, seek, volume, queue, shuffle and repeat.
+- **Phone app caching** keeps the interface and up to 150 recently viewed covers available on the phone. Music streams and live library data still come from the source computer.
+- **Surface styles** in Settings → Appearance: Glass, Liquid Glass, Neumorphism, Skeuomorphism, Claymorphism, Minimalism and Neo-brutalism, alongside Solid. Glass styles include adjustable transparency; custom colors can pair an accent with a readable text and icon color.
 - **Day/night appearance schedules** in Settings → Appearance: light by day and dark at night, or the reverse, with adjustable start times using this device's local clock. **Custom colors** can be picked or entered as hex, named, and saved beside the six presets; matching light/dark variants keep controls readable.
 - **Add to album** in a song's menu lets you group it under an existing album in spotDLr. The original file, tags, likes and playlists stay unchanged; albums keep their name and artist when songs are added.
 - **Swipe left to like (phones).** Swipe a song left in any song list and let go to save it to Liked Songs. A green panel with a heart follows your finger, the heart pops when you let go, and the row springs back. Swipe a liked song the same way to remove it. A short swipe springs back without changing anything, and scrolling up and down works as before.
@@ -14,6 +19,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - **Cassette on phones:** double-tap the deck to turn it round, so its buttons are on the left instead of the right (handy for your left hand). Double-tap again to turn it back; your phone remembers which way you like it.
 
 ### Fixed
+- **Remote controls respond faster:** the source player now waits for commands instead of relying on a fixed polling delay, and Listen Here preloads the current track before transfer.
+- **Updates preserve the existing library and appearance.** On first launch, the standalone Mac build reuses a populated source library and copies its supporting data; it also recovers saved WebKit preferences and custom colors from the previous launcher where available.
 - **Light theme system bars:** the native Mac title bar and the phone's browser or installed-app status area now follow spotDLr's resolved light or dark theme, including System and day/night schedules.
 - **Phone playback** now recovers when a mobile browser leaves a song's Wi-Fi stream stalled without reporting an error. After eight seconds without progress, spotDLr reconnects at the same position; a stall at the final frame advances the shuffled queue.
 - If Add to album is opened while an older server is still running, the error now explains that the spotDLr server needs restarting instead of only saying “Not Found”.
@@ -23,7 +30,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Download cards keep album and playlist artwork aligned with the top of expanded details. Completed collections now have a play button on the far right.
 - On desktop, the library sidebar can collapse to a cover-only rail and expand again. The toggle remembers your choice, and hovering over a cover shows its name.
 - On phones, inner pages now show a visible Back button in the top bar. Album and playlist download buttons use an icon with an accessible label; desktop buttons keep their text.
-- The website's Mac buttons, README and setup guide now download the **v2.5.0** Mac DMG, attached to the v2.5.0 release with its checksum.
+- The website's Mac buttons, README and setup guide now download the **v2.6.0** Mac DMG, attached to the v2.6.0 release with its checksum.
 
 ## [2.5.0] - 2026-10-21
 
@@ -199,7 +206,8 @@ The original spotDLr: a web page for downloading with spotDL. These versions wer
 - Reading `.env` in `run.bat`.
 - Playlist and album folder names on macOS (Jan 6, 2026).
 
-[Unreleased]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.5.0...HEAD
+[Unreleased]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.6.0...HEAD
+[2.6.0]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.5.0...v2.6.0
 [2.5.0]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.4.1...v2.5.0
 [2.4.1]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/HoldenGrant/spotDLr-web_ui/compare/v2.3.1...v2.4.0

@@ -69,3 +69,8 @@ phone.json
 phone.tmp
 schedules.json
 schedules.tmp
+.impeccable/
+client-preferences.json
+client-preferences.tmp
+theme.json
+theme.tmp

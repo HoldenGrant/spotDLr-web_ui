@@ -9,6 +9,7 @@ those in a threadpool, so a slow call never blocks the event loop.
 
 import base64
 import hashlib
+import json
 import logging
 import os
 import re
@@ -20,7 +21,7 @@ from typing import Optional
 
 import requests
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -281,6 +282,56 @@ def check_initialization(request: Request):
     }
 
 
+THEME_FILE = DATA_DIR / "theme.json"
+CLIENT_PREFERENCES_FILE = DATA_DIR / "client-preferences.json"
+THEME_KEYS = {"theme", "mode", "surface", "glass", "transparency", "themeSchedule", "customColors"}
+
+
+@app.get("/api/preferences/theme")
+def theme_preferences():
+    try:
+        values = json.loads(THEME_FILE.read_text(encoding="utf-8"))
+        return {key: value for key, value in values.items() if key in THEME_KEYS}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+@app.put("/api/preferences/theme")
+def save_theme_preferences(values: dict = Body(...)):
+    clean = {key: value for key, value in values.items() if key in THEME_KEYS}
+    encoded = json.dumps(clean, separators=(",", ":"))
+    if len(encoded) > 16_384:
+        raise HTTPException(413, "Too many saved colors")
+    temporary = THEME_FILE.with_suffix(".tmp")
+    temporary.write_text(encoded, encoding="utf-8")
+    temporary.replace(THEME_FILE)
+    return {"saved": True}
+
+
+@app.get("/api/preferences/client")
+def client_preferences():
+    try:
+        values = json.loads(CLIENT_PREFERENCES_FILE.read_text(encoding="utf-8"))
+        return values if isinstance(values, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+@app.put("/api/preferences/client")
+def save_client_preferences(values: dict = Body(...)):
+    current = client_preferences()
+    clean = {str(key): value for key, value in values.items()
+             if isinstance(key, str) and 0 < len(key) <= 64 and key != "preferencesRestored"}
+    current.update(clean)
+    encoded = json.dumps(current, separators=(",", ":"))
+    if len(encoded) > 131_072:
+        raise HTTPException(413, "Too many saved preferences")
+    temporary = CLIENT_PREFERENCES_FILE.with_suffix(".tmp")
+    temporary.write_text(encoded, encoding="utf-8")
+    temporary.replace(CLIENT_PREFERENCES_FILE)
+    return {"saved": True}
+
+
 # ---------- Spotify credentials ----------
 
 def _write_env(updates: dict):
@@ -360,32 +411,40 @@ def record_play(request: PlayRequest):
 # A paired phone never talks directly to the desktop browser. The local server holds the latest player
 # snapshot and a short command queue; the desktop checks both while it is open. Nothing is persisted.
 class RemotePlayback:
-    ACTIONS = {"play", "pause", "toggle", "next", "previous", "seek", "volume", "mute",
+    ACTIONS = {"play", "pause", "toggle", "next", "previous", "seek", "volume", "mute", "transfer",
                "shuffle", "repeat", "play_context", "queue_add", "queue_remove", "queue_clear",
                "queue_play", "queue_move"}
 
     def __init__(self):
-        self.lock = threading.Lock()
+        self.condition = threading.Condition()
         self.source = None
         self.commands = []
 
-    def publish(self, device_id, device_name, state):
+    def publish(self, device_id, device_name, state, wait=0):
         now = time.time()
         device_id = device_id[:64]
-        with self.lock:
+        with self.condition:
             current = self.source
             stale = not current or now - current["seen"] > 5
             takeover = current and bool(state.get("playing")) and not bool(current["state"].get("playing"))
             if stale or current["device_id"] == device_id or takeover:
                 self.source = {"device_id": device_id, "device_name": device_name[:80],
                                "state": state, "seen": now}
-                commands, self.commands = self.commands, []
+                if not self.commands and wait > 0:
+                    self.condition.wait(timeout=min(float(wait), 2))
+                current = self.source
+                if current and current["device_id"] == device_id:
+                    self.source = {"device_id": device_id, "device_name": device_name[:80],
+                                   "state": state, "seen": time.time()}
+                    commands, self.commands = self.commands, []
+                else:
+                    commands = []
             else:
                 commands = []
         return {"commands": commands}
 
     def status(self):
-        with self.lock:
+        with self.condition:
             source = dict(self.source) if self.source else None
         if not source or time.time() - source["seen"] > 5:
             return {"online": False, "source": None, "state": None}
@@ -395,18 +454,20 @@ class RemotePlayback:
     def command(self, action, value):
         if action not in self.ACTIONS:
             raise ValueError("Unknown remote command")
-        if not self.status()["online"]:
-            raise RuntimeError("The computer player is not available")
-        with self.lock:
+        with self.condition:
+            if not self.source or time.time() - self.source["seen"] > 5:
+                raise RuntimeError("The computer player is not available")
             self.commands.append({"action": action, "value": value})
+            self.condition.notify_all()
 
 
 remote_playback = RemotePlayback()
 
 
 @app.post("/api/remote/source")
-def remote_source(request: RemoteSourceRequest):
-    return remote_playback.publish(request.device_id, request.device_name, request.state)
+def remote_source(request: RemoteSourceRequest, wait: float = 0):
+    return remote_playback.publish(request.device_id, request.device_name, request.state,
+                                   wait=max(0, min(wait, 2)))
 
 
 @app.get("/api/remote/status")

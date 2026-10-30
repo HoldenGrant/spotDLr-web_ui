@@ -67,7 +67,7 @@ Funnel uses the selected HTTPS port and checks `AllowFunnel` afterward. A policy
 
 ## Home-screen app
 
-`static/manifest.webmanifest` provides the app name, icons, and standalone display. The UI registers `/sw.js` on `.ts.net` hosts. The worker passes network requests through and substitutes an explanatory page when navigation cannot reach the computer; it does not store an offline music library.
+`static/manifest.webmanifest` provides the app name, icons, and standalone display. The UI registers `/sw.js` in secure contexts (Tailscale/Funnel HTTPS and localhost; browsers do not allow a worker on plain home-Wi-Fi HTTP). The worker caches the interface and up to 150 recently viewed covers. Navigations stay network-first, with the cached shell and then an explanatory offline page as fallbacks. Music streams and live JSON APIs are never cached; this is not yet an offline music library.
 
 The server fills a Wi-Fi home URL into that fallback page when appropriate. With Funnel active, it leaves that URL empty so the public worker does not reveal the local network name. Browser and installed home-screen sessions can have separate cookies/storage.
 
