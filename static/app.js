@@ -339,8 +339,64 @@ P.fadeIn = 1;      // crossfade: the incoming song's share
 P.sleepGain = 1;   // sleep timer: fades out over its last 10 s
 P.wakeGain = 1;    // a scheduled play's fade-in
 P.balance = store.get('balance', 0); // -1 left only … 0 both … 1 right only: Settings → Sound and the Hi-Fi Deck's knob (needs Web Audio, see applySound)
-const XF = { el: new Audio(), active: false, prepared: null, out: 1, outGain: 1, timer: null, switching: false };
+const XF = { el: new Audio(), active: false, prepared: null, ready: null, out: 1, outGain: 1, timer: null, switching: false };
 XF.el.preload = 'auto';
+// The two <audio> elements can swap roles: the spare loads the next song ahead (readyNext) and becomes P.audio when
+// that song starts. So the player's listeners go on both and only act for whichever is P.audio at the time.
+function onPlayer(type, fn) {
+    for (const el of [P.audio, XF.el]) el.addEventListener(type, (e) => { if (e.currentTarget === P.audio) fn(e); });
+}
+
+// Holden's idea: 10 s before a song ends, the spare player loads the next one, so it starts the moment this one
+// ends instead of after a trip to the computer. Measured on a slow phone connection (120 ms, 8 Mbit/s): 312–319 ms of
+// silence between songs. Not with crossfade on: the spare plays the outgoing song's tail then, and the fade hides
+// the load. iPhone Safari may not buffer a player that isn't playing; then the swap just loads at play, as before.
+const READY_AHEAD = 10;
+function readyNext() {
+    // Never on iPhone/iPad (any browser there is WebKit): with the screen locked iOS only lets the element that was
+    // already playing carry on, so the swapped-in one stayed silent until the page was opened (Holden, Oct 31)
+    if (IOS) return;
+    if (XF.active || XF.prepared || XF.ready || P.audio.paused || P.repeat === 'one' || SL.endOfSong) return;
+    if (VOLUME_WORKS && PB.crossfade) return;
+    const left = P.audio.duration - P.audio.currentTime;
+    if (!(left <= READY_AHEAD)) return; // also false while the duration is unknown (NaN)
+    const t = neighbour(1);
+    if (!t) return;
+    XF.ready = t.id;
+    XF.el.src = `/api/stream/${encodeURIComponent(t.id)}`;
+}
+// At a song change: if the spare holds exactly this song, it becomes the player (true). Anything else it holds is
+// dropped: the queue changed, or you went back.
+// After a swap: the player feeds the analyser, meters and volume; the spare, the crossfade's gain
+function wirePlayers() {
+    if (!V.sources) return; // no Web Audio (iPhone, or not built yet): nothing to rewire
+    for (const source of V.sources.values()) source.disconnect();
+    V.sources.get(P.audio).connect(V.analyser);
+    V.sources.get(XF.el).connect(xfVolume);
+}
+function unswapPlayers(t) {
+    [P.audio, XF.el] = [XF.el, P.audio];
+    XF.el.pause();
+    XF.el.removeAttribute('src');
+    XF.el.load();
+    wirePlayers();
+    applyVolume();
+    P.audio.src = `/api/stream/${encodeURIComponent(t.id)}`;
+}
+function takeReadyPlayer(id) {
+    const ready = XF.ready;
+    XF.ready = null;
+    if (!ready) return false;
+    if (ready !== id || XF.active || XF.el.error) { XF.el.removeAttribute('src'); XF.el.load(); return false; } // a failed load: load it the usual way
+    const old = P.audio;
+    [P.audio, XF.el] = [XF.el, old];
+    P.audio.muted = old.muted;
+    old.pause();
+    old.removeAttribute('src');
+    old.load();
+    wirePlayers();
+    return true;
+}
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 // Progress bars fill by sliding a full-width bar in from the left (a transform, so no layout on each update)
 const setProgress = (el, fraction) => el.style.setProperty('--p', clamp01(fraction || 0));
@@ -503,12 +559,18 @@ function restoreSession(key = 'session') {
 function loadAndPlay() {
     const t = currentTrack();
     if (!t) return;
+    const ready = takeReadyPlayer(t.id); // before endFade, which would empty the spare
     resetPlaybackRecovery(t.id);
     if (!XF.switching) endFade(); // you skipped: drop any crossfade in progress
     setTrackGain(t.id);
     startListen(t.id);
-    P.audio.src = `/api/stream/${encodeURIComponent(t.id)}`;
-    const started = P.audio.play().then(() => true).catch((err) => {
+    if (!ready) P.audio.src = `/api/stream/${encodeURIComponent(t.id)}`;
+    const play = () => P.audio.play().then(() => true);
+    const started = play().catch((err) => {
+        // A browser that won't start the swapped-in player (in the background, say): back to the one that was playing
+        if (ready && err.name === 'NotAllowedError' && currentTrack() === t) { unswapPlayers(t); return play(); }
+        throw err;
+    }).catch((err) => {
         if (err.name === 'NotAllowedError') showTapToPlay(P.context?.label || t.title); // no click on this page yet
         else if (err.name !== 'AbortError') toast(`Couldn't play "${t.title}"`, 'error');
         return false;
@@ -846,6 +908,7 @@ function maybeCrossfade() {
     if (!d || d < secs * 2 + 5 || !neighbour(1)) return;
     if (left <= secs + 4 && XF.prepared !== P.audio.src) { // load the tail on the spare player ahead of time
         XF.prepared = P.audio.src;
+        XF.ready = null; // crossfade switched on after the next song was readied: the spare is the tail's now
         XF.el.src = P.audio.src;
         XF.el.currentTime = Math.max(0, d - secs - 1);
     }
@@ -1819,7 +1882,8 @@ function ensureAudioGraph() {
         merge.connect(graphVolume);
         // The crossfade's second player joins here, so the song fading out gets the effects too
         xfVolume = V.ctx.createGain();
-        V.ctx.createMediaElementSource(XF.el).connect(xfVolume);
+        V.sources = new Map([[P.audio, source], [XF.el, V.ctx.createMediaElementSource(XF.el)]]);
+        V.sources.get(XF.el).connect(xfVolume);
         const bus = twoChannels(V.ctx);
         graphVolume.connect(bus);
         xfVolume.connect(bus);
@@ -3038,7 +3102,7 @@ function bindPlayer() {
     mobileMute.addEventListener('click', toggleMute);
     showVolume();
 
-    P.audio.addEventListener('timeupdate', () => {
+    onPlayer('timeupdate', () => {
         notePlaybackProgress();
         if (!P.audio.paused && listen.id) {
             const now = P.audio.currentTime;
@@ -3053,28 +3117,29 @@ function bindPlayer() {
         $('#timeTotal').textContent = fmtTime(d);
         updateNowProgress();
     });
-    P.audio.addEventListener('loadedmetadata', () => { $('#timeTotal').textContent = fmtTime(P.audio.duration); });
-    P.audio.addEventListener('play', updateControls);
-    P.audio.addEventListener('pause', () => {
+    onPlayer('loadedmetadata', () => { $('#timeTotal').textContent = fmtTime(P.audio.duration); });
+    onPlayer('play', updateControls);
+    onPlayer('pause', () => {
         clearTimeout(playbackRecovery.timer);
         playbackRecovery.timer = null;
         updateControls();
     });
-    P.audio.addEventListener('waiting', armPlaybackRecovery);
-    P.audio.addEventListener('stalled', armPlaybackRecovery);
-    P.audio.addEventListener('ended', () => { // report before moving on (or stopping)
+    onPlayer('waiting', armPlaybackRecovery);
+    onPlayer('stalled', armPlaybackRecovery);
+    onPlayer('ended', () => { // report before moving on (or stopping)
         flushListen();
         if (SL.endOfSong) { stopForSleep(); return; }
         next(true);
     });
-    P.audio.addEventListener('timeupdate', maybeCrossfade);
-    P.audio.addEventListener('pause', () => { if (XF.active && !XF.switching) endFade(); });
-    P.audio.addEventListener('seeking', () => { listen.last = null; });  // a jump isn't listening
+    onPlayer('timeupdate', maybeCrossfade);
+    onPlayer('timeupdate', readyNext);
+    onPlayer('pause', () => { if (XF.active && !XF.switching) endFade(); });
+    onPlayer('seeking', () => { listen.last = null; });  // a jump isn't listening
     window.addEventListener('pagehide', () => { flushListen(true); saveSession(); });
-    P.audio.addEventListener('pause', saveSession);
+    onPlayer('pause', saveSession);
     let lastSave = 0;
-    P.audio.addEventListener('timeupdate', () => { if (Date.now() - lastSave > 5000) { lastSave = Date.now(); saveSession(); } });
-    P.audio.addEventListener('error', () => {
+    onPlayer('timeupdate', () => { if (Date.now() - lastSave > 5000) { lastSave = Date.now(); saveSession(); } });
+    onPlayer('error', () => {
         const t = currentTrack();
         if (t && P.audio.src) { toast(`Couldn't load "${t.title}". Skipping.`, 'error'); setTimeout(() => next(true), 600); }
     });

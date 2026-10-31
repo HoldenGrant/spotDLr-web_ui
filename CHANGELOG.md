@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+- **The next song is ready before this one ends.** Ten seconds before a song ends, spotDLr starts loading the next one, so it begins the moment the current one finishes. On a slow phone connection that removes about a third of a second of silence between songs. It also makes skipping in those last ten seconds instant. With crossfade on, the fade already covers the change, so nothing changes there. Not on iPhone or iPad: there it kept the next song from starting while the screen was locked, so they play songs as before.
+
+### Fixed
+- **Neo-brutalism:** the selected playlist or album in Your Library lost its title while one of its songs was playing (green text on the green highlight). The title now stays dark.
+- **Top bar:** with a surface style on (Glass, Neumorphism and the rest), the logo and the buttons at the ends of the top bar no longer touch its edges.
+
 ## [2.6.0] - 2026-10-31
 
 ### Added

@@ -11,6 +11,12 @@ Jump to: [[#2026]] · [[#2025]]
 
 ## 2026
 
+### Oct 31, 2026
+- **Neo-brutalism library title** (uncommitted): the playing + selected collection's title no longer vanishes (10.9:1).
+- **Next song ready: off on iPhone** (uncommitted): it stopped the next song starting with the screen locked (iOS only lets the playing element continue); plus a swap-back if any browser refuses the swapped player.
+- **Top bar padding** (uncommitted): 12 px at each end in every surface style.
+- **Next song ready 10 s early** (uncommitted): the spare player loads the next song and swaps in at the change; 315 ms → 0 ms between songs on an emulated slow phone connection. Holden's idea. See [[Frontend]].
+
 ### Oct 23, 2026
 - **Cassette flip** (uncommitted): double-tap the phone deck to put its buttons on the left. Holden's idea.
 - **Phone mini player** (uncommitted): Previous back, ♥ hidden.

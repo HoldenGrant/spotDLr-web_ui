@@ -133,7 +133,7 @@ body {
     -webkit-backdrop-filter: blur(24px) saturate(1.3);
     backdrop-filter: blur(24px) saturate(1.3);
 }
-:root[data-glass="true"] .topbar { border-radius: var(--radius); padding: 0 8px; }
+:root[data-glass="true"] .topbar { border-radius: var(--radius); }
 :root[data-glass="true"] .modal,
 :root[data-glass="true"] .menu,
 :root[data-glass="true"] .queue-panel,
@@ -778,6 +778,8 @@ img { display: block; }
     gap: 8px;
     border-radius: var(--radius);
 }
+/* Every surface style draws the bar as a panel, so its ends need room (Solid has no panel, and lines up with the page) */
+:root:is([data-glass="true"], [data-liquid="true"], [data-neumorphism="true"], [data-skeuomorphism="true"], [data-claymorphism="true"], [data-minimalism="true"], [data-neobrutalism="true"]) .topbar { padding: 0 12px; }
 .topbar-left, .topbar-right { display: flex; align-items: center; gap: 8px; }
 .topbar-right { justify-content: flex-end; }
 .topbar-center { display: flex; align-items: center; gap: 8px; }
@@ -953,6 +955,8 @@ img { display: block; }
 }
 :root[data-neobrutalism="true"] .lib-item.active::before { display: none; }
 :root[data-neobrutalism="true"] .lib-item.active .lib-item-sub { color: color-mix(in srgb, var(--accent-ink) 72%, transparent); }
+/* The playing collection's title turns green (.lib-item.playing below): on this green fill it vanished */
+:root[data-neobrutalism="true"] .lib-item.active.playing .lib-item-name { color: var(--accent-ink); }
 .lib-item .art { width: 48px; height: 48px; border-radius: 4px; }
 .lib-item .art.round { border-radius: 50%; }
 .lib-item-text { min-width: 0; flex: 1; }
