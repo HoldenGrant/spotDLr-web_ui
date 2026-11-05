@@ -572,7 +572,7 @@ body {
 :root[data-neumorphism="true"] :is(.appearance-effects, .theme-choice, .surface-style-choice, .remote-device-card) {
     background: var(--surface-card); border-color: transparent; box-shadow: var(--neu-raised);
 }
-:root[data-neumorphism="true"] :is(.field select, .custom-color-entry input[type="color"], .check input, input[type="range"]) {
+:root[data-neumorphism="true"] :is(.field select, .custom-color-entry input[type="color"], .check input, .settings-panels input[type="range"]) {
     background: var(--surface-input); box-shadow: var(--neu-inset);
 }
 :root[data-skeuomorphism="true"] :is(.appearance-effects, .theme-choice, .remote-device-card) {
@@ -740,6 +740,13 @@ body {
 a { color: inherit; text-decoration: none; }
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
 input, select { font: inherit; color: inherit; }
+/* Native popup menus need deliberate colours too: the field and the open list stay in the selected surface mode. */
+:root[data-mode="dark"] select { color-scheme: dark; }
+:root[data-mode="light"] select { color-scheme: light; }
+select { color: var(--text); background-color: var(--surface-input); }
+select option, select optgroup { color: var(--text); background-color: var(--surface-modal); }
+select option:checked { color: var(--accent-ink); background-color: var(--accent-fill); }
+select:disabled { opacity: .55; cursor: not-allowed; }
 img { display: block; }
 :focus-visible { outline: 2px solid var(--text); outline-offset: 2px; border-radius: 4px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -963,6 +970,8 @@ img { display: block; }
 .lib-item-name { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lib-item.playing .lib-item-name { color: var(--green); }
 .lib-item-sub { font-size: 14px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-apple-status { flex: none; display: grid; place-items: center; width: 28px; height: 28px; color: var(--sub); }
+.lib-item.active .lib-apple-status, .lib-item:hover .lib-apple-status { color: var(--text); }
 .lib-item .now { color: var(--green); }
 
 /* ---------- art ---------- */
@@ -1420,8 +1429,34 @@ code { font-family: ui-monospace, Menlo, monospace; font-size: .92em; background
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
 .field label, .field .label { font-weight: 700; font-size: 14px; }
 .field small { color: var(--sub); font-size: 12px; }
-.field select { height: 40px; padding: 0 12px; border-radius: 4px; background: var(--surface-input); border: 1px solid transparent; outline: none; }
-.field select:focus { border-color: var(--text); }
+.field select,
+.sch-row select,
+.dialog-form select {
+    min-height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--surface-input); box-shadow: inset 0 1px rgba(var(--fg-rgb), .035), 0 1px 2px rgba(0, 0, 0, .12);
+    outline: none;
+}
+.field select:hover,
+.sch-row select:hover,
+.dialog-form select:hover { border-color: color-mix(in srgb, var(--text) 36%, var(--line)); }
+.field select:focus,
+.sch-row select:focus,
+.dialog-form select:focus { border-color: var(--accent-fill); box-shadow: 0 0 0 3px rgba(var(--accent-rgb), .16); }
+
+/* Settings selects are full controls rather than bare label-and-chevron text. */
+.settings-panels .field select {
+    min-height: 46px; padding-inline: 14px 42px; border: 1px solid color-mix(in srgb, var(--text) 18%, var(--line));
+    border-radius: 12px; background-color: var(--surface-input);
+}
+:root[data-neumorphism="true"] .settings-panels .field select {
+    border-color: rgba(var(--fg-rgb), .09); box-shadow: var(--neu-inset), inset 0 0 0 1px rgba(var(--fg-rgb), .035);
+}
+:root[data-skeuomorphism="true"] .settings-panels .field select {
+    border-color: rgba(var(--fg-rgb), .16); box-shadow: inset 0 2px 5px var(--sk-dark), 0 1px var(--sk-light);
+}
+:root[data-claymorphism="true"] .settings-panels .field select {
+    border: 1px solid rgba(var(--fg-rgb), .08); box-shadow: inset 4px 5px 10px var(--clay-dark), inset -2px -2px 4px var(--clay-light);
+}
 .check { display: flex; gap: 10px; align-items: center; cursor: pointer; }
 .check input { width: 16px; height: 16px; accent-color: var(--green); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 8px; }
@@ -2634,6 +2669,20 @@ button.nv-upnext:hover { background: rgba(var(--fg-rgb), .08); color: var(--text
 }
 @media (max-width: 600px) {
     .app { padding-left: max(4px, env(safe-area-inset-left)); padding-right: max(4px, env(safe-area-inset-right)); }
+    /* Edge to edge: the top bar reaches up behind the status bar and the tab bar down to the screen's edge, so each
+       carries its own colour into those zones (the top one matches the status band by being the same surface). Their
+       content keeps clear by padding for the inset; the sides run out to the screen's edge too. */
+    .app {
+        padding-top: 0; padding-bottom: 0;
+        grid-template-rows: calc(56px + env(safe-area-inset-top)) minmax(0, 1fr) 64px calc(56px + max(env(safe-area-inset-bottom) - 14px, 0px));
+    }
+    html:root .app :is(.topbar, .tabbar) { /* more specific than the surface styles' own .topbar rules */
+        margin-left: calc(-1 * max(4px, env(safe-area-inset-left))); margin-right: calc(-1 * max(4px, env(safe-area-inset-right)));
+        padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right));
+    }
+    html:root .app .topbar { padding-top: env(safe-area-inset-top); padding-bottom: 0; border-radius: 0; }  /* flat: attached to the screen, not a card hovering over it */
+    /* The home bar only needs its own ~20 px kept clear; the rest of the inset is spent on the labels, not on empty space */
+    html:root .app .tabbar { padding-top: 0; padding-bottom: max(env(safe-area-inset-bottom) - 14px, 0px); border-radius: 0; }
     /* Long playlist names ("FM Static, Secondhand Serenade, …") took four lines of 48 px: smaller, at most 3 lines */
     .hero-title { font-size: 40px; }
     .hero-title.medium { font-size: 32px; }
@@ -2676,7 +2725,7 @@ button.nv-upnext:hover { background: rgba(var(--fg-rgb), .08); color: var(--text
 /* Scheduled plays */
 .sch-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .sch-row .field { margin-bottom: 8px; }
-.sch-row select, .dialog-form select { height: 40px; padding: 0 12px; border-radius: 4px; background: var(--surface-input); border: 1px solid transparent; color: var(--text); width: 100%; }
+.sch-row select, .dialog-form select { color: var(--text); width: 100%; }
 .sch-days { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .sch-days[hidden], #schDateField[hidden] { display: none; }
 .sch-days .chip { height: 30px; padding: 0 10px; font-size: 13px; }
@@ -2711,3 +2760,6 @@ button.nv-upnext:hover { background: rgba(var(--fg-rgb), .08); color: var(--text
     }
     .nv-controls { width: 100%; }
 }
+
+/* Marks where the rest of a long list gets drawn as you scroll (see rowsChunk); in the grid it must not take a tile's place */
+.more-rows { grid-column: 1 / -1; height: 1px; }

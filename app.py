@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 
 # Load SPOTIPY_CLIENT_ID / SPOTIPY_CLIENT_SECRET from .env next to this file
@@ -58,6 +59,24 @@ DOWNLOAD_DIR = MUSIC_DIR
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="spotDLr", version="2.0.0")
+
+
+class TextGzip:
+    """Compress the page, its scripts and the library list (4x smaller; the phone loads them over the internet), and
+    nothing else: songs and pictures are already compressed, and gzip would break their range requests."""
+    PLAIN = (".png", ".jpg", ".jpeg", ".webp", ".woff", ".woff2", ".mp3", ".m4a", ".ico")
+
+    def __init__(self, app):  # Starlette builds middleware with the keyword `app`
+        self.inner = app
+        self.zipped = GZipMiddleware(app, minimum_size=1024)
+
+    async def __call__(self, scope, receive, send):
+        path = scope.get("path", "") if scope["type"] == "http" else ""
+        text = (path in ("/", "/sw.js", "/api/library") or path.startswith("/static/")) and not path.endswith(self.PLAIN)
+        await (self.zipped if text else self.inner)(scope, receive, send)
+
+
+app.add_middleware(TextGzip)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 # Local-only guard. The API can write your Spotify secret to disk, so:
@@ -225,6 +244,7 @@ class ABXAnswer(BaseModel):
 
 class WindowRequest(BaseModel):
     id: str
+    page: Optional[dict] = None  # once per page load: what this window is running (see checkIn in app.js)
 
 
 class PlayRequest(BaseModel):
@@ -254,9 +274,21 @@ class DownloadRequest(BaseModel):
     includeLyrics: bool = False
 
 
+def asset_version():
+    """Names the current page files. The phone app saves /static files and serves them from that copy (static/sw.js),
+    keyed by URL, so the URL has to change whenever a file does: a tag bumped by hand was forgotten, and an iPhone
+    kept the old app.js and app.css for days. From each file's size and modification time: cheap per request."""
+    stamps = []
+    for path in (BASE_DIR / "index.html", BASE_DIR / "static" / "theme.js", BASE_DIR / "static" / "app.css", BASE_DIR / "static" / "app.js"):
+        stat = path.stat()
+        stamps.append(f"{stat.st_size}:{stat.st_mtime_ns}")
+    return hashlib.sha1(",".join(stamps).encode()).hexdigest()[:10]
+
+
 @app.get("/")
 def root():
-    return FileResponse(BASE_DIR / "index.html")
+    page = (BASE_DIR / "index.html").read_text(encoding="utf-8").replace("__ASSET_V__", asset_version())
+    return HTMLResponse(page)
 
 
 @app.get("/api/ping")
@@ -317,18 +349,22 @@ def client_preferences():
         return {}
 
 
+preferences_lock = threading.Lock()  # saves arrive together (several settings change at once): one at a time
+
+
 @app.put("/api/preferences/client")
 def save_client_preferences(values: dict = Body(...)):
-    current = client_preferences()
     clean = {str(key): value for key, value in values.items()
              if isinstance(key, str) and 0 < len(key) <= 64 and key != "preferencesRestored"}
-    current.update(clean)
-    encoded = json.dumps(current, separators=(",", ":"))
-    if len(encoded) > 131_072:
-        raise HTTPException(413, "Too many saved preferences")
-    temporary = CLIENT_PREFERENCES_FILE.with_suffix(".tmp")
-    temporary.write_text(encoded, encoding="utf-8")
-    temporary.replace(CLIENT_PREFERENCES_FILE)
+    with preferences_lock:  # read, merge and write as one step: two saves sharing the temporary file made one fail, and the other's change could be lost
+        current = client_preferences()
+        current.update(clean)
+        encoded = json.dumps(current, separators=(",", ":"))
+        if len(encoded) > 131_072:
+            raise HTTPException(413, "Too many saved preferences")
+        temporary = CLIENT_PREFERENCES_FILE.with_suffix(".tmp")
+        temporary.write_text(encoded, encoding="utf-8")
+        temporary.replace(CLIENT_PREFERENCES_FILE)
     return {"saved": True}
 
 
@@ -390,12 +426,18 @@ def set_credentials(request: CredentialsRequest):
 # ---------- library ----------
 
 @app.get("/api/library")
-def get_library():
+def get_library(request: Request):
     snapshot = library.snapshot()
     for track in snapshot["tracks"]:
         track["genre"] = genres.genre_for(track)
     snapshot["liked"] = likes.ids()
-    return snapshot
+    body = json.dumps(snapshot, separators=(",", ":"), default=str).encode()
+    # A phone that already has this exact list is told so instead of being sent it again (657 KB, 141 KB compressed)
+    etag = '"' + hashlib.sha1(body).hexdigest()[:20] + '"'
+    headers = {"ETag": etag, "Cache-Control": "no-cache"}  # no-cache: always ask, but a 304 costs nothing to send
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(body, media_type="application/json", headers=headers)
 
 
 @app.post("/api/plays")
@@ -748,7 +790,7 @@ def service_worker():
     # is off on the phone but it's on the same Wi-Fi as this computer
     status = phones.status(with_tailscale=False)
     home = "" if status["tailscale"]["funnel"] else status["address"] or ""  # public with Funnel: don't reveal the home network name
-    script = (BASE_DIR / "static" / "sw.js").read_text(encoding="utf-8").replace("__HOME_URL__", home)
+    script = (BASE_DIR / "static" / "sw.js").read_text(encoding="utf-8").replace("__HOME_URL__", home).replace("__ASSET_V__", asset_version())
     return Response(script, media_type="text/javascript", headers={"Cache-Control": "no-cache"})
 
 
@@ -879,6 +921,8 @@ WINDOW_TIMEOUT = 180    # no check-in for this long = gone without a goodbye (cr
 def window_alive(request: WindowRequest):
     with windows_lock:
         windows[request.id[:64]] = time.time()
+    if request.page:  # lets a phone's layout be diagnosed from here: which files it runs and what iOS gives the page
+        logger.info("Page loaded: %s", {str(k)[:24]: str(v)[:60] for k, v in list(request.page.items())[:16]})
     return {"ok": True}
 
 

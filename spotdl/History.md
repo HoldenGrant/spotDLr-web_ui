@@ -11,6 +11,10 @@ Jump to: [[#2026]] · [[#2025]]
 
 ## 2026
 
+### Nov 3, 2026
+- **Phone cache fix** (uncommitted): the iPhone ran stale app files because `sw.js` caches `/static` by URL and the `?v=` tag was a hand-bumped constant; now computed from the files. Explains "nothing change". See [[Bug Log]].
+- **Phone download button and bottom strip** (uncommitted): "Downloading…" no longer spills out of the round button; the home-bar strip is 12 px instead of 34. The status band is now the top bar's own surface (dark themes exactly; light themes a darker tint so the white clock reads), the phone bars run edge to edge, flat. See [[Frontend]].
+
 ### Oct 31, 2026
 - **Neo-brutalism library title** (uncommitted): the playing + selected collection's title no longer vanishes (10.9:1).
 - **Next song ready: off on iPhone** (uncommitted): it stopped the next song starting with the screen locked (iOS only lets the playing element continue); plus a swap-back if any browser refuses the swapped player.

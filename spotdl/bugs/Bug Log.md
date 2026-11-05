@@ -2,6 +2,42 @@
 
 Started Oct 15, 2026 from a full code read. Each entry says how it was checked. Related: [[Backend]] · [[Frontend]] · [[How It Works]]
 
+## Fixed Nov 3, 2026
+
+### Long lists built every row at once; library re-sent unchanged
+
+Profile at 4x CPU slowdown (CDP `Profiler`): `render` 410 ms, 32,338 page elements for 1,327 songs, first rows at 0.61 s. `rowsChunk()` in `static/app.js` draws 120 rows, then 240 more each time a `.more-rows` sentinel nears the screen (IntersectionObserver rooted at `#main`); refreshes that keep your scroll (`rerender`, `chunkRows = false`) draw everything so the position exists; sortable playlists draw everything. After: render 51 ms, first rows 0.12 s. Verified in headless Chrome: scrolling reaches index 1326, row 700 plays the right song and is marked playing, search and grid view work. `/api/library` now sends an `ETag` and answers `If-None-Match` with 304 (`Cache-Control: no-cache`); data identical to before (the collections' order varies between server runs, as it did before). Warm-boot background swap uses `rerender()` so it no longer jumps your scroll to the top.
+
+### Two preference saves at once collided on one temporary file
+
+`PUT /api/preferences/client` read, merged and wrote `client-preferences.tmp` with no lock; concurrent requests (the server runs sync routes in threads) made the second `replace()` fail with `No such file or directory` (10 times in the server log) and could lose a change. Fixed with `preferences_lock` around the whole read-merge-write. `tests/test_preferences_save.py` runs 40 saves at once: fails without the lock, passes with it.
+
+### Phone songs hung over Tailscale Funnel; songs now kept on the phone
+
+Phone report: `audio: silent / recovery:retry`, `net 2, ready 0, buffered 0`: the stream request got no bytes. The server answered that song in 17 ms locally; a relay connection held ~900 KB undelivered and the phone showed offline in Tailscale (so it was on Funnel, which Tailscale rate-limits). Changes: `static/sw.js` keeps the played song and the next two in the `spotdlr-songs` cache (40 newest, survives app updates, answers byte ranges with real 206s; a song that isn't saved goes to the computer as before) and `keepSongsOnPhone()` in `static/app.js` asks for that once the song has fully arrived; `audioReport()` logs player trouble. Checked in headless Chrome: 3 songs saved, ranges byte-identical to the server's, a planted copy answered 206/416/200 correctly. Not checked on an iPhone (Safari's handling of service-worker audio ranges is the risk).
+
+### Phone still slow to open: saved library (stale-while-revalidate)
+
+`dataCache` in `static/app.js` keeps the last `/api/status/init` and `/api/library` answers in the Cache API (`spotdlr-data`); `boot()` opens with them (`warm`) and, once the page is up, swaps in the server's answer only if the text differs (`loadLibrary` + `render`). Not available on plain-http addresses (no Cache API there): those open the old way. Checked in headless Chrome: saved open shows 1327 rows in 0.1 s, refresh ends with the same count, no errors; the network throttle test was not conclusive, so the phone is the real check.
+
+### Phone opened slowly (serial round trips) and tab bar had a wide empty band
+
+Boot did page -> /status/init -> /library in series over Tailscale Funnel, and the service worker waited on the network for the page with no limit. Now `boot()` starts /library together with init (`loadLibrary(request)`), and `static/sw.js` navigations race the network against a 2 s timer, falling back to the saved page. Tab bar: only `inset - 14px` of the bottom inset is padding (the home bar needs ~20 px), the labels use the rest. Emulation: tab bar 768-844, labels end at 821.
+
+### Phone loaded slowly over Tailscale (no compression)
+
+The server sent app.js (408 KB), app.css (165 KB) and /api/library (657 KB) uncompressed; a freshly added Home Screen icon has an empty cache, so everything came down at once. `TextGzip` in `app.py` gzips only `/`, `/sw.js`, `/api/library` and `/static/*` (not songs or pictures, whose range requests gzip would break): 1.23 MB -> about 0.29 MB. Checked with `curl -H 'Accept-Encoding: gzip'`; the server answers in 7 ms locally, so the Mac was not the bottleneck.
+
+### iPhone Home Screen app: status bar zone and bottom band
+
+iOS keeps `apple-mobile-web-app-status-bar-style` from when the icon was added, so changes to the meta did nothing until the icon was re-added. The phone's own report (the page's "Page loaded" line in the server log) showed what `black-translucent` really does here: `env(safe-area-inset-top/bottom)` both read 0px, so the tint strip and tab bar padding had no insets to use, and a blank band ~47 pt showed under the tab bar. Lukkie's PWA (checked in pet-tracker) uses the default status bar with `theme_color` equal to the page colour and no `viewport-fit`/status bar meta. Fix: `default` style again, and `paintStatusBar()` in `static/theme.js` sets `theme-color` to the top bar's computed colour (first solid background under it) on every theme/surface/mode change. Checked in emulation for 7 surfaces x light/dark; phone needs the icon removed and re-added once.
+
+### iPhone kept running the old app.js/app.css after updates (v2.6.0 phone cache)
+
+Holden's iPhone showed none of the changes made after the v2.6.0 release (swipe to like, the mini player, the status bar, the bottom strip): "nothing change". `static/sw.js` (added in 2.6.0) answers `/static/*` **cache-first, keyed by URL**, and the URLs carried a fixed `?v=surfaces-32` in `index.html` and `sw.js`, so a phone that had cached them never asked the server again. Page navigations are network-first, so the HTML was fresh but pointed at the same cached URLs. Found by reading `sw.js`: cache-first for `/static/` plus an unchanging URL.
+
+**Fix:** `asset_version()` in `app.py` hashes the size and mtime of `index.html`, `theme.js`, `app.css` and `app.js`; `/` and `/sw.js` replace `__ASSET_V__` with it (page URLs, precache list and the cache name), so any edit changes the URLs and the worker's bytes, and the phone fetches fresh files and drops the old caches. Checked: page and worker carry the same tag, it changes when a file is touched, no placeholder is left. `tests/test_asset_version.py` guards it. Chrome and WebKit on the Mac never register the worker (`on_phone` only), which is why none of my emulation tests could have caught this.
+
 ## Fixed Oct 21, 2026
 
 ### Every download failed with HTTP 403: server started outside the .venv

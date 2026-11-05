@@ -7,18 +7,54 @@
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='11' fill='%231ed760'/%3E%3Cpath d='M11 6h2v6.6l2.3-2.3 1.4 1.4L12 16.4l-4.7-4.7 1.4-1.4 2.3 2.3z' fill='%23000'/%3E%3C/svg%3E">
     <link rel="manifest" href="/static/manifest.webmanifest">
     <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+    <style>
+        /* Loading screen: painted from this page alone, so it shows before any file arrives. It fades in only after
+           150 ms, so a quick start never flashes it, and is removed by boot() in app.js once the first page is drawn. */
+        #splash { position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
+            background: #121212; color: #fff; font: 700 22px/1 "Figtree", system-ui, -apple-system, sans-serif; letter-spacing: -0.01em;
+            transition: opacity .25s ease-out; animation: splash-in .25s ease-out .15s backwards; }
+        html[data-mode="light"] #splash { background: #f2f3f5; color: #15171a; }
+        #splash.out { opacity: 0; pointer-events: none; }
+        .splash-mark { width: 72px; height: 72px; }
+        .splash-bars { display: flex; align-items: flex-end; gap: 5px; height: 28px; }
+        .splash-bars i { width: 5px; height: 28px; border-radius: 3px; background: #1ed760; transform-origin: bottom; animation: splash-eq 1s ease-in-out infinite; }
+        .splash-bars i:nth-child(2) { animation-delay: -.25s; }
+        .splash-bars i:nth-child(3) { animation-delay: -.5s; }
+        .splash-bars i:nth-child(4) { animation-delay: -.75s; }
+        .splash-note { position: absolute; bottom: calc(48px + env(safe-area-inset-bottom)); margin: 0; padding: 0 24px; text-align: center;
+            font: 500 14px/1.4 system-ui, -apple-system, sans-serif; color: #8a8f98; opacity: 0; transition: opacity .4s ease-out; }
+        #splash.slow .splash-note { opacity: 1; }
+        @keyframes splash-in { from { opacity: 0; } }
+        @keyframes splash-eq { 0%, 100% { transform: scaleY(.3); } 50% { transform: scaleY(1); } }
+        @media (prefers-reduced-motion: reduce) { .splash-bars i { animation: none; transform: scaleY(.65); } #splash { animation: none; } }
+    </style>
     <meta name="theme-color" content="#121212">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="spotDLr">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <script src="/static/theme.js?v=surfaces-32"></script>
-    <link rel="stylesheet" href="/static/app.css?v=surfaces-32">
+    <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"></noscript>
+    <script src="/static/theme.js?v=__ASSET_V__"></script>
+    <link rel="stylesheet" href="/static/app.css?v=__ASSET_V__">
 </head>
 <body>
+    <div id="splash" role="status" aria-label="Loading spotDLr">
+        <svg class="splash-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#1ed760"/><path d="M11 6h2v6.6l2.3-2.3 1.4 1.4L12 16.4l-4.7-4.7 1.4-1.4 2.3 2.3z" fill="#000"/></svg>
+        <span>spotDLr</span>
+        <div class="splash-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+        <p class="splash-note">Still connecting to your computer…</p>
+    </div>
+    <script>
+        (() => {
+            const splash = document.getElementById('splash');
+            const slow = setTimeout(() => splash.classList.add('slow'), 3500); // the computer is far or asleep: say so
+            const giveUp = setTimeout(() => window.hideSplash(), 20000);       // never trap the app behind it
+            window.hideSplash = () => { clearTimeout(slow); clearTimeout(giveUp); splash.classList.add('out'); setTimeout(() => splash.remove(), 300); window.hideSplash = () => {}; };
+        })();
+    </script>
     <div class="app">
         <header class="topbar">
             <div class="topbar-left">
@@ -120,6 +156,6 @@
     <div id="menuRoot"></div>
     <div class="drop-overlay" id="dropOverlay" hidden><div>Drop music files to add them to spotDLr</div></div>
 
-    <script src="/static/app.js?v=surfaces-32"></script>
+    <script src="/static/app.js?v=__ASSET_V__"></script>
 </body>
 </html>

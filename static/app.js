@@ -17,8 +17,18 @@ function html(strings, ...values) {
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 
+async function apiRequest(path, options = {}) {
+    const request = () => fetch('/api' + path, { headers: { 'Content-Type': 'application/json' }, ...options });
+    try { return await request(); }
+    catch (error) {
+        // A phone can briefly lose its Wi-Fi/Tailscale route while the app is otherwise open. GETs are safe to retry.
+        if ((options.method || 'GET').toUpperCase() !== 'GET') throw error;
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        return request();
+    }
+}
 async function api(path, options = {}) {
-    const response = await fetch('/api' + path, { headers: { 'Content-Type': 'application/json' }, ...options });
+    const response = await apiRequest(path, options);
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.detail || `Request failed (${response.status})`);
     return data;
@@ -162,6 +172,7 @@ const S = {
     recent: store.get('recentContexts', {}), // context key (as on the sidebar items) -> when it was last played
     libQuery: '',
     settings: { format: 'm4a', bitrate: 'auto', lyrics: false, ...store.get('settings', {}) },
+    appleMusicTracks: new Set(store.get('appleMusicTracks', [])),
     spotifyCache: new Map(), // "kind/id" or "search/q" -> { time, data }
 };
 
@@ -175,8 +186,22 @@ const owned = (t) => (t.source === 'ytm' ? S.byVideoId.get(t.id) : S.bySpotifyId
     || S.byTitleArtist.get(songKey(t.name, t.artists[0] && t.artists[0].name)) || null;
 const remoteHref = (item, kind) => `#/${item.source || 'spotify'}/${kind}/${encodeURIComponent(item.id)}`;
 
-async function loadLibrary() {
-    const data = await api('/library');
+// The last status and library answers are kept on the device, so opening the app shows them at once and the server's
+// answer arrives behind them (a phone far from home waits seconds for a library that rarely changes)
+const dataCache = {
+    async get(path) { try { const hit = await (await caches.open('spotdlr-data')).match('/api' + path); return hit ? await hit.text() : null; } catch { return null; } },
+    put(path, text) { try { caches.open('spotdlr-data').then((cache) => cache.put('/api' + path, new Response(text))); } catch { /* not available (plain http) */ } },
+};
+async function apiText(path) {
+    const response = await apiRequest(path);
+    const text = await response.text();
+    if (!response.ok) throw new Error((() => { try { return JSON.parse(text).detail; } catch { return ''; } })() || `Request failed (${response.status})`);
+    dataCache.put(path, text);
+    return text;
+}
+
+async function loadLibrary(request = api('/library')) {
+    const data = await request;
     S.tracks = data.tracks;
     S.collections = data.collections;
     S.likedOrder = (data.liked || []).filter((id) => data.tracks.some((t) => t.id === id));
@@ -983,6 +1008,30 @@ function resetPlaybackRecovery(trackId = null) {
     playbackRecovery.attempts = 0;
 }
 
+// Playback trouble on a phone is invisible from the computer, so the page says what its player saw (one line in the
+// server log: "Page loaded: {audio: ...}")
+function audioReport(why) {
+    try {
+        const a = P.audio, last = a.buffered.length ? Math.round(a.buffered.end(a.buffered.length - 1)) : 0;
+        fetch('/api/window/alive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: WINDOW_ID, page: {
+            audio: why, src: (a.currentSrc || '').slice(-28), err: a.error?.code, msg: a.error?.message, net: a.networkState, ready: a.readyState,
+            t: Math.round(a.currentTime), buffered: last, paused: a.paused, online: navigator.onLine,
+        } }) }).catch(() => {});
+    } catch { /* diagnostics only */ }
+}
+
+// On a phone: once this song has fully arrived (the link is free), ask the phone app to keep it and the next two
+// (static/sw.js), so a replay or the next song needs no trip to the computer
+let keptFor = null;
+function keepSongsOnPhone() {
+    const t = currentTrack(), a = P.audio;
+    if (!t || keptFor === t.id || !S.init?.on_phone || !navigator.serviceWorker?.controller) return;
+    if (!a.buffered.length || !(a.duration > 0) || a.buffered.end(a.buffered.length - 1) < a.duration - 1) return;
+    keptFor = t.id;
+    const ids = [...new Set([t, neighbour(1), neighbour(2)].filter(Boolean).map((x) => x.id))];
+    navigator.serviceWorker.controller.postMessage({ keep: ids });
+}
+
 function armPlaybackRecovery() {
     const t = currentTrack();
     if (!t || P.audio.paused || P.audio.ended || playbackRecovery.timer) return;
@@ -998,6 +1047,7 @@ function armPlaybackRecovery() {
             currentTime: P.audio.currentTime || 0, duration: P.audio.duration,
             attempts: playbackRecovery.attempts,
         });
+        audioReport(`recovery:${action}`);
         if (action === 'next') { next(true); return; }
         if (action === 'wait') { toast('Playback is still waiting for the connection. Tap pause, then play to retry.', 'error'); return; }
         if (action !== 'retry') return;
@@ -1011,6 +1061,7 @@ function armPlaybackRecovery() {
             if (currentTrack()?.id === trackId && resumeAt < P.audio.duration - 1) P.audio.currentTime = resumeAt;
         }, { once: true });
         P.audio.play().catch((error) => {
+            audioReport(`play:${error.name}`);
             if (error.name !== 'AbortError' && error.name !== 'NotAllowedError') toast(`Couldn't resume "${current?.title || 'song'}"`, 'error');
         });
     }, RECOVERY_WAIT_MS);
@@ -3124,6 +3175,9 @@ function bindPlayer() {
         playbackRecovery.timer = null;
         updateControls();
     });
+    onPlayer('progress', keepSongsOnPhone);
+    onPlayer('error', () => audioReport('error'));
+    onPlayer('play', () => { const at = P.audio.currentTime; setTimeout(() => { if (!P.audio.paused && P.audio.currentTime <= at + 0.5) audioReport('silent'); }, 6000); }); // asked to play, nothing came out
     onPlayer('waiting', armPlaybackRecovery);
     onPlayer('stalled', armPlaybackRecovery);
     onPlayer('ended', () => { // report before moving on (or stopping)
@@ -3221,7 +3275,12 @@ function updateDownloadButtons() {
         if (btn.classList.contains('status-btn')) {
             btn.innerHTML = icon(job ? 'loader' : 'download', 18, job ? 'spinning' : '').s;
         } else if (job) {
-            btn.innerHTML = html`${icon('loader', 18, 'spinning')} ${job.status === 'queued' ? 'Queued' : 'Downloading…'}`.s;
+            const label = job.status === 'queued' ? 'Queued' : 'Downloading…';
+            // Phones show these as a round icon and hide .remote-download-label; a bare text node would slip past that
+            btn.innerHTML = btn.classList.contains('remote-download')
+                ? html`${icon('loader', 18, 'spinning')}<span class="remote-download-label">${label}</span>`.s
+                : html`${icon('loader', 18, 'spinning')} ${label}`.s;
+            if (btn.classList.contains('remote-download')) btn.setAttribute('aria-label', `${label} — ${btn.dataset.title || ''}`);
         }
     });
 }
@@ -3857,9 +3916,11 @@ function renderLibraryInto(prefix) {
             if (S.libFilter !== 'all' && c.kind !== S.libFilter) continue;
             if (!match(c.name)) continue;
             const sub = c.kind === 'album' ? `Album • ${c.artist}` : `Playlist • ${plural(c.track_ids.length, 'song')}`;
+            const inAppleMusic = S.init.apple_music && appleMusicHas(c.track_ids);
             entries.push({ key: `collection:${c.key}`, name: c.name, creator: c.artist || '', added: c.added,
                 html: html`<li class="lib-item" title="${c.name} — ${sub}" data-href="#/collection/${encodeURIComponent(c.key)}" data-key="collection:${c.key}">${collectionArt(c)}
-                    <div class="lib-item-text"><div class="lib-item-name">${c.name}</div><div class="lib-item-sub">${sub}</div></div></li>` });
+                    <div class="lib-item-text"><div class="lib-item-name">${c.name}</div><div class="lib-item-sub">${sub}</div></div>
+                    ${inAppleMusic ? html`<span class="lib-apple-status" title="In Apple Music" aria-label="In Apple Music">${icon('apple', 16)}</span>` : ''}</li>` });
         }
     }
     if (S.libFilter === 'artist' || S.libFilter === 'all') {
@@ -3929,6 +3990,36 @@ function registerContext(ids, context) {
     return id;
 }
 
+// Long lists draw their first rows at once and the rest as you scroll toward them: All songs with 1,300 songs was
+// 32,000 page elements, which a phone has to build, hold and lay out before it can show anything
+const FIRST_ROWS = 120, MORE_ROWS = 240;
+let chunkRows = true;            // a refresh that keeps your scroll position draws everything, so the position still exists
+const moreRows = new Map();      // list id -> the rows not drawn yet
+let moreObserver = null;
+function rowsChunk(ctx, tracks, rowHtml, all = false) {
+    if (all || !chunkRows || tracks.length <= FIRST_ROWS + 60) return tracks.map((t, i) => rowHtml(t, i));
+    moreRows.set(ctx, { tracks, from: FIRST_ROWS, rowHtml });
+    return html`${tracks.slice(0, FIRST_ROWS).map((t, i) => rowHtml(t, i))}<div class="more-rows" data-ctx="${ctx}" aria-hidden="true"></div>`;
+}
+function drawMoreRows(sentinel) {
+    const rest = moreRows.get(sentinel.dataset.ctx);
+    if (!rest) { sentinel.remove(); return; }
+    const end = Math.min(rest.from + MORE_ROWS, rest.tracks.length);
+    sentinel.insertAdjacentHTML('beforebegin', rest.tracks.slice(rest.from, end).map((t, k) => String(rest.rowHtml(t, rest.from + k))).join(''));
+    rest.from = end;
+    markPlaying();
+    moreObserver?.unobserve(sentinel);
+    if (end >= rest.tracks.length) { moreRows.delete(sentinel.dataset.ctx); sentinel.remove(); }
+    else moreObserver?.observe(sentinel); // observing again checks whether it is still near the screen
+}
+function watchMoreRows() {
+    moreObserver?.disconnect();
+    const sentinels = $$('.more-rows');
+    if (!sentinels.length) return;
+    moreObserver = new IntersectionObserver((entries) => { for (const e of entries) if (e.isIntersecting) drawMoreRows(e.target); }, { root: $('#main'), rootMargin: '1500px 0px' });
+    sentinels.forEach((el) => moreObserver.observe(el));
+}
+
 // Track table for local tracks
 function localTable(tracks, context, { showAlbum = true, numbered = true, sort = null, sortable = false } = {}) {
     const ctx = registerContext(tracks.map((t) => t.id), context);
@@ -3940,13 +4031,7 @@ function localTable(tracks, context, { showAlbum = true, numbered = true, sort =
         const on = sort.key === key;
         return html`<span class="${cls}" role="columnheader" aria-sort="${on ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}"><button class="sort-head ${on ? 'on' : ''}" data-action="songs-sort" data-sort="${key}" title="Sort by ${typeof label === 'string' ? label : 'duration'}" aria-label="Sort by ${SONG_SORTS.find(([k]) => k === key)[1]}">${label}${on ? icon(sort.dir === 'asc' ? 'up' : 'down', 14) : ''}</button></span>`;
     };
-    return html`
-    <div class="tracks ${showAlbum ? '' : 'no-album'}" role="grid" aria-label="${context.label}" ${sortable ? new Safe('id="sortTracks"') : ''}>
-        <div class="track-head" role="row">
-            <span>#</span>${head('title', 'Title')}${showAlbum ? head('album', 'Album', 'album-cell') : ''}${head('added', 'Date added', 'date-cell')}
-            ${head('duration', icon('clock', 16), 'right')}
-        </div>
-        ${tracks.map((t, i) => html`
+    const rowHtml = (t, i) => html`
         <div class="track" role="row" data-id="${t.id}" data-ctx="${ctx}" data-index="${i}" ${sortable ? html`data-sort-index="${i}"` : ''}>
             <span class="num"><span class="n">${numbered ? i + 1 : ''}</span>${eq()}<button class="row-play" data-action="play-row" aria-label="Play ${t.title}">${icon('play', 14)}</button></span>
             <div class="title-cell">${trackArt(t)}<span class="mobile-playing-overlay">${eq()}</span><div class="title-text">
@@ -3956,22 +4041,30 @@ function localTable(tracks, context, { showAlbum = true, numbered = true, sort =
             ${showAlbum ? html`<span class="album-cell">${t.album}</span>` : ''}
             <span class="date-cell">${fmtAdded(t.added)}</span>
             <span class="duration right">${sortable ? html`<button class="row-more drag-handle" aria-label="Move ${t.title}: drag, or use the up and down arrow keys" title="Drag to reorder">${icon('grip', 16)}</button>` : ''}${likeButton(t.id)}<span class="dur">${fmtTime(t.duration)}</span><button class="row-more" data-action="row-menu" aria-label="More options for ${t.title}" aria-haspopup="menu">${icon('more', 16)}</button></span>
-        </div>`)}
+        </div>`;
+    return html`
+    <div class="tracks ${showAlbum ? '' : 'no-album'}" role="grid" aria-label="${context.label}" ${sortable ? new Safe('id="sortTracks"') : ''}>
+        <div class="track-head" role="row">
+            <span>#</span>${head('title', 'Title')}${showAlbum ? head('album', 'Album', 'album-cell') : ''}${head('added', 'Date added', 'date-cell')}
+            ${head('duration', icon('clock', 16), 'right')}
+        </div>
+        ${rowsChunk(ctx, tracks, rowHtml, sortable)}
     </div>`;
 }
 
 // The same songs as covers. Each tile is still a .track with data-id/ctx/index, so playing, the
 // playing highlight, double-click, right-click and ⋯ all work exactly as in the list.
 function trackGrid(tracks, context, ctx) {
-    return html`
-    <div class="track-grid" role="list" aria-label="${context.label}">
-        ${tracks.map((t, i) => html`
+    const rowHtml = (t, i) => html`
         <div class="track tile-track" role="listitem" data-id="${t.id}" data-ctx="${ctx}" data-index="${i}">
             <div class="tt-art">${trackArt(t)}${eq()}<button class="fab" data-action="play-row" aria-label="Play ${t.title}">${icon('play', 20)}</button></div>
             <div class="tt-title" title="${t.title}">${t.title}</div>
             <div class="tt-sub">${t.artists.map((a, j) => html`${j ? ', ' : ''}<a href="${artistHref(a)}">${a}</a>`)}</div>
             <div class="tt-foot"><span class="dur">${fmtTime(t.duration)}</span>${likeButton(t.id)}<button class="row-more" data-action="row-menu" aria-label="More options for ${t.title}" aria-haspopup="menu">${icon('more', 16)}</button></div>
-        </div>`)}
+        </div>`;
+    return html`
+    <div class="track-grid" role="list" aria-label="${context.label}">
+        ${rowsChunk(ctx, tracks, rowHtml)}
     </div>`;
 }
 
@@ -4241,9 +4334,11 @@ function refreshSongs() {
     const input = $('#songsSearch');
     const typing = document.activeElement === input;
     const caret = typing ? [input.selectionStart, input.selectionEnd] : null;
+    moreRows.clear(); chunkRows = true;
     body.innerHTML = songsBody().s;
     if (typing) { const i = $('#songsSearch'); i.focus(); i.setSelectionRange(...caret); }
     markPlaying();
+    watchMoreRows();
 }
 
 function setSongsSort(key, dir) {
@@ -5108,6 +5203,8 @@ async function render({ keepScroll = false } = {}) {
     const view = $('#view');
     const scroll = main.scrollTop;
     contexts.clear();
+    moreRows.clear();
+    chunkRows = !keepScroll;
     view.style.removeProperty('--hero');
     delete view.dataset.heroSrc;
 
@@ -5178,6 +5275,7 @@ async function render({ keepScroll = false } = {}) {
     }
     highlightSidebar();
     markPlaying();
+    watchMoreRows();
     updateControls();
 }
 const rerender = () => render({ keepScroll: true });
@@ -5521,7 +5619,7 @@ function rowMenu(row, position) {
         ...(playlist ? [{ label: `Remove from ${playlist.name}`, icon: 'trash', run: () => removeFromPlaylist(playlist, [t.id], t.title) }] : []),
         { label: 'Send to device', icon: 'usb', run: () => sendToDeviceDialog([t.id], t.title, null) },
         { label: savingLyrics.has(t.id) ? 'Downloading lyrics…' : 'Download lyrics', icon: 'downloadPlain', disabled: savingLyrics.has(t.id), run: () => saveTrackLyrics(t) },
-        ...(S.init.apple_music ? [{ label: 'Add to Apple Music', icon: 'apple', run: () => appleMusicDialog([t.id], t.title, null, false) }] : []),
+        ...(S.init.apple_music ? [{ label: appleMusicHas([t.id]) ? 'In Apple Music' : 'Add to Apple Music', icon: 'apple', disabled: appleMusicHas([t.id]), run: () => appleMusicDialog([t.id], t.title, null, false) }] : []),
         { label: 'Blind listening test', icon: 'ear', run: () => { location.hash = `#/abx/${encodeURIComponent(t.id)}`; } },
         '-',
         { label: `Go to ${t.artists[0]}`, icon: 'user', run: () => { location.hash = artistHref(t.artists[0]); } },
@@ -5542,7 +5640,7 @@ function collectionMenu(anchor) {
         { label: 'Add to another playlist', icon: 'listAdd', disabled: !ids.length, run: () => addToPlaylistDialog(ids, name) },
         { label: 'Send to device', icon: 'usb', disabled: !ids.length, run: () => sendToDeviceDialog(ids, name, name) },
         ...(c && !S.init.on_phone ? [{ label: 'Open folder', icon: 'folder', run: () => openLibraryLocation({ collection_key: c.key }) }] : []),
-        ...(S.init.apple_music ? [{ label: 'Add to Apple Music', icon: 'apple', disabled: !ids.length, run: () => appleMusicDialog(ids, name, name, !(c && c.kind === 'album')) }] : []),
+        ...(S.init.apple_music ? [{ label: appleMusicHas(ids) ? 'In Apple Music' : 'Add to Apple Music', icon: 'apple', disabled: !ids.length || appleMusicHas(ids), run: () => appleMusicDialog(ids, name, name, !(c && c.kind === 'album')) }] : []),
         ...(c && c.editable ? ['-', { label: 'Rename', icon: 'listAdd', run: () => renamePlaylistDialog(c) },
             { label: 'Delete playlist', icon: 'trash', danger: true, run: () => deletePlaylistDialog(c) }] : []),
     ], { anchor, label: `Options for ${name}` });
@@ -6227,6 +6325,16 @@ function sendToDeviceDialog(trackIds, label, collection) {
 // Lossless songs become Apple Lossless (checked sample-identical), AAC/MP3 go in as they are, Opus/Ogg become
 // AAC 256. Songs already in Apple Music are skipped. Playlists can get a matching playlist in Apple Music.
 
+function appleMusicHas(trackIds) {
+    return trackIds.length > 0 && trackIds.every((id) => S.appleMusicTracks.has(id));
+}
+
+function rememberAppleMusicTracks(trackIds) {
+    trackIds.forEach((id) => S.appleMusicTracks.add(id));
+    store.set('appleMusicTracks', [...S.appleMusicTracks]);
+    renderSidebar();
+}
+
 function appleMusicDialog(trackIds, label, collection, isPlaylist) {
     const tracks = trackIds.map((id) => S.byId.get(id)).filter(Boolean);
     const ext = (t) => t.path.slice(t.path.lastIndexOf('.')).toLowerCase();
@@ -6272,6 +6380,7 @@ function appleMusicDialog(trackIds, label, collection, isPlaylist) {
                 }
                 $('#appleCancel', modal).textContent = 'Close';
                 if (job.status === 'done') {
+                    rememberAppleMusicTracks(tracks.map((t) => t.id));
                     setProgress(bar, 1);
                     const parts = [`Added ${plural(job.added, 'song')} to Apple Music`];
                     if (job.verified) parts.push(`${job.verified} as Apple Lossless, every sample checked`);
@@ -6567,9 +6676,29 @@ async function pollGenres() {
 // The installed Windows app stops its server when the last window closes, and it learns that from the
 // page itself: a check-in every 15 s, a goodbye on close. (Harmless when running from source.)
 const WINDOW_ID = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2));
-const checkIn = () => fetch('/api/window/alive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: WINDOW_ID }) }).catch(() => {});
+// The first check-in of a page also says what it is running: its file tag and what the browser gives the page at the
+// screen's edges, so a phone that "shows nothing new" can be told apart from a layout that really isn't right
+const pageReport = () => {
+    const inset = (side) => { const probe = document.createElement('div'); probe.style.cssText = `position:fixed;visibility:hidden;padding-${side}:env(safe-area-inset-${side})`; document.body.append(probe); const px = getComputedStyle(probe)[`padding${side[0].toUpperCase()}${side.slice(1)}`]; probe.remove(); return px; };
+    return {
+        files: (document.querySelector('script[src*="app.js"]')?.getAttribute('src') || '').split('v=')[1],
+        standalone: String(navigator.standalone === true || matchMedia('(display-mode: standalone)').matches),
+        statusBar: document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.content,
+        mode: document.documentElement.dataset.mode, surface: document.documentElement.dataset.surface || [...document.documentElement.attributes].filter((a) => /^data-/.test(a.name) && a.value === 'true').map((a) => a.name.slice(5)).join(),
+        insetTop: inset('top'), insetBottom: inset('bottom'),
+        screen: `${innerWidth}x${innerHeight}`, visual: `${Math.round(visualViewport?.height || 0)}`, device: `${screen.width}x${screen.height}`, html: `${document.documentElement.clientHeight}`, app: (() => { const b = document.querySelector('.app')?.getBoundingClientRect(); return b && `${Math.round(b.top)}-${Math.round(b.bottom)}`; })(), topbar: (() => { const b = document.querySelector('.topbar')?.getBoundingClientRect(); return b && `${Math.round(b.top)}-${Math.round(b.bottom)}`; })(),
+        tabbar: (() => { const b = document.querySelector('.tabbar')?.getBoundingClientRect(); return b && `${Math.round(b.top)}-${Math.round(b.bottom)}`; })(),
+    };
+};
+let reported = false;
+const checkIn = () => {
+    const body = { id: WINDOW_ID };
+    if (!reported && matchMedia('(pointer: coarse)').matches && document.querySelector('.tabbar')) { reported = true; try { body.page = pageReport(); } catch { /* diagnostics only */ } }
+    return fetch('/api/window/alive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {});
+};
 function bindWindowCheckIn() {
     checkIn();
+    setTimeout(checkIn, 4000); // the first one can come before the layout exists; this one carries the report
     setInterval(checkIn, 15000);
     window.addEventListener('pagehide', () => navigator.sendBeacon('/api/window/bye', new Blob([JSON.stringify({ id: WINDOW_ID })], { type: 'application/json' })));
     window.addEventListener('pageshow', (e) => { if (e.persisted) checkIn(); }); // back from the back/forward cache
@@ -6585,16 +6714,27 @@ function bindWindowCheckIn() {
     bindNowView();
     bindSwipeToLike();
     bindEvents();
-    try { S.init = await api('/status/init'); } catch { S.init = { initialized: false, message: 'Server not reachable' }; }
+    // Asked together: over the internet each round trip costs time, and the library doesn't depend on init
+    const initRequest = apiText('/status/init'); initRequest.catch(() => {});
+    const libraryRequest = apiText('/library'); libraryRequest.catch(() => {});
+    let initText = await dataCache.get('/status/init'), libraryText = await dataCache.get('/library');
+    const saved = { initText, libraryText };
+    const warm = Boolean(initText && libraryText); // seen before on this device: open with that, refresh behind it
+    try { if (!warm) initText = await initRequest; S.init = JSON.parse(initText); } catch { S.init = { initialized: false, message: 'Server not reachable' }; }
     registerPhoneCache();
-    try { await loadLibrary(); } catch (err) { toast(`Couldn't load your library: ${err.message}`, 'error'); }
+    try { if (!warm) libraryText = await libraryRequest; await loadLibrary(Promise.resolve(JSON.parse(libraryText))); } catch (err) { toast(`Couldn't load your library: ${err.message}`, 'error'); }
     const resumePage = restoreSession(S.init.on_phone && R.mode === 'listen' ? 'transferSession' : 'session');
     // Opening or reloading the app on Home (or no page, as the app window opens) shows the last playlist.
     // Reloading any other page (Stats, a search, another playlist) stays on it.
     if (resumePage && ['', '#', '#/'].includes(location.hash)) history.replaceState(null, '', resumePage);
     await render();
+    window.hideSplash?.(); // the first page is drawn: lift the loading screen
     pollJobs();
     pollGenres();
     remoteSyncTick();
     startScheduler(); // after the library loads: a due schedule needs its songs
+    if (warm) { // the server's answer, now that the page is up: swap it in only if something changed
+        initRequest.then((text) => { if (text !== saved.initText) S.init = JSON.parse(text); }).catch(() => {});
+        libraryRequest.then(async (text) => { if (text !== saved.libraryText) { await loadLibrary(Promise.resolve(JSON.parse(text))); await rerender(); } }).catch(() => {});
+    }
 })();

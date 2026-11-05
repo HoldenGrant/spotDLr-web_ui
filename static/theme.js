@@ -103,13 +103,25 @@ const Theme = (() => {
         ramp.forEach((color, i) => root.style.setProperty(`--heat-${i + 1}`, color));
         root.style.setProperty('--chart-mark', light ? accent : ramp[2]);
         root.style.setProperty('--chart-accent', accent);
-        document.querySelector('meta[name="theme-color"]')?.setAttribute('content', light ? '#f2f3f5' : '#121212');
-        document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.setAttribute('content', light ? 'default' : 'black');
+        paintStatusBar(light);
+        // The status bar stays iOS's own ('default'): it takes the page's theme colour as its background and picks a black
+        // or white clock to suit it. So the colour must be the top bar's real one, not a fixed grey
         window.webkit?.messageHandlers?.theme?.postMessage({
             mode: light ? 'light' : 'dark', glass: surface === 'glass' || surface === 'liquid', surface, accent, alpha: readableGlassAlpha,
         });
         document.dispatchEvent(new Event('themechange'));
         return theme;
+    }
+
+    // The colour behind the status bar on a phone: the top bar's own background (or the first solid thing under it)
+    function paintStatusBar(light) {
+        const fallback = light ? '#f2f3f5' : '#121212';
+        let color = fallback;
+        for (const el of [document.querySelector('.topbar'), document.querySelector('.app'), document.body, document.documentElement]) {
+            const m = el && typeof getComputedStyle === 'function' && getComputedStyle(el).backgroundColor?.match(/[\d.]+/g);
+            if (m && (m.length < 4 || Number(m[3]) >= 0.95)) { color = '#' + m.slice(0, 3).map((v) => Number(v).toString(16).padStart(2, '0')).join(''); break; }
+        }
+        document.querySelector('meta[name="theme-color"]')?.setAttribute('content', color);
     }
 
     function update() {
@@ -138,6 +150,7 @@ const Theme = (() => {
     }).catch(() => {});
     system.addEventListener('change', () => { if (mode === 'system') update(); });
     document.addEventListener('visibilitychange', () => { if (!document.hidden) update(); });
+    document.addEventListener('DOMContentLoaded', update); // the top bar exists by now: its colour goes to the status bar
     window.addEventListener('focus', update);
 
     return {

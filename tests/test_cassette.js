@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '../static/app.js'), 'utf8');
+const css = fs.readFileSync(path.join(__dirname, '../static/app.css'), 'utf8');
 const pick = (re, what) => { const m = source.match(re); assert.ok(m, `app.js must still define ${what}`); return m[0]; };
 const vu = vm.runInNewContext(`${pick(/const VU_MARKS = [^\n]*/, 'VU_MARKS')}\n${pick(/const VU_REST = [^\n]*/, 'VU_REST')}\n${pick(/function vuAngle\(vu\) \{[\s\S]*?\n\}/, 'vuAngle')}; ({ vuAngle, VU_MARKS, VU_REST, VU_PIN })`);
 
@@ -29,4 +30,7 @@ for (const [kind, d] of Object.entries(decks)) {
     const [[x0], [x1]] = d.reels;
     assert.ok(d.full + d.hub < x1 - x0, `${kind}: a full reel never overlaps the empty one`);
 }
+
+// Surface themes must not restyle the range control painted into the portable cassette.
+assert.doesNotMatch(css, /\.check input, input\[type="range"\]/, 'theme range styling stays scoped to Settings');
 console.log('Cassette checks passed (VU scale and reel geometry).');
