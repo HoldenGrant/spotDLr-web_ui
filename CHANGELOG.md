@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [2.6.1] - 2026-11-09
+
 ### Added
 - **A loading screen.** While spotDLr is starting (the phone waiting on your computer) it shows the logo with a small equalizer, in the light or dark theme you use, and fades out when your library appears. It only shows if the start takes longer than a moment, and after 3.5 seconds it says "Still connecting to your computer…".
 - **The next song is ready before this one ends.** Ten seconds before a song ends, spotDLr starts loading the next one, so it begins the moment the current one finishes. On a slow phone connection that removes about a third of a second of silence between songs. It also makes skipping in those last ten seconds instant. With crossfade on, the fade already covers the change, so nothing changes there. Not on iPhone or iPad: there it kept the next song from starting while the screen was locked, so they play songs as before.
