@@ -199,3 +199,8 @@ Tested against the real library with 900 synthetic plays in a throwaway data fol
 ## Loading screen
 
 `#splash` in `index.html` (inline styles, so it paints before any file arrives; fades in after 150 ms so a fast start never flashes it). `boot()` calls `window.hideSplash?.()` after the first `render()`; after 3.5 s it adds `.slow` ("Still connecting to your computer…"); a 20 s failsafe removes it so the app is never trapped behind it. Colours follow `html[data-mode]`. The Google Fonts stylesheet is `media="print"` with an `onload` swap so it cannot block the first paint. `tests/test_splash.py`. iOS shows its own launch colour (the manifest's `background_color`, dark) before the page loads; the splash cannot cover that moment.
+
+
+## Crossfade players
+
+Three `<audio>` elements: `P.audio` (the main player: seek bar, media keys, visualizer), `XF.el` (the fading one) and `XF.preEl` (the spare, which holds the next song ahead of a crossfade). `maybeCrossfade` loads the next song on `XF.preEl` from `PB.crossfade + 12` s before the end and starts the fade at `PB.crossfade` s; `startFade` marks `XF.direct` when that song is held, and `loadAndPlay` → `takePreloaded` then rotates the roles (`[P.audio, XF.el, XF.preEl] = [XF.preEl, outgoing, XF.el]`) and calls `wirePlayers()` so the Web Audio paths follow. Without a held song (queue changed, load error) the older path runs: the tail is moved to `XF.el` and the next song loads on `P.audio`. `endFade()` empties the spare and the fading player. Crossfade needs working volume control, so it is off on iPhone/iPad. `tests/test_crossfade_handover.js`.

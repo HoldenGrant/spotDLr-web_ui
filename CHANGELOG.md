@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [2.6.2] - 2026-11-09
+
+### Fixed
+- **Crossfade no longer pauses before the next song.** The next song is now loaded quietly about 12 seconds before the fade, and when the fade starts the song that is ending simply carries on where it is while the next one starts beside it. Before, the ending song's tail was handed to a second player that had to jump to that spot in the file, and a slow connection (or a song that took longer to start than the crossfade is long) left up to a second of silence in the middle of the fade, plus a tiny hiccup at the handover. Measured with test songs: silence of about 1.1 s on a slow connection and 20-40 ms on a fast one, now 0 ms in both, with the visualizer on or off. The fade also ends exactly when the outgoing song does.
+
 ## [2.6.1] - 2026-11-09
 
 ### Added

@@ -2,6 +2,12 @@
 
 Started Oct 15, 2026 from a full code read. Each entry says how it was checked. Related: [[Backend]] · [[Frontend]] · [[How It Works]]
 
+## Fixed Nov 9, 2026
+
+### Crossfade paused in the middle of the fade when the next song was slow to start
+
+Measured by playing 24 s test tones through the real crossfade and sampling, every 20 ms, whether each player was advancing and at what volume (`Crossfade` at 4 s): with song requests answered after 5 s the middle of the fade was silent for 1.1-1.2 s; on a fast connection there was a 20-40 ms gap at the handover every time. Cause: the outgoing song's tail was moved to the spare player (`XF.el.currentTime = ...`, a fresh Range request), and the incoming song loaded only when the fade began, so either one arriving later than the tail lasts left silence. Fix: a third player (`XF.preEl`) loads the next song from `secs + 12` s before the end (`maybeCrossfade`); at the fade the players trade jobs (`takePreloaded`): the loaded one becomes `P.audio`, the old main player keeps playing the outgoing song and becomes `XF.el`, the old tail player becomes the spare. No seek, no waiting. The old tail-player path remains as the fallback (queue changed, the preload errored). After: 0 ms of silence in 12 of 12 trials (0 s, 5 s delays; visualizer graph on and off). Also checked: manual skip before and during the fade, pause and resume mid-fade, crossfade switched off while a song is held, the spare and tail players empty after a fade. `tests/test_crossfade_handover.js` covers the role trade and the fallbacks. Not tested on a real WebKit (Mac app) player: the Mac build needs a release to carry this.
+
 ## Fixed Nov 3, 2026
 
 ### Long lists built every row at once; library re-sent unchanged

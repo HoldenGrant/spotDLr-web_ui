@@ -11,6 +11,9 @@ Jump to: [[#2026]] · [[#2025]]
 
 ## 2026
 
+### Nov 9, 2026 (later)
+- **Crossfade pause fixed** (uncommitted): third player preloads the next song, players trade jobs at the fade; silence 1.1 s → 0 ms on a slow connection. See [[Bug Log]].
+
 ### Nov 9, 2026
 - **Check for updates installs the update** (uncommitted): `updater.py`, `/api/update/*`, an **Install update** button and confirm dialog in Settings → About. Checksum-verified download from the project's GitHub releases, then a Mac swap script or a silent Windows installer run. Tested: 14 tests incl. the real Mac swap on a pretend app, and the whole flow in a browser against a pretend release. Not run on a real Windows PC, and not yet on a real release. See [[Backend]].
 

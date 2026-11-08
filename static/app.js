@@ -364,12 +364,13 @@ P.fadeIn = 1;      // crossfade: the incoming song's share
 P.sleepGain = 1;   // sleep timer: fades out over its last 10 s
 P.wakeGain = 1;    // a scheduled play's fade-in
 P.balance = store.get('balance', 0); // -1 left only … 0 both … 1 right only: Settings → Sound and the Hi-Fi Deck's knob (needs Web Audio, see applySound)
-const XF = { el: new Audio(), active: false, prepared: null, ready: null, out: 1, outGain: 1, timer: null, switching: false };
+const XF = { el: new Audio(), preEl: new Audio(), preId: null, direct: false, active: false, prepared: null, ready: null, out: 1, outGain: 1, timer: null, switching: false };
 XF.el.preload = 'auto';
+XF.preEl.preload = 'auto'; // crossfade only: holds the next song, loaded ahead of the fade (see takePreloaded)
 // The two <audio> elements can swap roles: the spare loads the next song ahead (readyNext) and becomes P.audio when
 // that song starts. So the player's listeners go on both and only act for whichever is P.audio at the time.
 function onPlayer(type, fn) {
-    for (const el of [P.audio, XF.el]) el.addEventListener(type, (e) => { if (e.currentTarget === P.audio) fn(e); });
+    for (const el of [P.audio, XF.el, XF.preEl]) el.addEventListener(type, (e) => { if (e.currentTarget === P.audio) fn(e); });
 }
 
 // Holden's idea: 10 s before a song ends, the spare player loads the next one, so it starts the moment this one
@@ -398,6 +399,28 @@ function wirePlayers() {
     for (const source of V.sources.values()) source.disconnect();
     V.sources.get(P.audio).connect(V.analyser);
     V.sources.get(XF.el).connect(xfVolume);
+}
+// Crossfade: the next song is loaded on a third player while the current one is still ahead of its fade. When the fade
+// starts the players trade jobs: the loaded one becomes the main player (seek bar, media keys and the rest follow it),
+// the old main player simply carries on with the outgoing song where it is, now as the fading one, and the player that
+// was fading before becomes the spare. Nobody has to jump to a new spot in a file, which on a slow connection is a
+// fresh request that can arrive after the song has ended: that was the pause in the middle of a crossfade.
+function dropPreloaded() {
+    XF.preId = null;
+    if (XF.preEl.getAttribute('src')) { XF.preEl.pause(); XF.preEl.removeAttribute('src'); XF.preEl.load(); }
+}
+function takePreloaded(id) {
+    const held = XF.preId;
+    XF.preId = null;
+    if (!XF.direct || !held || held !== id || XF.preEl.error) { dropPreloaded(); return false; }
+    const outgoing = P.audio;
+    [P.audio, XF.el, XF.preEl] = [XF.preEl, outgoing, XF.el];
+    P.audio.muted = outgoing.muted;
+    XF.preEl.pause(); // the old fading player holds nothing now
+    XF.preEl.removeAttribute('src');
+    XF.preEl.load();
+    wirePlayers();
+    return true;
 }
 function unswapPlayers(t) {
     [P.audio, XF.el] = [XF.el, P.audio];
@@ -442,7 +465,7 @@ function applyVolume() {
         P.audio.volume = level;
         XF.el.volume = xfLevel;
     }
-    XF.el.muted = P.audio.muted;
+    XF.el.muted = XF.preEl.muted = P.audio.muted;
 }
 applyVolume();
 
@@ -585,11 +608,12 @@ function loadAndPlay() {
     const t = currentTrack();
     if (!t) return;
     const ready = takeReadyPlayer(t.id); // before endFade, which would empty the spare
+    const preloaded = !ready && XF.switching && takePreloaded(t.id); // a crossfade into a song that was loaded ahead
     resetPlaybackRecovery(t.id);
     if (!XF.switching) endFade(); // you skipped: drop any crossfade in progress
     setTrackGain(t.id);
     startListen(t.id);
-    if (!ready) P.audio.src = `/api/stream/${encodeURIComponent(t.id)}`;
+    if (!ready && !preloaded) P.audio.src = `/api/stream/${encodeURIComponent(t.id)}`;
     const play = () => P.audio.play().then(() => true);
     const started = play().catch((err) => {
         // A browser that won't start the swapped-in player (in the background, say): back to the one that was playing
@@ -926,12 +950,18 @@ function markPlaying() {
 // everything else (seek bar, visualizer, media keys) keeps working with P.audio as the one player.
 // Timers, not requestAnimationFrame: rAF stops while the window is hidden, which would freeze the fade.
 
+const CROSSFADE_PRELOAD = 12; // seconds before the fade starts
 function maybeCrossfade() {
     const secs = VOLUME_WORKS ? PB.crossfade : 0; // without volume control both songs would play at full volume
     if (!secs || XF.active || P.seeking || P.audio.paused || P.repeat === 'one' || SL.endOfSong) return;
     const d = P.audio.duration, left = d - P.audio.currentTime;
     if (!d || d < secs * 2 + 5 || !neighbour(1)) return;
-    if (left <= secs + 4 && XF.prepared !== P.audio.src) { // load the tail on the spare player ahead of time
+    if (left <= secs + CROSSFADE_PRELOAD) { // the next song loads quietly on the third player, so the fade never waits for it
+        const upcoming = neighbour(1);
+        if (upcoming && XF.preId !== upcoming.id) { XF.preId = upcoming.id; XF.preEl.src = `/api/stream/${encodeURIComponent(upcoming.id)}`; }
+    }
+    const handOver = neighbour(1) && XF.preId === neighbour(1).id; // the next song is loaded: the outgoing one just carries on
+    if (!handOver && left <= secs + 4 && XF.prepared !== P.audio.src) { // otherwise load the tail on the spare player ahead of time
         XF.prepared = P.audio.src;
         XF.ready = null; // crossfade switched on after the next song was readied: the spare is the tail's now
         XF.el.src = P.audio.src;
@@ -942,11 +972,12 @@ function maybeCrossfade() {
 
 function startFade(secs) {
     XF.active = true;
-    XF.el.currentTime = P.audio.currentTime + 0.02;
+    XF.direct = !!neighbour(1) && XF.preId === neighbour(1).id && !XF.preEl.error; // see takePreloaded
+    if (!XF.direct) XF.el.currentTime = P.audio.currentTime + 0.02;
     XF.outGain = P.trackGain;
     XF.out = 1;
     applyVolume();
-    XF.el.play().then(() => {
+    (XF.direct ? Promise.resolve() : XF.el.play()).then(() => {
         if (!XF.active) return;
         flushListen(); // the outgoing song's listening counts now
         P.fadeIn = 0;
@@ -958,7 +989,8 @@ function startFade(secs) {
             if (!XF.active) return;
             if (started === false) { endFade(); return; }
             const elapsed = (performance.now() - loadStarted) / 1000;
-            const fadeSecs = Math.max(0.25, secs - elapsed);
+            const tail = XF.direct ? XF.el.duration - XF.el.currentTime : Infinity; // the outgoing song's own end
+            const fadeSecs = Math.max(0.25, Math.min(secs - elapsed, tail));
             const t0 = performance.now();
             clearInterval(XF.timer);
             XF.timer = setInterval(() => {
@@ -980,6 +1012,8 @@ function endFade() {
         XF.el.removeAttribute('src');
         XF.el.load();
     }
+    dropPreloaded();
+    XF.direct = false;
     XF.active = false;
     XF.prepared = null;
     XF.out = 1;
@@ -1933,7 +1967,7 @@ function ensureAudioGraph() {
         merge.connect(graphVolume);
         // The crossfade's second player joins here, so the song fading out gets the effects too
         xfVolume = V.ctx.createGain();
-        V.sources = new Map([[P.audio, source], [XF.el, V.ctx.createMediaElementSource(XF.el)]]);
+        V.sources = new Map([[P.audio, source], [XF.el, V.ctx.createMediaElementSource(XF.el)], [XF.preEl, V.ctx.createMediaElementSource(XF.preEl)]]);
         V.sources.get(XF.el).connect(xfVolume);
         const bus = twoChannels(V.ctx);
         graphVolume.connect(bus);
@@ -1943,7 +1977,7 @@ function ensureAudioGraph() {
         applySound();
         V.freq = new Uint8Array(V.analyser.frequencyBinCount);
         V.wave = new Uint8Array(V.analyser.fftSize);
-        for (const el of [P.audio, XF.el]) el.addEventListener('play', () => V.ctx.state === 'suspended' && V.ctx.resume());
+        for (const el of [P.audio, XF.el, XF.preEl]) el.addEventListener('play', () => V.ctx.state === 'suspended' && V.ctx.resume());
         return true;
     } catch { return false; }
 }
