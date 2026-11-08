@@ -3552,23 +3552,13 @@ function openSettings(focus = 'appearance') {
         button.disabled = true;
         status.textContent = 'Checking…';
         try {
-            const response = await fetch('https://api.github.com/repos/HoldenGrant/spotDLr-web_ui/releases/latest', {
-                headers: { Accept: 'application/vnd.github+json' }, cache: 'no-store',
-            });
-            if (!response.ok) throw new Error(`GitHub returned ${response.status}`);
-            const release = await response.json();
-            const numbers = (value) => String(value || '').replace(/^v/i, '').split('.').map((part) => parseInt(part, 10) || 0);
-            const compare = (left, right) => {
-                const a = numbers(left), b = numbers(right);
-                for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
-                    if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) - (b[i] || 0);
-                }
-                return 0;
-            };
-            if (compare(release.tag_name, S.init.version) > 0) {
-                status.innerHTML = html`<a class="link" href="${release.html_url}" target="_blank" rel="noopener">Version ${String(release.tag_name).replace(/^v/i, '')} is available. Download update</a>`.s;
+            const info = await api('/update/check'); // the computer asks GitHub (updater.py)
+            if (!info.available) { status.textContent = `You have the latest release (${info.current}).`; return; }
+            if (info.can_install && !S.init.on_phone) {
+                status.innerHTML = html`Version ${info.latest} is available. <button type="button" class="pill-btn primary" id="installUpdate">Install update</button>`.s;
+                $('#installUpdate', backdrop).addEventListener('click', () => updateDialog(info));
             } else {
-                status.textContent = `You have the latest release (${S.init.version}).`;
+                status.innerHTML = html`<a class="link" href="${info.url}" target="_blank" rel="noopener">Version ${info.latest} is available. Download update</a>${info.reason && !S.init.on_phone ? html`<br>${info.reason}` : ''}`.s;
             }
         } catch (_) {
             status.textContent = 'Could not check right now. Try again when connected to the internet.';
@@ -5853,6 +5843,50 @@ function removeTrackFromQueue(id) {
     P.pos = Math.min(before, Math.max(0, P.order.length - 1));
     P.upNext = P.upNext.filter((trackId) => trackId !== id);
     if (P.queued === id) P.queued = null;
+}
+
+// Install the update the check found: the computer downloads it, checks it, closes, installs and opens again (updater.py)
+function updateDialog(info) {
+    const mb = info.size ? ` (about ${Math.round(info.size / 1048576)} MB)` : '';
+    openModal({
+        title: `Update to ${info.latest}?`,
+        body: html`<p class="dialog-note">spotDLr will download the update${mb}, close, install it and open again. Your music, playlists, likes and settings are not touched. Anything still downloading will stop.</p>
+            <p class="dialog-note" id="updateProgress" role="status" hidden></p>
+            <progress id="updateBar" max="100" value="0" hidden></progress>
+            <p class="form-error" id="updateError" role="alert" hidden></p>
+            <div class="modal-actions"><button type="button" class="pill-btn" data-close autofocus id="updateCancel">Cancel</button><button type="button" class="pill-btn primary" id="updateGo">Install and restart</button></div>`,
+        onOpen: (modal) => {
+            const go = $('#updateGo', modal), cancel = $('#updateCancel', modal), note = $('#updateProgress', modal), bar = $('#updateBar', modal), error = $('#updateError', modal);
+            const show = (text, percent = null) => { note.hidden = false; note.textContent = text; bar.hidden = percent === null; if (percent !== null) bar.value = percent; };
+            go.addEventListener('click', async () => {
+                go.disabled = cancel.disabled = true;
+                error.hidden = true;
+                show('Starting…', 0);
+                try {
+                    await api('/update/install', { method: 'POST' });
+                    let goneSince = null;
+                    for (;;) {
+                        await new Promise((resolve) => setTimeout(resolve, 700));
+                        let state = null;
+                        try { state = await api('/update/status'); } catch { if (!goneSince) goneSince = Date.now(); }
+                        if (state && goneSince) { location.reload(); return; } // the new spotDLr answered
+                        if (!state) { show(Date.now() - goneSince > 90000 ? "spotDLr should open on its own. If it doesn't, open it from your Applications folder or Start menu." : 'Restarting spotDLr…'); continue; }
+                        if (state.phase === 'error') throw new Error(state.error);
+                        if (state.phase === 'downloading') show(`Downloading… ${state.percent}%`, state.percent);
+                        else if (state.phase === 'installing') show('Installing…', 100);
+                        else if (state.phase === 'restarting') show('Restarting spotDLr…');
+                    }
+                } catch (err) {
+                    note.hidden = true;
+                    bar.hidden = true;
+                    error.textContent = err.message;
+                    error.hidden = false;
+                    go.disabled = cancel.disabled = false;
+                    go.textContent = 'Try again';
+                }
+            });
+        },
+    });
 }
 
 function deleteTrackDialog(t) {

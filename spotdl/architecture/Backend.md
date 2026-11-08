@@ -136,3 +136,16 @@ FFmpeg `ebur128=peak=sample` → integrated LUFS and sample peak from the Summar
 | Change spotDL flags | `Downloader._command()` |
 | Change the stall/overall timeouts | constants at the top of `downloader.py` |
 | Spotify results for another country | `SPOTIFY_MARKET=PH` in `.env` |
+
+
+## In-app updates (`updater.py`)
+
+Settings → About → **Check for updates** → `GET /api/update/check` (the computer asks GitHub for the latest release) → **Install update** → confirm dialog → `POST /api/update/install` (computer-only, in `LOCAL_ONLY_PATHS`) → the page polls `GET /api/update/status` (`phase`: starting, downloading, installing, restarting, error; `percent`).
+
+- The page never sends a file or an address: the server fetches the latest release itself and picks its own platform's asset (`spotDLr-Setup.exe`, or `*-mac-arm64.dmg` on Apple Silicon).
+- The download must start with `https://github.com/HoldenGrant/spotDLr-web_ui/releases/download/` and match the SHA-256 GitHub puts in the release API (`digest`); no digest, no install. It is kept in `<data>/updates/` and cleared at the next update.
+- **Mac:** mounts the DMG, `ditto`s the app to `.spotDLr-update.app` next to the installed one, `codesign --verify`, checks `CFBundleShortVersionString` equals the release, then starts a detached `swap.sh` that closes the window process (the helper's parent, checked to be this app's own executable), swaps with `mv`, puts the old copy back if the swap fails, and `open`s the new app. Refuses from a translocated or `/Volumes` path, or a folder it can't write to.
+- **Windows:** a detached PowerShell runs `spotDLr-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS` (per-user install, same AppId), then starts `spotDLr.exe`.
+- This server then exits (`os._exit`); the page notices the server is gone, waits for the new one and reloads.
+- Not signed: the Mac app is ad hoc signed and the Windows installer is unsigned, so the checksum guards against a damaged or swapped download, not against a compromised release. After an update macOS may ask again for Local Network / Automation permission (the ad hoc signature changes with each build).
+- Tests: `tests/test_updater.py` (real download + checksum against a local server; on a Mac the real swap with hdiutil/ditto/codesign on a pretend app). The Windows command is only checked as text; it has not been run on Windows.

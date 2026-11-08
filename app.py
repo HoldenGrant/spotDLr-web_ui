@@ -43,6 +43,7 @@ import stats  # noqa: E402
 from library import MEDIA_TYPES, Library  # noqa: E402
 from lyrics import Lyrics, LyricsError  # noqa: E402
 import organize  # noqa: E402
+import updater  # noqa: E402
 import cleanup  # noqa: E402
 import loudness  # noqa: E402
 import phone  # noqa: E402
@@ -87,7 +88,7 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 EXTRA_HOSTS = {h.strip() for h in os.getenv("SPOTDLR_HOSTS", "").split(",") if h.strip()}
 ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]"} | EXTRA_HOSTS
 phones = phone.PhoneAccess(DATA_DIR / "phone.json", app)
-LOCAL_ONLY_PATHS = ("/api/phone", "/api/credentials", "/api/reveal", "/api/remote/source")  # computer-only actions
+LOCAL_ONLY_PATHS = ("/api/phone", "/api/credentials", "/api/reveal", "/api/remote/source", "/api/update/install")  # computer-only actions
 # What a phone's browser fetches without cookies (home-screen icon, manifest, service worker): nothing private
 PUBLIC_PATHS = {"/static/manifest.webmanifest", "/sw.js", "/static/icons/icon-192.png", "/static/icons/icon-512.png",
                 "/static/icons/apple-touch-icon.png", "/static/icons/icon.svg"}
@@ -424,6 +425,27 @@ def set_credentials(request: CredentialsRequest):
 
 
 # ---------- library ----------
+
+# ---------- updates (Settings → About; see updater.py) ----------
+
+@app.get("/api/update/check")
+def update_check():
+    try:
+        return updater.describe(updater.fetch_latest())
+    except Exception as error:  # noqa: BLE001 - offline, GitHub down, rate limited
+        raise HTTPException(502, f"Could not reach GitHub: {error}")
+
+
+@app.post("/api/update/install")
+def update_install():
+    """Install the latest release: the page never names a file or an address, the server decides (see updater.py)."""
+    return updater.start()
+
+
+@app.get("/api/update/status")
+def update_status():
+    return updater.status()
+
 
 @app.get("/api/library")
 def get_library(request: Request):

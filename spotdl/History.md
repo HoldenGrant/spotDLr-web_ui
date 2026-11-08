@@ -11,6 +11,9 @@ Jump to: [[#2026]] · [[#2025]]
 
 ## 2026
 
+### Nov 9, 2026
+- **Check for updates installs the update** (uncommitted): `updater.py`, `/api/update/*`, an **Install update** button and confirm dialog in Settings → About. Checksum-verified download from the project's GitHub releases, then a Mac swap script or a silent Windows installer run. Tested: 14 tests incl. the real Mac swap on a pretend app, and the whole flow in a browser against a pretend release. Not run on a real Windows PC, and not yet on a real release. See [[Backend]].
+
 ### Nov 3, 2026
 - **Phone cache fix** (uncommitted): the iPhone ran stale app files because `sw.js` caches `/static` by URL and the `?v=` tag was a hand-bumped constant; now computed from the files. Explains "nothing change". See [[Bug Log]].
 - **Phone download button and bottom strip** (uncommitted): "Downloading…" no longer spills out of the round button; the home-bar strip is 12 px instead of 34. The status band is now the top bar's own surface (dark themes exactly; light themes a darker tint so the white clock reads), the phone bars run edge to edge, flat. See [[Frontend]].

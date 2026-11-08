@@ -2763,3 +2763,6 @@ button.nv-upnext:hover { background: rgba(var(--fg-rgb), .08); color: var(--text
 
 /* Marks where the rest of a long list gets drawn as you scroll (see rowsChunk); in the grid it must not take a tile's place */
 .more-rows { grid-column: 1 / -1; height: 1px; }
+
+/* The update dialog's download bar */
+.modal progress { width: 100%; height: 8px; margin: 4px 0 12px; accent-color: var(--accent, #1ed760); }
