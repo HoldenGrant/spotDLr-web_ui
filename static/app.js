@@ -5466,15 +5466,21 @@ function bindEvents() {
         if (e.target.id === 'pageLibraryFilterInput') { S.libQuery = e.target.value; $('#libraryFilterInput').value = S.libQuery; renderSidebar(); return; }
         if (e.target.id !== 'songsSearch') return;
         S.songsView.q = e.target.value;
+        if (e.isComposing) return; // an input method (Japanese, Chinese, Korean) is still building the word: redrawing now would cancel it
         clearTimeout(S.songsTimer);
         S.songsTimer = setTimeout(refreshSongs, 120); // 855 rows: redraw after a short pause, not on every key
+    });
+    document.addEventListener('compositionend', (e) => { // the word is chosen: now filter by it
+        if (e.target.id !== 'songsSearch') return;
+        S.songsView.q = e.target.value;
+        clearTimeout(S.songsTimer);
+        S.songsTimer = setTimeout(refreshSongs, 120);
     });
 
     // Search box → #/search/<q>, debounced; replaceState so typing doesn't flood history
     const input = $('#searchInput');
     let searchTimer = null;
-    input.addEventListener('input', () => {
-        $('#searchBox').classList.toggle('has-value', !!input.value);
+    const queueSearch = () => {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(() => {
             const q = input.value.trim();
@@ -5483,7 +5489,13 @@ function bindEvents() {
             else history.pushState(null, '', target);
             render();
         }, 350);
+    };
+    input.addEventListener('input', (e) => {
+        $('#searchBox').classList.toggle('has-value', !!input.value);
+        if (e.isComposing) return; // an input method is still building the word: search for the finished word, not the letters on the way
+        queueSearch();
     });
+    input.addEventListener('compositionend', queueSearch);
     input.addEventListener('focus', () => { if (route().name !== 'search' && !input.value) { history.pushState(null, '', '#/search'); render(); } });
     input.addEventListener('keydown', (e) => { if (e.key === 'Escape') input.blur(); });
     $('#searchClear').addEventListener('click', (e) => { e.preventDefault(); input.value = ''; input.focus(); history.replaceState(null, '', '#/search'); render(); });

@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [2.6.3] - 2026-11-09
+
+### Fixed
+- **Japanese, Chinese and Korean songs can be found and downloaded.** Two problems. (1) When a song came from Spotify, spotDLr looks for its copy on YouTube Music by comparing the title and artist, and a song Spotify writes in English ("Idol", "Jay Chou") but YouTube Music writes in its own script ("アイドル", "周杰倫") scored as a different song, so the download said it had no match. Titles and artists written in different scripts are no longer compared letter by letter; the song's length and its place in YouTube Music's results decide instead, and compilation "Various Artists" uploads are distrusted. Titles written "native - romanized" (YouTube Music's usual form for Japanese releases, such as "シンプル・ラブ - Simple Love") are compared half by half, and when only the artist can be compared the song must also be near the top of the results and within 1.5 seconds in length, so another song by the same artist is not taken for it (an earlier version of this change downloaded "Mister Smile" for "シンプル・ラブ"). On a 56-song City Pop playlist, 44 songs matched before and 53 now; the other three are not on YouTube Music as songs. In 11 real songs that was 4 matched and 7 not before, 11 and 0 now, and sped-up or remixed versions are still kept out. (2) Typing Japanese, Chinese or Korean into the filter box in Your Library → All songs broke the word half way (the box was rebuilt, lost focus and kept the unconverted letters, so nothing was found), and the top search box searched for the letters on the way to the word. Both now wait until you have chosen the characters.
+
 ## [2.6.2] - 2026-11-09
 
 ### Fixed

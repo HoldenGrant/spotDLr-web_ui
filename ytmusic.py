@@ -11,6 +11,7 @@ exactly what Spotify's 2026 rules block.
 
 import base64
 import re
+import unicodedata
 import shutil
 import sys
 import tempfile
@@ -335,29 +336,104 @@ def _norm(text):
     return re.sub(r"[^\w]+", "", text)
 
 
+def _scripts(text):
+    """The writing systems used in a text: Latin, CJK (Chinese characters and Japanese kana), Hangul, Cyrillic and so on."""
+    found = set()
+    for ch in text or "":
+        if ch.isalpha():
+            name = unicodedata.name(ch, "")
+            found.add("CJK" if name.startswith(("CJK", "HIRAGANA", "KATAKANA")) else name.split(" ")[0] or "OTHER")
+    return found
+
+
+def _comparable(a, b):
+    """Whether two texts are written in the same system, so that comparing their letters means anything.
+    "Idol" and "アイドル" are the same song title, but nothing in their letters says so."""
+    left, right = _scripts(a), _scripts(b)
+    return not left or not right or bool(left & right)  # no letters at all (digits, symbols): nothing to rule out
+
+
+def _similar(wanted, found, contained=False):
+    """0..1 how alike two names are, or None when they are written in different systems (no information).
+    `contained`: a name inside the other counts as a near match ("Good Day" in "Good day (좋은 날)")."""
+    from difflib import SequenceMatcher
+
+    # YouTube Music writes many Japanese releases as "シンプル・ラブ - Simple Love": the wanted title may be either half
+    parts = [found] + ([x for x in str(found).split(" - ") if x.strip()] if " - " in str(found) else [])
+    best = None
+    for part in parts:
+        if not _comparable(wanted, part):
+            continue
+        w, f = _norm(wanted), _norm(part)
+        if not w or not f:
+            continue
+        ratio = SequenceMatcher(None, w, f).ratio()
+        if contained and len(w) >= 2 and (w in f or f in w):
+            ratio = max(ratio, 0.9)
+        best = ratio if best is None else max(best, ratio)
+    return best
+
+
+GENERIC_ARTISTS = {"variousartists", "various", "unknownartist", "unknown"}
+
+
+def score_candidate(name, artists, duration_ms, result, rank):
+    """(score 0..1, acceptable) for one YouTube Music result against a song's Spotify details.
+
+    Title, main artist, length and search rank each vote; a vote that cannot be cast is left out, so a title or
+    artist Spotify writes in English and YouTube Music in Japanese, Chinese or Korean does not count as a mismatch.
+    Without those two votes the song must still match in length to the second."""
+    main_artist = artists[0] if artists else ""
+    seconds = result.get("duration_seconds")
+    off = abs(seconds - duration_ms / 1000) if duration_ms and seconds else None
+    same_length = off is not None and off <= 5  # only then may "Spring Day" count as "Spring Day (Sped Up)": it is no remix if the length agrees
+    title = _similar(name, result.get("title"), contained=same_length)
+    found = [a.get("name") for a in result.get("artists") or [] if a.get("name")]
+    artist_scores = [_similar(main_artist, f) for f in found]
+    known = [x for x in artist_scores if x is not None]
+    artist = 1.0 if any(_norm(main_artist) == _norm(f) for f in found if _norm(f)) else (max(known) if known else None)
+    # "Various Artists" is the label of compilations, karaoke and cover uploads, never the artist of the song being asked for
+    if found and all(_norm(f) in GENERIC_ARTISTS for f in found) and _norm(main_artist) not in GENERIC_ARTISTS:
+        artist = 0.0
+    length = None if off is None else 1.0 if off <= 2 else 0.6 if off <= 5 else 0.3 if off <= 10 else 0.0
+    rank_vote = (1.0, 0.6, 0.3)[rank] if rank < 3 else 0.0
+    votes = [(0.45, title), (0.30, artist), (0.15, length), (0.10, rank_vote)]
+    weight = sum(w for w, v in votes if v is not None)
+    score = sum(w * v for w, v in votes if v is not None) / weight
+    if off is not None and off > 10:
+        score -= 0.14  # a remix, live or sped-up version: an exact title and artist still passes (as before), anything less does not
+    close = off is not None and off <= 1.5  # the same recording is within a second or two on both services
+    if title is None and artist is None:
+        ok = close and rank <= 1
+    elif title is None:
+        # only the artist can be compared: that is every song of theirs, so the length and the search's own ranking must agree
+        ok = artist >= 0.85 and close and rank <= 2
+    elif artist is None:
+        ok = title >= (0.85 if off is not None and off <= 5 else 0.95)
+    else:
+        ok = True
+    return score, ok and score >= 0.7
+
+
 def match_song(name, artists, duration_ms=0):
     """Best YouTube Music song for a Spotify track, or None.
 
-    Score = title similarity (55%) + main-artist match (45%), minus 0.3 if the length is more
-    than 10 s off: that is what keeps remixes, live and sped-up versions out.
+    Compares title, main artist and length (see score_candidate). Spotify and YouTube Music often write a Japanese,
+    Chinese or Korean song in different scripts (Spotify "Lemon" by 米津玄師, YouTube Music "Lemon" by Kenshi Yonezu),
+    so what can't be compared by letters is judged by length and by where the search ranked it. A second search by
+    the title alone runs when the first finds nothing.
     """
-    from difflib import SequenceMatcher
-
     main_artist = artists[0] if artists else ""
-    results = _call(_client().search, f"{main_artist} {name}", filter="songs", limit=5) or []
-    best, best_score = None, 0.0
-    for r in results:
-        if not r.get("videoId"):
-            continue
-        title_score = SequenceMatcher(None, _norm(name), _norm(r.get("title"))).ratio()
-        found = [_norm(a.get("name")) for a in r.get("artists") or [] if a.get("name")]
-        artist_score = 1.0 if _norm(main_artist) in found else max((SequenceMatcher(None, _norm(main_artist), f).ratio() for f in found), default=0)
-        seconds = r.get("duration_seconds")
-        length_ok = not duration_ms or not seconds or abs(seconds - duration_ms / 1000) <= 10
-        score = 0.55 * title_score + 0.45 * artist_score - (0 if length_ok else 0.3)
-        if score > best_score:
-            best, best_score = r, score
-    return best if best_score >= 0.7 else None
+    for query, limit in ((f"{main_artist} {name}", 8), (name, 8)):
+        results = _call(_client().search, query.strip(), filter="songs", limit=limit) or []
+        best, best_score = None, 0.0
+        for rank, r in enumerate(x for x in results if x.get("videoId")):
+            score, ok = score_candidate(name, artists, duration_ms, r, rank)
+            if ok and score > best_score:
+                best, best_score = r, score
+        if best:
+            return best
+    return None
 
 
 def spotify_items(kind, spotify_id):

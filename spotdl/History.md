@@ -11,6 +11,9 @@ Jump to: [[#2026]] · [[#2025]]
 
 ## 2026
 
+### Nov 9, 2026 (CJK)
+- **Japanese/Chinese/Korean songs** (v2.6.3): Spotify→YouTube Music matching no longer compares letters across scripts (7 of 11 real songs failed, now 0), and the All songs filter and top search box wait for the input method to finish a word. See [[Bug Log]].
+
 ### Nov 9, 2026 (later)
 - **Crossfade pause fixed** (uncommitted): third player preloads the next song, players trade jobs at the fade; silence 1.1 s → 0 ms on a slow connection. See [[Bug Log]].
 
